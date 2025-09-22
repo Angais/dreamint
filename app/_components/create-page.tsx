@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import NextImage from "next/image";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import localforage, { type LocalForage } from "localforage";
@@ -978,7 +978,7 @@ export function CreatePage() {
         aria-hidden="true"
         className="pointer-events-none fixed left-6 top-6 z-50 hidden flex-col items-center gap-1 select-none 2xl:flex"
       >
-        <Image
+        <NextImage
           src="/Dreaming.png"
           alt="Dreamint logo"
           width={28}
@@ -1056,6 +1056,7 @@ export function CreatePage() {
     </div>
   );
 }
+
 
 
 
