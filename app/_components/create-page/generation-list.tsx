@@ -94,6 +94,9 @@ function GenerationGallery({ generation, onExpand }: GenerationGalleryProps) {
             className={layout.tileClass}
             prompt={generation.prompt}
             onExpand={() => onExpand(generation.id, index)}
+            generationId={generation.id}
+            imageIndex={index}
+            size={generation.size}
           />
         ))}
       </div>
@@ -106,9 +109,24 @@ type ImageTileProps = {
   className: string;
   prompt: string;
   onExpand: () => void;
+  generationId: string;
+  imageIndex: number;
+  size: { width: number; height: number };
 };
 
-function ImageTile({ src, className, prompt, onExpand }: ImageTileProps) {
+function ImageTile({ src, className, prompt, onExpand, generationId, imageIndex, size }: ImageTileProps) {
+  const width = Math.max(size?.width ?? 1024, 256);
+  const height = Math.max(size?.height ?? 1024, 256);
+  const maxDimension = Math.max(width, height);
+  const devicePixelRatio = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+  const desiredPixelWidth = Math.max(
+    width,
+    height,
+    Math.ceil(Math.max(width, height) * devicePixelRatio),
+  );
+
+  const shouldBypassOptimization = false;
+
   if (!src) {
     return (
       <div className={`${className} animate-pulse rounded-2xl border border-dashed border[#20212d] bg-[#0f1017]`} />
@@ -125,10 +143,37 @@ function ImageTile({ src, className, prompt, onExpand }: ImageTileProps) {
       <Image
         src={src}
         alt={prompt}
-        fill
+        width={width}
+        height={height}
         draggable={false}
-        sizes="(max-width: 768px) 50vw, 25vw"
-        className="object-cover select-none"
+        sizes="(max-width: 640px) calc((100vw - 2.5rem) / 2), (max-width: 1024px) calc((100vw - 4rem) / 2), calc((min(1400px, 100vw) - 4rem) / 4)"
+        quality={100}
+        unoptimized={shouldBypassOptimization}
+        loading={shouldBypassOptimization ? "eager" : "lazy"}
+        className="h-full w-full object-cover select-none"
+        onLoadingComplete={(image) => {
+          debugLog("gallery:image-loaded", {
+            generationId,
+            imageIndex,
+            naturalWidth: image.naturalWidth,
+            naturalHeight: image.naturalHeight,
+            renderedWidth: image.width,
+            renderedHeight: image.height,
+            devicePixelRatio: typeof window !== "undefined" ? window.devicePixelRatio : null,
+            requestedWidth: width,
+            requestedHeight: height,
+            desiredPixelWidth,
+            maxDimension,
+            shouldBypassOptimization,
+          });
+        }}
+        style={{
+          imageRendering: "high-quality",
+          WebkitImageRendering: "optimizeQuality",
+          transform: "translateZ(0)",
+          backfaceVisibility: "hidden",
+          filter: devicePixelRatio > 1 ? "none" : undefined,
+        }}
       />
     </button>
   );
