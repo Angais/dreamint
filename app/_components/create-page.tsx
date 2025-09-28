@@ -1,9 +1,10 @@
 "use client";
 
 import NextImage from "next/image";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import localforage, { type LocalForage } from "localforage";
+import { debugLog } from "./create-page/logger";
 import { generateSeedream } from "../actions/generate-seedream";
 import { calculateImageSize, type AspectKey, type QualityKey } from "../lib/seedream-options";
 import { EmptyState } from "./create-page/empty-state";
@@ -200,7 +201,6 @@ export function CreatePage() {
   const [generations, setGenerations] = useState<Generation[]>([]);
   const [pendingGenerations, setPendingGenerations] = useState<Generation[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
   const [isDownloading, setIsDownloading] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [lightboxSelection, setLightboxSelection] = useState<{ generationId: string; imageIndex: number } | null>(null);
@@ -210,7 +210,7 @@ export function CreatePage() {
     setError((previous) => (previous && ATTACHMENT_ERROR_MESSAGES.has(previous) ? null : previous));
   }, [setError]);
 
-  const hasActiveGeneration = pendingGenerations.length > 0 || isPending;
+  const hasActiveGeneration = pendingGenerations.length > 0;
   const isAttachmentLimitReached = attachments.length >= MAX_ATTACHMENTS;
 
   useEffect(() => {
@@ -760,6 +760,21 @@ export function CreatePage() {
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
+    debugLog("submit:start", {
+      aspect,
+      aspectSelection,
+      quality,
+      useCustomResolution,
+      customWidth,
+      customHeight,
+      pendingGenerations: pendingGenerations.length,
+      attachments: attachmentInputImages.map((image) => ({
+        id: image.id,
+        width: image.width ?? null,
+        height: image.height ?? null,
+      })),
+    });
+
     const parsedSeed = parseSeed(seed);
     const pendingId = createId("pending");
 
@@ -776,6 +791,7 @@ export function CreatePage() {
       : null;
 
     if (useCustomResolution && !customSize) {
+      debugLog("submit:invalid-custom-size", { customWidth, customHeight });
       setError(`Custom resolution must be between ${MIN_IMAGE_DIMENSION} and ${MAX_IMAGE_DIMENSION} pixels.`);
       setIsSettingsOpen(true);
       return;
@@ -796,46 +812,90 @@ export function CreatePage() {
       images: ["", "", "", ""],
     };
 
+    debugLog("pending:prepare", {
+      pendingId,
+      size: pendingSize,
+      inputImages: inputImageSnapshot.length,
+    });
+
     setIsSettingsOpen(false);
     setError(null);
-    setPendingGenerations((previous) => [pendingGeneration, ...previous]);
-
-    startTransition(() => {
-      const trimmedApiKey = apiKey.trim();
-      const generationPromise = generateSeedream({
-        prompt,
-        aspect,
-        quality,
-        seed: typeof parsedSeed === "number" ? parsedSeed : undefined,
-        apiKey: trimmedApiKey.length > 0 ? trimmedApiKey : undefined,
-        sizeOverride: customSize ?? undefined,
-        inputImages: inputImageSnapshot,
-      });
-
-      generationPromise
-        .then((result) => {
-          const generation: Generation = {
-            ...result,
-            id: createId("generation"),
-            images: normalizeImages(result.images),
-          };
-
-          setGenerations((previous) => [generation, ...previous]);
-          setSeed(generation.seed ? String(generation.seed) : "");
-        })
-        .catch((generationError: unknown) => {
-          const message =
-            generationError instanceof Error
-              ? generationError.message
-              : "Seedream generation failed.";
-          setError(message);
-        })
-        .finally(() => {
-          setPendingGenerations((previous) =>
-            previous.filter((generation) => generation.id !== pendingId),
-          );
-        });
+    setPendingGenerations((previous) => {
+      const next = [pendingGeneration, ...previous];
+      debugLog("pending:queued", { pendingId, pendingCount: next.length });
+      return next;
     });
+
+    const trimmedApiKey = apiKey.trim();
+    debugLog("submit:request", {
+      pendingId,
+      seed: parsedSeed,
+      apiKeyProvided: trimmedApiKey.length > 0,
+      inputImages: inputImageSnapshot.length,
+      sizeOverride: customSize ?? null,
+    });
+
+    const generationPromise = generateSeedream({
+      prompt,
+      aspect,
+      quality,
+      seed: typeof parsedSeed === "number" ? parsedSeed : undefined,
+      apiKey: trimmedApiKey.length > 0 ? trimmedApiKey : undefined,
+      sizeOverride: customSize ?? undefined,
+      inputImages: inputImageSnapshot,
+    });
+
+    generationPromise
+      .then((result) => {
+        debugLog("generation:success", {
+          pendingId,
+          rawImageCount: result.images.length,
+          seed: result.seed ?? null,
+          size: result.size,
+        });
+
+        const normalizedImages = normalizeImages(result.images);
+        debugLog("generation:normalized", {
+          pendingId,
+          normalizedCount: normalizedImages.length,
+          urlsSample: normalizedImages.slice(0, 8),
+        });
+
+        const generation: Generation = {
+          ...result,
+          id: createId("generation"),
+          images: normalizedImages,
+        };
+
+        setGenerations((previous) => {
+          const next = [generation, ...previous];
+          debugLog("generations:prepended", {
+            generationId: generation.id,
+            total: next.length,
+          });
+          return next;
+        });
+        setSeed(generation.seed ? String(generation.seed) : "");
+      })
+      .catch((generationError: unknown) => {
+        const message =
+          generationError instanceof Error
+            ? generationError.message
+            : "Seedream generation failed.";
+        debugLog("generation:error", { pendingId, message, error: generationError });
+        setError(message);
+      })
+      .finally(() => {
+        setPendingGenerations((previous) => {
+          const next = previous.filter((generation) => generation.id !== pendingId);
+          debugLog("pending:cleared", {
+            pendingId,
+            before: previous.length,
+            after: next.length,
+          });
+          return next;
+        });
+      });
   };
 
   const handleExpand = useCallback((generationId: string, imageIndex: number) => {
