@@ -2,6 +2,7 @@ import Image from "next/image";
 
 import { type AspectKey } from "../../lib/seedream-options";
 import { GenerationDetailsCard } from "./generation-details-card";
+import { debugLog } from "./logger";
 import type { Generation } from "./types";
 
 type GenerationGroupProps = {
@@ -70,17 +71,27 @@ type GenerationGalleryProps = {
 };
 
 function GenerationGallery({ generation, onExpand }: GenerationGalleryProps) {
-  const gridClass = GRID_CLASS_MAP[generation.aspect];
-  const tileClass = TILE_CLASS_MAP[generation.aspect];
+  const layout = resolveGalleryLayout(generation);
+
+  debugLog("gallery:render", {
+    generationId: generation.id,
+    aspect: generation.aspect,
+    imageCount: generation.images.length,
+    tileClass: layout.tileClass,
+    gridClass: layout.gridClass,
+    layoutSource: layout.source,
+    ratio: layout.ratio,
+    size: generation.size,
+  });
 
   return (
     <article className="w-full rounded-3xl border border-[#171822] bg-[#101117] shadow-[0_20px_50px_-40px_rgba(0,0,0,0.85)]">
-      <div className={`${gridClass} overflow-hidden rounded-3xl border border-[#181922] bg-[#0c0d14] p-4`}>
+      <div className={`${layout.gridClass} overflow-hidden rounded-3xl border border-[#181922] bg-[#0c0d14] p-4`}>
         {generation.images.map((src, index) => (
           <ImageTile
             key={`${generation.id}-${index}`}
             src={src}
-            className={tileClass}
+            className={layout.tileClass}
             prompt={generation.prompt}
             onExpand={() => onExpand(generation.id, index)}
           />
@@ -140,3 +151,99 @@ const TILE_CLASS_MAP: Record<AspectKey, string> = {
   "landscape-16-9": "relative aspect-[16/9] overflow-hidden",
   "landscape-21-9": "relative aspect-[21/9] overflow-hidden",
 };
+
+const DEFAULT_GRID_CLASS = "grid grid-cols-2 gap-3 lg:grid-cols-4";
+const DEFAULT_TILE_CLASS = "relative aspect-square overflow-hidden";
+
+type GalleryLayout = {
+  gridClass: string;
+  tileClass: string;
+  source: "preset" | "custom";
+  ratio: number | null;
+};
+
+function resolveGalleryLayout(generation: Generation): GalleryLayout {
+  if (generation.aspect !== "custom") {
+    return {
+      gridClass: GRID_CLASS_MAP[generation.aspect],
+      tileClass: TILE_CLASS_MAP[generation.aspect],
+      source: "preset",
+      ratio: null,
+    };
+  }
+
+  const width = Number(generation.size?.width ?? 0);
+  const height = Number(generation.size?.height ?? 0);
+
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return {
+      gridClass: DEFAULT_GRID_CLASS,
+      tileClass: DEFAULT_TILE_CLASS,
+      source: "custom",
+      ratio: null,
+    };
+  }
+
+  const ratio = width / height;
+
+  if (!Number.isFinite(ratio) || ratio <= 0) {
+    return {
+      gridClass: DEFAULT_GRID_CLASS,
+      tileClass: DEFAULT_TILE_CLASS,
+      source: "custom",
+      ratio: null,
+    };
+  }
+
+  if (ratio >= 2.2) {
+    return {
+      gridClass: DEFAULT_GRID_CLASS,
+      tileClass: "relative aspect-[21/9] overflow-hidden",
+      source: "custom",
+      ratio,
+    };
+  }
+
+  if (ratio >= 1.7) {
+    return {
+      gridClass: DEFAULT_GRID_CLASS,
+      tileClass: "relative aspect-[16/9] overflow-hidden",
+      source: "custom",
+      ratio,
+    };
+  }
+
+  if (ratio >= 1.3) {
+    return {
+      gridClass: DEFAULT_GRID_CLASS,
+      tileClass: "relative aspect-[3/2] overflow-hidden",
+      source: "custom",
+      ratio,
+    };
+  }
+
+  if (ratio >= 0.9) {
+    return {
+      gridClass: DEFAULT_GRID_CLASS,
+      tileClass: "relative aspect-square overflow-hidden",
+      source: "custom",
+      ratio,
+    };
+  }
+
+  if (ratio >= 0.7) {
+    return {
+      gridClass: DEFAULT_GRID_CLASS,
+      tileClass: "relative aspect-[4/5] overflow-hidden",
+      source: "custom",
+      ratio,
+    };
+  }
+
+  return {
+    gridClass: DEFAULT_GRID_CLASS,
+    tileClass: "relative aspect-[9/16] overflow-hidden",
+    source: "custom",
+    ratio,
+  };
+}
