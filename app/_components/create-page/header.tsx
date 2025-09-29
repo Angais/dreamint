@@ -33,6 +33,8 @@ type HeaderProps = {
   seed: string;
   apiKey: string;
   isGenerating: boolean;
+  isBudgetLocked: boolean;
+  batchCostCents: number;
   isSettingsOpen: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onPromptChange: (value: string) => void;
@@ -62,6 +64,8 @@ export function Header({
   seed,
   apiKey,
   isGenerating,
+  isBudgetLocked,
+  batchCostCents,
   isSettingsOpen,
   onSubmit,
   onPromptChange,
@@ -87,6 +91,9 @@ export function Header({
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const trimmedPrompt = prompt.trim();
+  const generateDisabled = trimmedPrompt.length === 0 || isBudgetLocked;
+  const batchCostLabel = `${(batchCostCents / 100).toFixed(2)}`;
 
   const handleAttachmentButtonClick = () => {
     if (isAttachmentLimitReached) {
@@ -197,10 +204,13 @@ export function Header({
             onPaste={handlePromptPaste}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                if (prompt.trim().length > 0) {
-                  formRef.current?.requestSubmit();
+                if (generateDisabled) {
+                  event.preventDefault();
+                  return;
                 }
+
+                event.preventDefault();
+                formRef.current?.requestSubmit();
               }
             }}
             rows={1}
@@ -224,11 +234,16 @@ export function Header({
           <button
             type="submit"
             aria-label="Generate"
-            disabled={prompt.trim().length === 0}
+            disabled={generateDisabled}
+            title={
+              isBudgetLocked
+                ? "Budget limit reached. Adjust or reset your budget to generate more images."
+                : `Each batch costs ${batchCostLabel}.`
+            }
             className="flex items-center gap-2 rounded-full bg-[#e9eaef] px-4 py-2.5 text-sm font-semibold text-[#090a12] transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:bg-[#2a2b35] disabled:text-[#7b7d8f] sm:px-5"
           >
             {isGenerating ? <SpinnerIcon className="h-4 w-4 animate-spin" /> : <LightningIcon className="h-4 w-4" />}
-            <span className="hidden sm:inline">Generate</span>
+            <span className="hidden sm:inline">{isBudgetLocked ? "Budget Reached" : "Generate"}</span>
           </button>
           {isSettingsOpen ? (
             <SettingsPanel

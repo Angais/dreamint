@@ -12,6 +12,7 @@ import { GenerationGroup } from "./create-page/generation-list";
 import { Header } from "./create-page/header";
 import { Lightbox } from "./create-page/lightbox";
 import { AttachmentLightbox } from "./create-page/attachment-lightbox";
+import { BudgetWidget } from "./create-page/budget-widget";
 import { createId, groupByDate, normalizeImages, parseSeed } from "./create-page/utils";
 import type { GalleryEntry, Generation, PromptAttachment } from "./create-page/types";
 
@@ -32,6 +33,8 @@ const STORAGE_KEYS = {
   customWidth: "seedream:custom_width",
   customHeight: "seedream:custom_height",
   useCustomResolution: "seedream:use_custom_resolution",
+  budgetCents: "seedream:budget_cents",
+  spentCents: "seedream:spent_cents",
 } as const;
 
 const MIN_IMAGE_DIMENSION = 512;
@@ -63,7 +66,11 @@ const ASPECT_VALUES: AspectKey[] = [
   "landscape-3-2",
   "landscape-16-9",
   "landscape-21-9",
-];
+];const IMAGE_COST_CENTS = 3;
+const IMAGES_PER_BATCH = 4;
+const BATCH_COST_CENTS = IMAGE_COST_CENTS * IMAGES_PER_BATCH;
+
+
 
 const QUALITY_VALUES: QualityKey[] = ["standard", "high", "ultra", "four-k"];
 
@@ -204,6 +211,8 @@ export function CreatePage() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [lightboxSelection, setLightboxSelection] = useState<{ generationId: string; imageIndex: number } | null>(null);
+  const [budgetCents, setBudgetCents] = useState<number | null>(null);
+  const [spentCents, setSpentCents] = useState(0);
   const storageHydratedRef = useRef(false);
 
   const clearAttachmentError = useCallback(() => {
@@ -212,6 +221,16 @@ export function CreatePage() {
 
   const hasActiveGeneration = pendingGenerations.length > 0;
   const isAttachmentLimitReached = attachments.length >= MAX_ATTACHMENTS;
+
+  const budgetRemainingCents = useMemo(() => {
+    if (budgetCents === null) {
+      return null;
+    }
+
+    return Math.max(budgetCents - spentCents, 0);
+  }, [budgetCents, spentCents]);
+
+  const isBudgetLocked = budgetRemainingCents !== null && budgetRemainingCents < BATCH_COST_CENTS;
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -269,6 +288,22 @@ export function CreatePage() {
         const storedCustomHeight = window.localStorage.getItem(STORAGE_KEYS.customHeight);
         if (storedCustomHeight !== null) {
           setCustomHeight(storedCustomHeight);
+        }
+
+        const storedBudgetValue = window.localStorage.getItem(STORAGE_KEYS.budgetCents);
+        if (storedBudgetValue !== null) {
+          const parsedBudget = Number.parseInt(storedBudgetValue, 10);
+          if (Number.isFinite(parsedBudget) && parsedBudget >= 0) {
+            setBudgetCents(parsedBudget);
+          }
+        }
+
+        const storedSpentValue = window.localStorage.getItem(STORAGE_KEYS.spentCents);
+        if (storedSpentValue !== null) {
+          const parsedSpent = Number.parseInt(storedSpentValue, 10);
+          if (Number.isFinite(parsedSpent) && parsedSpent >= 0) {
+            setSpentCents(parsedSpent);
+          }
         }
 
         let generationData: Generation[] | null = null;
@@ -373,6 +408,36 @@ export function CreatePage() {
       useCustomResolution && customHeight ? customHeight : null,
     );
   }, [prompt, aspectSelection, quality, seed, apiKey, useCustomResolution, customWidth, customHeight]);
+
+  useEffect(() => {
+    if (!storageHydratedRef.current || typeof window === "undefined") {
+      return;
+    }
+
+    safePersist(
+      STORAGE_KEYS.budgetCents,
+      typeof budgetCents === "number" ? String(budgetCents) : null,
+    );
+  }, [budgetCents]);
+
+  useEffect(() => {
+    if (!storageHydratedRef.current || typeof window === "undefined") {
+      return;
+    }
+
+    safePersist(STORAGE_KEYS.spentCents, String(Math.max(0, spentCents)));
+  }, [spentCents]);
+
+  useEffect(() => {
+    if (spentCents < 0) {
+      setSpentCents(0);
+      return;
+    }
+
+    if (budgetCents !== null && spentCents > budgetCents) {
+      setSpentCents(budgetCents);
+    }
+  }, [budgetCents, spentCents]);
 
   useEffect(() => {
     if (!storageHydratedRef.current || typeof window === "undefined") {
@@ -757,8 +822,33 @@ export function CreatePage() {
     setCustomHeight(digits);
   }, []);
 
+  const handleBudgetUpdate = useCallback((nextBudgetCents: number) => {
+    setBudgetCents(nextBudgetCents);
+    debugLog("budget:update", { value: nextBudgetCents });
+  }, []);
+
+  const handleResetSpending = useCallback(() => {
+    setSpentCents(0);
+    debugLog("budget:reset-spending", { budgetCents });
+  }, [budgetCents]);
+
+  const handleClearBudget = useCallback(() => {
+    setBudgetCents(null);
+    setSpentCents(0);
+    debugLog("budget:clear", {});
+  }, []);
+
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (isBudgetLocked) {
+      debugLog("submit:blocked-budget", {
+        budgetCents,
+        spentCents,
+        cost: BATCH_COST_CENTS,
+      });
+      return;
+    }
 
     debugLog("submit:start", {
       aspect,
@@ -876,6 +966,16 @@ export function CreatePage() {
           return next;
         });
         setSeed(generation.seed ? String(generation.seed) : "");
+        setSpentCents((previous) => {
+          const next = Math.max(0, previous + BATCH_COST_CENTS);
+          debugLog("budget:increment", {
+            pendingId,
+            previous,
+            next,
+            cost: BATCH_COST_CENTS,
+          });
+          return next;
+        });
       })
       .catch((generationError: unknown) => {
         const message =
@@ -1047,6 +1147,18 @@ export function CreatePage() {
         />
         <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-white">Dreamint</span>
       </div>
+      <BudgetWidget
+        budgetCents={budgetCents}
+        spentCents={spentCents}
+        budgetRemainingCents={budgetRemainingCents}
+        batchCostCents={BATCH_COST_CENTS}
+        imageCostCents={IMAGE_COST_CENTS}
+        imagesPerBatch={IMAGES_PER_BATCH}
+        isBudgetLocked={isBudgetLocked}
+        onBudgetSave={handleBudgetUpdate}
+        onBudgetClear={handleClearBudget}
+        onResetSpending={handleResetSpending}
+      />
       <div className="mx-auto flex min-h-screen w-full max-w-[1400px] flex-col gap-10 px-6 pb-16 pt-10 lg:px-10">
         <Header
           prompt={prompt}
@@ -1056,6 +1168,8 @@ export function CreatePage() {
           seed={seed}
           apiKey={apiKey}
           isGenerating={hasActiveGeneration}
+          isBudgetLocked={isBudgetLocked}
+          batchCostCents={BATCH_COST_CENTS}
           isSettingsOpen={isSettingsOpen}
           onSubmit={handleSubmit}
           onPromptChange={setPrompt}
