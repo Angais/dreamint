@@ -1,9 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   ChangeEvent,
   ClipboardEvent as ReactClipboardEvent,
   Dispatch,
   FormEvent,
+  DragEvent,
   RefObject,
   SetStateAction,
 } from "react";
@@ -91,9 +92,14 @@ export function Header({
   const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const dragCounterRef = useRef(0);
+  const [isDragOver, setIsDragOver] = useState(false);
   const trimmedPrompt = prompt.trim();
   const generateDisabled = trimmedPrompt.length === 0 || isBudgetLocked;
   const batchCostLabel = `${(batchCostCents / 100).toFixed(2)}`;
+  const promptBarClassName = `relative flex w-full items-center gap-3 rounded-3xl border border-[#1a1b24] bg-[#101117] px-5 py-4 text-sm text-[#9fa1b1] shadow-[0_22px_45px_-35px_rgba(0,0,0,0.8)]${
+    isDragOver ? " border-[#4d5cff] bg-[#101117]/80" : ""
+  }`;
 
   const handleAttachmentButtonClick = () => {
     if (isAttachmentLimitReached) {
@@ -124,6 +130,73 @@ export function Header({
 
     event.preventDefault();
     void onAddAttachments(clipboardFiles);
+  };
+
+  const hasImageItems = (items: DataTransferItemList | null | undefined) =>
+    Array.from(items ?? []).some((item) => item.kind === "file" && item.type.startsWith("image/"));
+
+  const resetDragState = () => {
+    dragCounterRef.current = 0;
+    setIsDragOver(false);
+  };
+
+  const handleDragEnter = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasImageItems(event.dataTransfer?.items)) {
+      return;
+    }
+
+    event.preventDefault();
+    if (isAttachmentLimitReached) {
+      event.dataTransfer.dropEffect = "none";
+      return;
+    }
+
+    dragCounterRef.current += 1;
+    event.dataTransfer.dropEffect = "copy";
+    setIsDragOver(true);
+  };
+
+  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasImageItems(event.dataTransfer?.items)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = isAttachmentLimitReached ? "none" : "copy";
+
+    if (!isAttachmentLimitReached) {
+      setIsDragOver(true);
+    }
+  };
+
+  const handleDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasImageItems(event.dataTransfer?.items)) {
+      return;
+    }
+
+    event.preventDefault();
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+    if (dragCounterRef.current === 0) {
+      setIsDragOver(false);
+    }
+  };
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasImageItems(event.dataTransfer?.items)) {
+      return;
+    }
+
+    event.preventDefault();
+    const droppedFiles = Array.from(event.dataTransfer?.files ?? []).filter((file) =>
+      file.type.startsWith("image/"),
+    );
+    resetDragState();
+
+    if (droppedFiles.length === 0 || isAttachmentLimitReached) {
+      return;
+    }
+
+    void onAddAttachments(droppedFiles);
   };
 
   useEffect(() => {
@@ -179,7 +252,18 @@ export function Header({
   return (
     <header className="sticky top-6 z-40 flex flex-col bg-[#08090f] pb-4">
       <form ref={formRef} onSubmit={onSubmit} className="relative flex flex-col gap-4">
-        <div className="relative flex w-full items-center gap-3 rounded-3xl border border-[#1a1b24] bg-[#101117] px-5 py-4 text-sm text-[#9fa1b1] shadow-[0_22px_45px_-35px_rgba(0,0,0,0.8)]">
+        <div
+          className={promptBarClassName}
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          {isDragOver ? (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-3xl border border-[#4d5cff] bg-[#101117]/80 text-sm font-semibold text-white">
+              Drop images to attach
+            </div>
+          ) : null}
           <button
             type="button"
             aria-label="Add reference image"
