@@ -64,7 +64,7 @@ export function SpinnerIcon(props: IconProps) {
   );
 }
 
-export function SearchIcon(props: IconProps) {
+export function MagnifyingGlassIcon(props: IconProps) {
   return (
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...props}>
       <circle cx="9" cy="9" r="5" />

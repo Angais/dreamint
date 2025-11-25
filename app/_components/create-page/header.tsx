@@ -11,9 +11,13 @@ import type {
 import {
   ASPECT_OPTIONS,
   QUALITY_OPTIONS,
+  OUTPUT_FORMAT_OPTIONS,
+  PROVIDER_OPTIONS,
   type QualityKey,
+  type OutputFormat,
+  type Provider,
 } from "../../lib/seedream-options";
-import { LightningIcon, PlusIcon, SettingsIcon, SpinnerIcon } from "./icons";
+import { LightningIcon, PlusIcon, SettingsIcon } from "./icons";
 import { AttachmentPreviewList } from "./attachment-preview";
 import type { PromptAttachment } from "./types";
 import { resizeTextarea } from "./utils";
@@ -22,8 +26,12 @@ type HeaderProps = {
   prompt: string;
   aspect: string;
   quality: QualityKey;
+  outputFormat: OutputFormat;
+  provider: Provider;
   imageCount: number;
   apiKey: string;
+  vertexApiKey: string;
+  vertexProjectId: string;
   isGenerating: boolean;
   isBudgetLocked: boolean;
   isSettingsOpen: boolean;
@@ -31,8 +39,12 @@ type HeaderProps = {
   onPromptChange: (value: string) => void;
   onAspectSelect: (value: string) => void;
   onQualityChange: (value: QualityKey) => void;
+  onOutputFormatChange: (value: OutputFormat) => void;
+  onProviderChange: (value: Provider) => void;
   onImageCountChange: (value: number) => void;
   onApiKeyChange: (value: string) => void;
+  onVertexApiKeyChange: (value: string) => void;
+  onVertexProjectIdChange: (value: string) => void;
   onToggleSettings: Dispatch<SetStateAction<boolean>>;
   attachments: PromptAttachment[];
   onAddAttachments: (files: File[]) => void;
@@ -45,17 +57,24 @@ export function Header({
   prompt,
   aspect,
   quality,
+  outputFormat,
+  provider,
   imageCount,
   apiKey,
-  isGenerating,
+  vertexApiKey,
+  vertexProjectId,
   isBudgetLocked,
   isSettingsOpen,
   onSubmit,
   onPromptChange,
   onAspectSelect,
   onQualityChange,
+  onOutputFormatChange,
+  onProviderChange,
   onImageCountChange,
   onApiKeyChange,
+  onVertexApiKeyChange,
+  onVertexProjectIdChange,
   onToggleSettings,
   attachments,
   onAddAttachments,
@@ -329,6 +348,26 @@ export function Header({
                         </div>
                      </div>
 
+                     {/* Output Format Selector */}
+                     <div className="relative group/select">
+                        <select
+                            value={outputFormat}
+                            onChange={(event) => onOutputFormatChange(event.target.value as OutputFormat)}
+                            className="appearance-none cursor-pointer rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] pl-3 pr-8 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:text-white hover:border-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-white/20 transition-colors"
+                        >
+                             {OUTPUT_FORMAT_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                {option.label}
+                                </option>
+                            ))}
+                        </select>
+                        <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
+                             <svg width="8" height="5" viewBox="0 0 8 5" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M1 1L4 4L7 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                        </div>
+                     </div>
+
                      {/* Image Count Selector */}
                       <div className="flex items-center rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] p-0.5">
                          {[1, 2, 3, 4].map((count) => (
@@ -367,24 +406,85 @@ export function Header({
                     disabled={generateDisabled}
                     className="group relative flex items-center gap-2 rounded-xl bg-white px-6 py-2 text-sm font-bold text-black shadow-[0_0_20px_-5px_rgba(255,255,255,0.3)] transition-all hover:scale-[1.02] hover:shadow-[0_0_25px_-5px_rgba(255,255,255,0.5)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none disabled:grayscale"
                  >
-                     {isGenerating ? <SpinnerIcon className="h-4 w-4 animate-spin" /> : <LightningIcon className="h-4 w-4" />}
+                     <LightningIcon className="h-4 w-4" />
                      <span>{isBudgetLocked ? "Limit Reached" : "Generate"}</span>
                  </button>
             </div>
             
-             {/* Minimal Settings Panel (Just API Key) */}
+             {/* Settings Panel */}
              {isSettingsOpen ? (
                 <div ref={panelRef} className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-20 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 shadow-2xl animate-in fade-in slide-in-from-bottom-1 duration-200">
-                     <div className="flex flex-col gap-2">
-                        <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">FAL API Key</span>
-                            <input
-                            value={apiKey}
-                            onChange={(e) => onApiKeyChange(e.target.value)}
-                            type="password"
-                            placeholder="fal_sk_..."
-                            className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-secondary)] focus:border-white focus:text-white focus:outline-none transition-all"
-                        />
-                        <p className="text-[10px] text-[var(--text-muted)]">Stored locally on your device.</p>
+                     <div className="flex flex-col gap-4">
+                        <div className="space-y-2">
+                           <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Provider</span>
+                           <div className="flex gap-2">
+                              {PROVIDER_OPTIONS.map((opt) => (
+                                <button
+                                  key={opt.value}
+                                  type="button"
+                                  onClick={() => onProviderChange(opt.value)}
+                                  className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-all ${
+                                    provider === opt.value
+                                      ? "border-[var(--text-primary)] bg-[var(--text-primary)] text-black"
+                                      : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]"
+                                  }`}
+                                >
+                                  {opt.label}
+                                </button>
+                              ))}
+                           </div>
+                        </div>
+
+                        {provider === "fal" ? (
+                          <div className="space-y-2">
+                              <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">FAL API Key</span>
+                              <input
+                                  value={apiKey}
+                                  onChange={(e) => onApiKeyChange(e.target.value)}
+                                  type="password"
+                                  placeholder="fal_sk_..."
+                                  className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-secondary)] focus:border-white focus:text-white focus:outline-none transition-all"
+                              />
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                              <div className="space-y-2">
+                                <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Google / Vertex API Key</span>
+                                <input
+                                    value={vertexApiKey}
+                                    onChange={(e) => onVertexApiKeyChange(e.target.value)}
+                                    type="password"
+                                    placeholder="AIzaSy..."
+                                    className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-secondary)] focus:border-white focus:text-white focus:outline-none transition-all"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Google Cloud Project ID</span>
+                                <input
+                                    value={vertexProjectId}
+                                    onChange={(e) => onVertexProjectIdChange(e.target.value)}
+                                    type="text"
+                                    placeholder="my-project-id"
+                                    className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-secondary)] focus:border-white focus:text-white focus:outline-none transition-all"
+                                />
+                                <p className="text-[9px] text-[var(--text-muted)]">
+                                  Required for Vertex AI Express Mode. Leave empty to try Gemini API (Generative Language).
+                                </p>
+                              </div>
+                          </div>
+                        )}
+                        
+                        {provider === "google" ? (
+                          <p className="text-[10px] font-bold text-orange-400 mt-1 text-center">
+                            ⚠️ WARNING: I HAVE NO IDEA HOW THIS WORKS, CHECK CODE AND DO UNDER YOUR OWN RISK.
+                          </p>
+                        ) : (
+                          <p className="text-[10px] font-bold text-orange-400 mt-1 text-center">
+                            ⚠️ Note: You might get bugs or unexpected usage and I&apos;m not responsible.
+                          </p>
+                        )}
+                        
+                        <p className="text-[10px] text-[var(--text-muted)] text-center">Keys are stored locally on your device.</p>
                      </div>
                 </div>
             ) : null}
