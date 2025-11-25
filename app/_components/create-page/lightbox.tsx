@@ -2,11 +2,7 @@ import Image from "next/image";
 import { useEffect, useRef } from "react";
 import type { WheelEvent } from "react";
 
-import {
-  formatResolution,
-  getAspectDescription,
-  getQualityLabel,
-} from "../../lib/seedream-options";
+import { getAspectDescription, getQualityLabel } from "../../lib/seedream-options";
 import { ArrowLeftIcon, ArrowRightIcon, DownloadIcon, PlusIcon, SpinnerIcon } from "./icons";
 import type { GalleryEntry } from "./types";
 
@@ -77,9 +73,6 @@ export function Lightbox({
   }, [onPrev, onNext, onClose, canGoPrev, canGoNext]);
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-
     if (event.deltaY > 0 && canGoNext) {
       onNext();
     } else if (event.deltaY < 0 && canGoPrev) {
@@ -169,10 +162,6 @@ export function Lightbox({
                 <div className="p-2 rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)]">
                   <span className="block text-[10px] uppercase tracking-wide opacity-60 mb-1">Quality</span>
                   {getQualityLabel(entry.quality)}
-                </div>
-                 <div className="p-2 rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] col-span-2">
-                  <span className="block text-[10px] uppercase tracking-wide opacity-60 mb-1">Resolution</span>
-                  {formatResolution(entry.size)}
                 </div>
              </div>
            </div>

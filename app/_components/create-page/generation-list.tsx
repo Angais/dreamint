@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { memo } from "react";
 
 import { type AspectKey } from "../../lib/seedream-options";
 import { GenerationDetailsCard } from "./generation-details-card";
@@ -15,9 +16,10 @@ type GenerationGroupProps = {
   onUsePrompt: (prompt: string, inputImages: Generation["inputImages"]) => void;
   onPreviewInputImage?: (image: Generation["inputImages"][number]) => void;
   onDeleteGeneration: (generationId: string) => void;
+  onRetryGeneration?: (generationId: string) => void;
 };
 
-export function GenerationGroup({
+export const GenerationGroup = memo(function GenerationGroup({
   label,
   generations,
   pendingIdSet,
@@ -27,6 +29,7 @@ export function GenerationGroup({
   onUsePrompt,
   onPreviewInputImage,
   onDeleteGeneration,
+  onRetryGeneration,
 }: GenerationGroupProps) {
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -36,6 +39,7 @@ export function GenerationGroup({
       <div className="space-y-10">
         {generations.map((generation) => {
           const isGenerating = pendingIdSet.has(generation.id);
+          const isInterrupted = !isGenerating && generation.images.some((img) => !img);
           const cardError = generation.id === errorGenerationId ? errorMessage : null;
 
           return (
@@ -44,7 +48,12 @@ export function GenerationGroup({
               className="flex flex-col gap-6 lg:flex-row lg:items-start group"
             >
               <div className="w-full lg:flex-1 lg:min-w-0">
-                <GenerationGallery generation={generation} onExpand={onExpand} />
+                <GenerationGallery
+                  generation={generation}
+                  onExpand={onExpand}
+                  isInterrupted={isInterrupted}
+                  isGenerating={isGenerating}
+                />
               </div>
               <div className="w-full max-w-[180px] lg:w-44 lg:basis-44 lg:flex-none lg:self-start lg:shrink-0 transition-opacity duration-300 lg:opacity-80 lg:group-hover:opacity-100">
                 <GenerationDetailsCard
@@ -55,6 +64,7 @@ export function GenerationGroup({
                   onPreviewInputImage={onPreviewInputImage}
                   onDeleteGeneration={onDeleteGeneration}
                   canDelete={!isGenerating}
+                  onRetry={onRetryGeneration ? () => onRetryGeneration(generation.id) : undefined}
                 />
               </div>
             </div>
@@ -63,14 +73,21 @@ export function GenerationGroup({
       </div>
     </div>
   );
-}
+});
 
 type GenerationGalleryProps = {
   generation: Generation;
   onExpand: (generationId: string, imageIndex: number) => void;
+  isInterrupted: boolean;
+  isGenerating: boolean;
 };
 
-function GenerationGallery({ generation, onExpand }: GenerationGalleryProps) {
+const GenerationGallery = memo(function GenerationGallery({
+  generation,
+  onExpand,
+  isInterrupted,
+  isGenerating,
+}: GenerationGalleryProps) {
   const layout = resolveGalleryLayout(generation);
 
   debugLog("gallery:render", {
@@ -97,12 +114,14 @@ function GenerationGallery({ generation, onExpand }: GenerationGalleryProps) {
             generationId={generation.id}
             imageIndex={index}
             size={generation.size}
+            isInterrupted={isInterrupted}
+            isGenerating={isGenerating}
           />
         ))}
       </div>
     </article>
   );
-}
+});
 
 type ImageTileProps = {
   src: string;
@@ -112,9 +131,21 @@ type ImageTileProps = {
   generationId: string;
   imageIndex: number;
   size: { width: number; height: number };
+  isInterrupted: boolean;
+  isGenerating: boolean;
 };
 
-function ImageTile({ src, className, prompt, onExpand, generationId, imageIndex, size }: ImageTileProps) {
+const ImageTile = memo(function ImageTile({
+  src,
+  className,
+  prompt,
+  onExpand,
+  generationId,
+  imageIndex,
+  size,
+  isInterrupted,
+  isGenerating,
+}: ImageTileProps) {
   const width = Math.max(size?.width ?? 1024, 256);
   const height = Math.max(size?.height ?? 1024, 256);
   const maxDimension = Math.max(width, height);
@@ -128,8 +159,38 @@ function ImageTile({ src, className, prompt, onExpand, generationId, imageIndex,
   const shouldBypassOptimization = false;
 
   if (!src) {
+    const interruptedStyles = isInterrupted
+      ? "bg-[#1f1f1f] border border-red-700/60 text-red-300"
+      : "animate-pulse bg-[#1f1f1f] border border-[#333]";
+
     return (
-      <div className={`${className} animate-pulse bg-[#1f1f1f] border border-[#333]`} />
+      <div className={`${className} relative ${interruptedStyles}`}>
+        {isInterrupted ? (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-5 w-5"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <line x1="15" y1="9" x2="9" y2="15" />
+                <line x1="9" y1="9" x2="15" y2="15" />
+              </svg>
+              <span>Interrupted</span>
+            </span>
+          </div>
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide">
+            {isGenerating ? "Generating..." : "Loading"}
+          </div>
+        )}
+      </div>
     );
   }
 
@@ -147,11 +208,10 @@ function ImageTile({ src, className, prompt, onExpand, generationId, imageIndex,
         height={height}
         draggable={false}
         sizes="(max-width: 640px) calc((100vw - 2.5rem) / 2), (max-width: 1024px) calc((100vw - 4rem) / 2), calc((min(1400px, 100vw) - 4rem) / 4)"
-        quality={100}
         unoptimized={shouldBypassOptimization}
         loading={shouldBypassOptimization ? "eager" : "lazy"}
         className="h-full w-full object-cover select-none transition-transform duration-500 group-hover/tile:scale-105"
-        onLoadingComplete={(image) => {
+        onLoad={(image) => {
           debugLog("gallery:image-loaded", {
             generationId,
             imageIndex,
@@ -176,7 +236,7 @@ function ImageTile({ src, className, prompt, onExpand, generationId, imageIndex,
       <div className="absolute inset-0 bg-black/0 transition-colors group-hover/tile:bg-black/10" />
     </button>
   );
-}
+});
 
 const GRID_CLASS_MAP: Record<AspectKey, string> = {
   "square-1-1": "grid grid-cols-2 gap-0.5",

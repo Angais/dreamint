@@ -6,9 +6,10 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import localforage from "localforage";
 import { debugLog } from "./create-page/logger";
 import { generateSeedream } from "../actions/generate-seedream";
-import { calculateImageSize, type AspectKey, type QualityKey } from "../lib/seedream-options";
+import { calculateImageSize, type AspectKey, type QualityKey, type Provider, type OutputFormat } from "../lib/seedream-options";
 import { EmptyState } from "./create-page/empty-state";
 import { GenerationGroup } from "./create-page/generation-list";
+import { GalleryView } from "./create-page/gallery-view";
 import { Header } from "./create-page/header";
 import { Lightbox } from "./create-page/lightbox";
 import { AttachmentLightbox } from "./create-page/attachment-lightbox";
@@ -19,15 +20,20 @@ const defaultPrompt =
   "Cinematic shot of a futuristic city at night, neon lights, rain reflections, highly detailed, 8k resolution";
 const defaultAspect: AspectKey = "portrait-9-16";
 const defaultQuality: QualityKey = "2k";
+const defaultOutputFormat: OutputFormat = "png";
 
 const STORAGE_KEYS = {
   prompt: "seedream:prompt",
   aspect: "seedream:aspect",
   quality: "seedream:quality",
+  provider: "seedream:provider",
+  outputFormat: "seedream:output_format",
   imageCount: "seedream:image_count",
   generations: "seedream:generations",
   pendingGenerations: "seedream:pending_generations",
   apiKey: "seedream:api_key",
+  vertexApiKey: "seedream:vertex_api_key",
+  vertexProjectId: "seedream:vertex_project_id",
   budgetCents: "seedream:budget_cents",
   spentCents: "seedream:spent_cents",
 } as const;
@@ -156,11 +162,16 @@ function getLargeStateStore(): typeof localforage | null {
 }
 
 export function CreatePage() {
+  const [view, setView] = useState<"create" | "gallery">("create");
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [aspect, setAspect] = useState<AspectKey>(defaultAspect);
   const [quality, setQuality] = useState<QualityKey>(defaultQuality);
+  const [outputFormat, setOutputFormat] = useState<OutputFormat>(defaultOutputFormat);
+  const [provider, setProvider] = useState<Provider>("fal");
   const [imageCount, setImageCount] = useState<number>(4);
   const [apiKey, setApiKey] = useState("");
+  const [vertexApiKey, setVertexApiKey] = useState("");
+  const [vertexProjectId, setVertexProjectId] = useState("");
   const [attachments, setAttachments] = useState<PromptAttachment[]>([]);
   const [attachmentPreview, setAttachmentPreview] = useState<PromptAttachment | null>(null);
   const [generations, setGenerations] = useState<Generation[]>([]);
@@ -170,6 +181,7 @@ export function CreatePage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [lightboxSelection, setLightboxSelection] = useState<{ generationId: string; imageIndex: number } | null>(null);
   const storageHydratedRef = useRef(false);
+  const pendingReconciledRef = useRef(false);
 
   const clearAttachmentError = useCallback(() => {
     setError((previous) => (previous && ATTACHMENT_ERROR_MESSAGES.has(previous) ? null : previous));
@@ -202,6 +214,16 @@ export function CreatePage() {
           setQuality(storedQuality);
         }
 
+        const storedProvider = window.localStorage.getItem(STORAGE_KEYS.provider);
+        if (storedProvider === "fal" || storedProvider === "google") {
+          setProvider(storedProvider);
+        }
+
+        const storedOutputFormat = window.localStorage.getItem(STORAGE_KEYS.outputFormat);
+        if (storedOutputFormat === "png" || storedOutputFormat === "jpeg" || storedOutputFormat === "webp") {
+          setOutputFormat(storedOutputFormat);
+        }
+
         const storedImageCount = window.localStorage.getItem(STORAGE_KEYS.imageCount);
         if (storedImageCount !== null) {
           const count = parseInt(storedImageCount, 10);
@@ -213,6 +235,16 @@ export function CreatePage() {
         const storedApiKey = window.localStorage.getItem(STORAGE_KEYS.apiKey);
         if (storedApiKey !== null) {
           setApiKey(storedApiKey);
+        }
+
+        const storedVertexApiKey = window.localStorage.getItem(STORAGE_KEYS.vertexApiKey);
+        if (storedVertexApiKey !== null) {
+          setVertexApiKey(storedVertexApiKey);
+        }
+
+        const storedVertexProjectId = window.localStorage.getItem(STORAGE_KEYS.vertexProjectId);
+        if (storedVertexProjectId !== null) {
+          setVertexProjectId(storedVertexProjectId);
         }
 
         let generationData: Generation[] | null = null;
@@ -268,10 +300,20 @@ export function CreatePage() {
 
         if (!cancelled) {
           if (generationData) {
-            setGenerations(generationData);
+            setGenerations(
+              generationData.map((generation) => ({
+                ...generation,
+                outputFormat: generation.outputFormat ?? defaultOutputFormat,
+              })),
+            );
           }
           if (pendingData) {
-            setPendingGenerations(pendingData);
+            setPendingGenerations(
+              pendingData.map((pending) => ({
+                ...pending,
+                outputFormat: pending.outputFormat ?? defaultOutputFormat,
+              })),
+            );
           }
         }
       } catch (error) {
@@ -290,6 +332,32 @@ export function CreatePage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!storageHydratedRef.current || pendingReconciledRef.current) {
+      return;
+    }
+
+    if (pendingGenerations.length === 0) {
+      pendingReconciledRef.current = true;
+      return;
+    }
+
+    debugLog("pending:recovered-stale", {
+      count: pendingGenerations.length,
+      ids: pendingGenerations.map((gen) => gen.id),
+    });
+
+    setGenerations((previous) => {
+      const existingIds = new Set(previous.map((gen) => gen.id));
+      const reconciled = pendingGenerations.map((gen) =>
+        existingIds.has(gen.id) ? { ...gen, id: createId("generation") } : gen,
+      );
+      return [...reconciled, ...previous];
+    });
+    setPendingGenerations([]);
+    pendingReconciledRef.current = true;
+  }, [pendingGenerations]);
+
   const activeFeed = useMemo(
     () => [...pendingGenerations, ...generations],
     [generations, pendingGenerations],
@@ -300,14 +368,33 @@ export function CreatePage() {
       return;
     }
 
-    safePersist(STORAGE_KEYS.prompt, prompt);
+    const timeoutId = window.setTimeout(() => {
+      safePersist(STORAGE_KEYS.prompt, prompt);
+    }, 150);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [prompt]);
+
+  useEffect(() => {
+    if (!storageHydratedRef.current || typeof window === "undefined") {
+      return;
+    }
+
     safePersist(STORAGE_KEYS.aspect, aspect);
     safePersist(STORAGE_KEYS.quality, quality);
+    safePersist(STORAGE_KEYS.outputFormat, outputFormat);
+    safePersist(STORAGE_KEYS.provider, provider);
     safePersist(STORAGE_KEYS.imageCount, String(imageCount));
 
     const normalizedApiKey = apiKey.trim();
     safePersist(STORAGE_KEYS.apiKey, normalizedApiKey.length > 0 ? normalizedApiKey : null);
-  }, [prompt, aspect, quality, imageCount, apiKey]);
+
+    const normalizedVertexApiKey = vertexApiKey.trim();
+    safePersist(STORAGE_KEYS.vertexApiKey, normalizedVertexApiKey.length > 0 ? normalizedVertexApiKey : null);
+
+    const normalizedVertexProjectId = vertexProjectId.trim();
+    safePersist(STORAGE_KEYS.vertexProjectId, normalizedVertexProjectId.length > 0 ? normalizedVertexProjectId : null);
+  }, [aspect, quality, outputFormat, provider, imageCount, apiKey, vertexApiKey, vertexProjectId]);
 
   useEffect(() => {
     if (!storageHydratedRef.current || typeof window === "undefined") {
@@ -403,6 +490,8 @@ export function CreatePage() {
           prompt: generation.prompt,
           aspect: generation.aspect,
           quality: generation.quality,
+          provider: generation.provider,
+          outputFormat: generation.outputFormat,
           size: generation.size,
         });
       });
@@ -581,6 +670,7 @@ export function CreatePage() {
     debugLog("submit:start", {
       aspect,
       quality,
+      provider,
       imageCount,
       pendingGenerations: pendingGenerations.length,
       attachments: attachmentInputImages.map((image) => ({
@@ -599,6 +689,8 @@ export function CreatePage() {
       prompt,
       aspect,
       quality,
+      outputFormat,
+      provider, // Added provider here
       size: pendingSize,
       createdAt: new Date().toISOString(),
       inputImages: inputImageSnapshot,
@@ -620,9 +712,15 @@ export function CreatePage() {
     });
 
     const trimmedApiKey = apiKey.trim();
+    const trimmedVertexApiKey = vertexApiKey.trim();
+    const trimmedVertexProjectId = vertexProjectId.trim();
+    
     debugLog("submit:request", {
       pendingId,
+      provider,
       apiKeyProvided: trimmedApiKey.length > 0,
+      vertexApiKeyProvided: trimmedVertexApiKey.length > 0,
+      vertexProjectIdProvided: trimmedVertexProjectId.length > 0,
       inputImages: inputImageSnapshot.length,
       imageCount
     });
@@ -632,7 +730,11 @@ export function CreatePage() {
       aspect,
       quality,
       numImages: imageCount,
+      provider,
+      outputFormat,
       apiKey: trimmedApiKey.length > 0 ? trimmedApiKey : undefined,
+      vertexApiKey: trimmedVertexApiKey.length > 0 ? trimmedVertexApiKey : undefined,
+      vertexProjectId: trimmedVertexProjectId.length > 0 ? trimmedVertexProjectId : undefined,
       inputImages: inputImageSnapshot,
     });
 
@@ -693,10 +795,10 @@ export function CreatePage() {
     setIsDownloading(false);
   }, [setLightboxSelection, setIsSettingsOpen, setIsDownloading]);
 
-  const handleDownload = async (src: string) => {
+  const handleDownload = async (entry: GalleryEntry) => {
     setIsDownloading(true);
     try {
-      const response = await fetch(src, { cache: "no-store" });
+      const response = await fetch(entry.src, { cache: "no-store" });
       if (!response.ok) {
         throw new Error(`Download failed (${response.status})`);
       }
@@ -704,8 +806,10 @@ export function CreatePage() {
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
+      const format = entry.outputFormat ?? "png";
+      const extension = format === "jpeg" ? "jpg" : format;
       link.href = url;
-      link.download = `nano-banana-${Date.now()}.png`;
+      link.download = `seedream-${Date.now()}.${extension}`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -781,6 +885,109 @@ export function CreatePage() {
     [handleAddAttachmentFromUrl, setIsDownloading, setIsSettingsOpen, setLightboxSelection],
   );
 
+  const handleRetryGeneration = useCallback(
+    (generationId: string) => {
+      const generation = generations.find((gen) => gen.id === generationId);
+      if (!generation) {
+        return;
+      }
+
+      const pendingId = createId("pending");
+      const numImages = Math.max(1, generation.images.length || 1);
+      const pendingSize = calculateImageSize(generation.aspect, generation.quality);
+      const inputImageSnapshot = generation.inputImages?.map((image) => ({ ...image })) ?? [];
+
+      const pendingGeneration: Generation = {
+        ...generation,
+        id: pendingId,
+        images: Array(numImages).fill(""),
+        createdAt: new Date().toISOString(),
+        inputImages: inputImageSnapshot,
+        size: pendingSize,
+        outputFormat: generation.outputFormat ?? defaultOutputFormat,
+      };
+
+      debugLog("pending:retry", {
+        fromId: generationId,
+        pendingId,
+        numImages,
+        aspect: generation.aspect,
+        quality: generation.quality,
+        provider: generation.provider,
+        inputImages: inputImageSnapshot.length,
+      });
+
+      setGenerations((previous) => previous.filter((gen) => gen.id !== generationId));
+      setPendingGenerations((previous) => [pendingGeneration, ...previous.filter((gen) => gen.id !== pendingId)]);
+      setError(null);
+      setIsSettingsOpen(false);
+
+      const generationPromise = generateSeedream({
+        prompt: generation.prompt,
+        aspect: generation.aspect,
+        quality: generation.quality,
+        numImages,
+        provider: generation.provider,
+        outputFormat: generation.outputFormat ?? defaultOutputFormat,
+        apiKey: apiKey.trim() || undefined,
+        vertexApiKey: vertexApiKey.trim() || undefined,
+        vertexProjectId: vertexProjectId.trim() || undefined,
+        inputImages: inputImageSnapshot,
+      });
+
+      generationPromise
+        .then((result) => {
+          debugLog("generation:success", {
+            pendingId,
+            rawImageCount: result.images.length,
+            size: result.size,
+          });
+
+          const normalizedImages = normalizeImages(result.images);
+          debugLog("generation:normalized", {
+            pendingId,
+            normalizedCount: normalizedImages.length,
+            urlsSample: normalizedImages.slice(0, 8),
+          });
+
+          const nextGeneration: Generation = {
+            ...result,
+            id: createId("generation"),
+            images: normalizedImages,
+          };
+
+          setGenerations((previous) => {
+            const next = [nextGeneration, ...previous];
+            debugLog("generations:prepended", {
+              generationId: nextGeneration.id,
+              total: next.length,
+            });
+            return next;
+          });
+        })
+        .catch((generationError: unknown) => {
+          const message =
+            generationError instanceof Error
+              ? generationError.message
+              : "Generation failed.";
+          debugLog("generation:error", { pendingId, message, error: generationError });
+          setError(message);
+        })
+        .finally(() => {
+          setPendingGenerations((previous) => {
+            const next = previous.filter((gen) => gen.id !== pendingId);
+            debugLog("pending:cleared", {
+              pendingId,
+              before: previous.length,
+              after: next.length,
+            });
+            return next;
+          });
+        });
+    },
+    [apiKey, vertexApiKey, vertexProjectId, generations],
+  );
+
   const handleDeleteGeneration = useCallback(
     (generationId: string) => {
       const shouldClearError = Boolean(error && displayFeed.length > 0 && displayFeed[0].id === generationId);
@@ -798,7 +1005,7 @@ export function CreatePage() {
     [displayFeed, error, setError, setLightboxSelection],
   );
 
-  const handleUsePrompt = (value: string, inputImages: Generation["inputImages"]) => {
+  const handleUsePrompt = useCallback((value: string, inputImages: Generation["inputImages"]) => {
     setPrompt(value);
     setIsSettingsOpen(false);
 
@@ -819,7 +1026,7 @@ export function CreatePage() {
       setAttachmentPreview(null);
       clearAttachmentError();
     }
-  };
+  }, [clearAttachmentError]);
 
   return (
     <div className="min-h-screen bg-[var(--bg-app)] text-[var(--text-primary)]">
@@ -836,10 +1043,40 @@ export function CreatePage() {
         />
         <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-white">Dreamint</span>
       </div>
-      <div className="mx-auto flex min-h-screen w-full max-w-[1400px] flex-col gap-12 px-6 pb-48 pt-16 lg:px-10">
-        <main className="flex flex-1 flex-col gap-12">
-          {hasGenerations ? (
-            groupedGenerations.map((group) => (
+
+      {/* Main Content */}
+      <div className="mx-auto flex min-h-screen w-full max-w-[1400px] flex-col gap-8 px-6 pb-48 pt-10 lg:px-10">
+        
+        {/* Navigation Tabs */}
+        <div className="pointer-events-none sticky top-4 z-30 flex justify-center">
+          <div className="pointer-events-auto flex items-center gap-1 rounded-full bg-[var(--bg-subtle)] p-1 border border-[var(--border-subtle)] shadow-lg shadow-black/20">
+            <button
+              onClick={() => setView("create")}
+              className={`rounded-full px-6 py-2 text-xs font-bold uppercase tracking-wide transition-all ${
+                view === "create"
+                  ? "bg-[var(--text-primary)] text-black shadow-sm"
+                  : "text-[var(--text-secondary)] hover:text-white"
+              }`}
+            >
+              Create
+            </button>
+            <button
+              onClick={() => setView("gallery")}
+              className={`rounded-full px-6 py-2 text-xs font-bold uppercase tracking-wide transition-all ${
+                view === "gallery"
+                  ? "bg-[var(--text-primary)] text-black shadow-sm"
+                  : "text-[var(--text-secondary)] hover:text-white"
+              }`}
+            >
+              Gallery
+            </button>
+          </div>
+        </div>
+
+        {view === "create" ? (
+          <main className="flex flex-1 flex-col gap-12">
+            {hasGenerations ? (
+              groupedGenerations.map((group) => (
               <GenerationGroup
                 key={group.key}
                 label={group.label}
@@ -851,40 +1088,55 @@ export function CreatePage() {
                 onUsePrompt={handleUsePrompt}
                 onPreviewInputImage={handlePreviewInputImage}
                 onDeleteGeneration={handleDeleteGeneration}
+                onRetryGeneration={handleRetryGeneration}
               />
             ))
           ) : (
             <EmptyState />
           )}
-        </main>
+          </main>
+        ) : (
+          <GalleryView generations={generations} onExpand={handleExpand} />
+        )}
       </div>
       
-      {/* Floating Header at Bottom */}
-      <div className="fixed bottom-8 left-0 right-0 z-40 px-6 pointer-events-none">
-        <div className="pointer-events-auto mx-auto w-full max-w-3xl">
-            <Header
-              prompt={prompt}
-              aspect={aspect}
-              quality={quality}
-              imageCount={imageCount}
-              apiKey={apiKey}
-                        isGenerating={hasActiveGeneration}
-                        isBudgetLocked={false}
-                        isSettingsOpen={isSettingsOpen}              onSubmit={handleSubmit}
-              onPromptChange={setPrompt}
-              onAspectSelect={handleAspectSelect}
-              onQualityChange={setQuality}
-              onImageCountChange={setImageCount}
-              onApiKeyChange={setApiKey}
-              onToggleSettings={setIsSettingsOpen}
-              attachments={attachments}
-              onAddAttachments={handleAddAttachments}
-              onRemoveAttachment={handleRemoveAttachment}
-              onPreviewAttachment={handlePreviewAttachment}
-              isAttachmentLimitReached={isAttachmentLimitReached}
-            />
+      {/* Floating Header at Bottom (Only in Create View) */}
+      {view === "create" && (
+        <div className="fixed bottom-8 left-0 right-0 z-40 px-6 pointer-events-none">
+          <div className="pointer-events-auto mx-auto w-full max-w-3xl">
+              <Header
+                prompt={prompt}
+                aspect={aspect}
+                quality={quality}
+                outputFormat={outputFormat}
+                provider={provider}
+                imageCount={imageCount}
+                apiKey={apiKey}
+                vertexApiKey={vertexApiKey}
+                vertexProjectId={vertexProjectId}
+                isGenerating={hasActiveGeneration}
+                isBudgetLocked={false}
+                isSettingsOpen={isSettingsOpen}
+                onSubmit={handleSubmit}
+                onPromptChange={setPrompt}
+                onAspectSelect={handleAspectSelect}
+                onQualityChange={setQuality}
+                onOutputFormatChange={setOutputFormat}
+                onProviderChange={setProvider}
+                onImageCountChange={setImageCount}
+                onApiKeyChange={setApiKey}
+                onVertexApiKeyChange={setVertexApiKey}
+                onVertexProjectIdChange={setVertexProjectId}
+                onToggleSettings={setIsSettingsOpen}
+                attachments={attachments}
+                onAddAttachments={handleAddAttachments}
+                onRemoveAttachment={handleRemoveAttachment}
+                onPreviewAttachment={handlePreviewAttachment}
+                isAttachmentLimitReached={isAttachmentLimitReached}
+              />
+          </div>
         </div>
-      </div>
+      )}
 
       {attachmentPreview ? (
         <AttachmentLightbox attachment={attachmentPreview} onClose={() => setAttachmentPreview(null)} />
@@ -893,7 +1145,7 @@ export function CreatePage() {
         <Lightbox
           entry={lightboxEntry}
           onClose={handleCloseLightbox}
-          onDownload={() => handleDownload(lightboxEntry.src)}
+          onDownload={() => handleDownload(lightboxEntry)}
           isDownloading={isDownloading}
           onPrev={handlePrevImage}
           onNext={handleNextImage}

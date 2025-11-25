@@ -1,30 +1,55 @@
 # Dreamint
 
-Dreamint is a browser-based workspace for generating images with Seedream 4.0 using FAL. It streamlines prompt crafting, parameter tweaks, and gallery review so you can experiment quickly without setup overhead.
+Dreamint is a browser-based workspace for generating and editing images with the Gemini 3 Pro Image Preview model on FAL (and optional Google/Vertex). It focuses on quick prompts, format/quality tweaks, and lightweight history so you can experiment without extra setup.
 
-WARNING: EVERYTHING YOU DO IS UNDER YOUR OWN RESPONSIBILITY. I AM NOT RESPONSIBLE FOR ANYTHING THAT HAPPENS (UNEXPECTED API USAGE, MALFUNCTIONING OF THE API, ETC.).
+> WARNING: YOU USE THIS AT YOUR OWN RISK. YOU ARE RESPONSIBLE FOR ANY API COSTS, ERRORS, OR MISBEHAVIOR.
 
-## Installation
+## What’s included
+- Prompt composer with aspect presets, quality levels (1K/2K/4K), and output format selection (PNG/JPEG/WEBP).
+- Up to four reference images for edits; drag-and-drop, paste, or file picker.
+- Batch generation (1–4 images) with local gallery, metadata chips, and one-click “Use prompt” restore.
+- Lightbox with keyboard/scroll navigation, download in your selected format, and edit-from-image shortcut.
+- Interrupted request recovery: pending jobs saved locally are marked “Interrupted” after reload/close with Retry/Delete options; placeholders show an interrupted state.
+- Local-first state: prompts/settings in `localStorage`; gallery and pending items in IndexedDB via `localforage`. API keys stay in the browser only.
 
-1. Ensure Node.js 18+ is installed.
-2. Install dependencies with `npm install` (or `pnpm install` / `yarn install`).
+## Requirements
+- Node.js 18+
+- FAL API key for Gemini 3 Pro Image Preview (or Google/Vertex key + project ID if you enable Google provider).
 
-## Running Locally
+## Setup
+```bash
+npm install
+```
 
-1. Provide your `FAL_API_KEY` either by adding it to `.env.local` **or** by entering it through the in-app Settings button once Dreamint is running.
-2. Start the development server:
-
+## Running locally
+1) Provide credentials (any of these):
+   - Add `FAL_API_KEY` to `.env.local`, **or**
+   - Use the in-app Settings toggle to paste your key(s).
+   - For Google/Vertex, also supply a Project ID.
+2) Start dev server:
 ```bash
 npm run dev
 ```
+3) Open http://localhost:3000
 
-3. Open [http://localhost:3000](http://localhost:3000) in your browser to launch Dreamint.
+## Using the app
+- Choose aspect, quality, and **Output Format** from the control bar. The format is sent to FAL and used when downloading from the lightbox.
+- Add reference images (max 4). If the first image has clear dimensions, the aspect auto-adjusts to match.
+- Click **Generate** or press Enter in the prompt box. While running, a stopwatch shows elapsed time.
+- If you close or reload mid-run, the pending items reappear as **Interrupted** with Retry/Delete buttons and non-animated placeholders.
+- Switch between **Create** and **Gallery** via the floating pill at the top; it stays visible when scrolling.
 
-## Features
+## Providers
+- **FAL (default):** Uses `fal-ai/gemini-3-pro-image-preview` with sync mode. Supports `output_format` (`png`, `jpeg`, `webp`), `aspect_ratio`, `resolution`, and optional image edits.
+- **Google/Vertex:** Experimental support that posts to Gemini 3 Pro Image Preview via Vertex. Requires API key and Project ID. Input images are inlined as base64 when available.
 
-- **Prompt workspace:** pair your description with aspect presets, quality levels, optional seed input, and size overrides.
-- **Custom dimensions:** specify exact width and height when you need a bespoke resolution.
-- **Reference images:** upload up to four guidance images.
-- **Batch generation:** request four variations per run, download outputs instantly, or queue edits from the history sidebar.
-- **Interactive gallery:** revisit past generations, inspect metadata chips, and restore settings for new runs.
-- **Lightbox viewer:** review images fullscreen with keyboard arrows, overlay buttons, or scroll gestures; download or jump into editing without closing the view.
+## Notes and limitations
+- Everything is client-initiated; server jobs are not durable. Closing the page interrupts in-flight requests.
+- Attachment and gallery data are stored locally; clear your browser storage to wipe state.
+- Max four outputs per request; max four input images (app-enforced, model limit is higher but capped here).
+
+## Scripts
+- `npm run dev` — start Next.js with Turbopack
+- `npm run build` — production build
+- `npm run lint` — ESLint
+

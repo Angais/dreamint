@@ -1,5 +1,5 @@
 import type { SeedreamGeneration } from "../../actions/generate-seedream";
-import type { AspectKey, QualityKey } from "../../lib/seedream-options";
+import type { AspectKey, QualityKey, Provider, OutputFormat } from "../../lib/seedream-options";
 
 export type PromptAttachment = {
   id: string;
@@ -19,5 +19,7 @@ export type GalleryEntry = {
   prompt: string;
   aspect: AspectKey | "custom";
   quality: QualityKey;
+  provider?: Provider;
+  outputFormat?: OutputFormat;
   size: { width: number; height: number };
 };

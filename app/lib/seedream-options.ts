@@ -1,3 +1,11 @@
+export type Provider = "fal" | "google";
+export type OutputFormat = "png" | "jpeg" | "webp";
+
+export const PROVIDER_OPTIONS: { value: Provider; label: string }[] = [
+  { value: "fal", label: "FAL.ai" },
+  { value: "google", label: "Google Vertex" },
+];
+
 export type AspectKey =
   | "square-1-1"
   | "portrait-2-3"
@@ -26,6 +34,11 @@ type QualityDefinition = {
   label: string;
   description: string;
   maxDimension: number;
+};
+
+type OutputFormatDefinition = {
+  value: OutputFormat;
+  label: string;
 };
 
 export const ASPECT_OPTIONS: AspectDefinition[] = [
@@ -132,6 +145,12 @@ export const QUALITY_OPTIONS: QualityDefinition[] = [
   },
 ];
 
+export const OUTPUT_FORMAT_OPTIONS: OutputFormatDefinition[] = [
+  { value: "png", label: "PNG" },
+  { value: "jpeg", label: "JPEG" },
+  { value: "webp", label: "WEBP" },
+];
+
 export function getAspectDefinition(value: AspectKey): AspectDefinition | undefined {
   return ASPECT_OPTIONS.find((option) => option.value === value);
 }
@@ -149,6 +168,10 @@ export function getAspectDescription(value: string): string {
 
 export function getQualityLabel(value: QualityKey): string {
   return getQualityDefinition(value)?.label ?? value;
+}
+
+export function getOutputFormatLabel(value: OutputFormat): string {
+  return OUTPUT_FORMAT_OPTIONS.find((option) => option.value === value)?.label ?? value.toUpperCase();
 }
 
 export function calculateImageSize(aspect: AspectKey, quality: QualityKey): { width: number; height: number } {
