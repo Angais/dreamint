@@ -342,6 +342,20 @@ export function CreatePage() {
       return;
     }
 
+    const noKeys = apiKey.trim().length === 0 && vertexApiKey.trim().length === 0;
+    if (noKeys) {
+      debugLog("pending:cleared-no-keys", {
+        count: pendingGenerations.length,
+      });
+      setPendingGenerations([]);
+      const store = getLargeStateStore();
+      if (store) {
+        void store.removeItem(STORAGE_KEYS.pendingGenerations);
+      }
+      pendingReconciledRef.current = true;
+      return;
+    }
+
     debugLog("pending:recovered-stale", {
       count: pendingGenerations.length,
       ids: pendingGenerations.map((gen) => gen.id),
@@ -356,7 +370,7 @@ export function CreatePage() {
     });
     setPendingGenerations([]);
     pendingReconciledRef.current = true;
-  }, [pendingGenerations]);
+  }, [pendingGenerations, apiKey, vertexApiKey]);
 
   const activeFeed = useMemo(
     () => [...pendingGenerations, ...generations],
