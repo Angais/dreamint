@@ -91,7 +91,7 @@ export function Lightbox({
     <div
       ref={containerRef}
       tabIndex={-1}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8 outline-none"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#000]/95 backdrop-blur-sm px-4 py-8 outline-none animate-in fade-in duration-200"
       onWheel={handleWheel}
     >
       <button
@@ -100,89 +100,107 @@ export function Lightbox({
         aria-label="Close image"
         onClick={onClose}
       />
-      <div className="relative z-10 w-full max-w-5xl rounded-3xl border border-[#1c1d27] bg-[#0f1017] p-6 shadow-[0_45px_120px_-50px_rgba(0,0,0,0.9)]">
-        <div className="flex justify-end">
-          <button
-            type="button"
-            className="rounded-full border border-[#2a2b36] bg-[#151620] px-3 py-1 text-xs font-semibold text-[#dcdde5] transition-colors hover:border-[#343545]"
-            onClick={onClose}
-          >
-            Close
-          </button>
-        </div>
-        <div className="mt-4 overflow-hidden rounded-2xl border border-[#181922] bg-black/30">
-          <div className="relative flex max-h-[70vh] w-full items-center justify-center">
+      <div className="relative z-10 w-full max-w-6xl rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-2 shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col md:flex-row overflow-hidden">
+        
+        {/* Image Container */}
+        <div className="relative flex-1 bg-black/50 rounded-xl overflow-hidden flex items-center justify-center min-h-[50vh] md:min-h-[70vh]">
             {canGoPrev ? (
               <button
                 type="button"
                 aria-label="Previous image"
-                className="group absolute left-4 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/40 p-2 text-white backdrop-blur transition hover:bg-black/60 focus:outline-none focus:ring-2 focus:ring-white/40"
+                className="group absolute left-4 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/60 p-3 text-white backdrop-blur transition hover:bg-[var(--accent-primary)] hover:text-white focus:outline-none"
                 onClick={(event) => {
                   event.stopPropagation();
                   onPrev();
                 }}
               >
-                <ArrowLeftIcon className="h-4 w-4" />
+                <ArrowLeftIcon className="h-5 w-5" />
               </button>
             ) : null}
+            
             <Image
               src={entry.src}
               alt={entry.prompt}
               width={entry.size.width}
               height={entry.size.height}
-              className="max-h-[70vh] w-auto max-w-full select-none object-contain"
+              className="max-h-[70vh] w-auto max-w-full select-none object-contain shadow-lg"
               draggable={false}
               priority
             />
+            
             {canGoNext ? (
               <button
                 type="button"
                 aria-label="Next image"
-                className="group absolute right-4 top-1/2 z-10 -translate-y-1/2 rounded-full bg-black/40 p-2 text-white backdrop-blur transition hover:bg-black/60 focus:outline-none focus:ring-2 focus:ring-white/40"
+                className="group absolute right-4 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/60 p-3 text-white backdrop-blur transition hover:bg-[var(--accent-primary)] hover:text-white focus:outline-none"
                 onClick={(event) => {
                   event.stopPropagation();
                   onNext();
                 }}
               >
-                <ArrowRightIcon className="h-4 w-4" />
+                <ArrowRightIcon className="h-5 w-5" />
               </button>
             ) : null}
-          </div>
         </div>
-        <div className="mt-5 flex flex-col gap-3 text-sm text-[#cfd0da]">
-          <p className="text-base font-medium text-white">{entry.prompt}</p>
-          <div className="flex flex-wrap gap-2 text-xs">
-            <span className="rounded-full border border[#222330] bg-[#15161f] px-3 py-1 text-[#a7a9ba]">
-              {getAspectDescription(entry.aspect)}
-            </span>
-            <span className="rounded-full border border[#222330] bg-[#15161f] px-3 py-1 text-[#a7a9ba]">
-              {getQualityLabel(entry.quality)} - {formatResolution(entry.size)}
-            </span>
-          </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onDownload}
-              disabled={isDownloading}
-              className="flex items-center gap-2 rounded-full border border[#2a2b36] bg-[#151620] px-5 py-2.5 text-sm font-semibold text-[#dcdde5] transition-colors hover:border-[#343545] disabled:cursor-not-allowed disabled:border-[#2a2b36] disabled:text-[#77798a]"
-            >
-              {isDownloading ? <SpinnerIcon className="h-4 w-4 animate-spin" /> : <DownloadIcon className="h-4 w-4" />}
-              {isDownloading ? "Preparing" : "Download"}
-            </button>
-            {onEdit ? (
+
+        {/* Sidebar for Details */}
+        <div className="w-full md:w-[320px] bg-[var(--bg-panel)] p-6 flex flex-col border-l border-[var(--border-subtle)]">
+           <div className="flex justify-between items-start mb-6">
+             <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Details</h2>
               <button
                 type="button"
-                onClick={onEdit}
-                className="flex items-center gap-2 rounded-full border border[#2a2b36] bg-[#13141c] px-5 py-2.5 text-sm font-semibold text-[#dcdde5] transition-colors hover:border-[#343545]"
+                className="rounded-md p-2 -mt-2 -mr-2 text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-subtle)]"
+                onClick={onClose}
               >
-                <PlusIcon className="h-4 w-4" />
-                Edit
+                 <span className="text-xs font-bold">ESC</span>
               </button>
-            ) : null}
-          </div>
+           </div>
+
+           <div className="flex-1 overflow-y-auto pr-2">
+             <p className="text-sm leading-relaxed text-[var(--text-primary)] font-medium mb-4">
+               {entry.prompt}
+             </p>
+             
+             <div className="grid grid-cols-2 gap-3 text-xs text-[var(--text-secondary)] mb-6">
+                <div className="p-2 rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)]">
+                  <span className="block text-[10px] uppercase tracking-wide opacity-60 mb-1">Aspect</span>
+                  {getAspectDescription(entry.aspect)}
+                </div>
+                <div className="p-2 rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)]">
+                  <span className="block text-[10px] uppercase tracking-wide opacity-60 mb-1">Quality</span>
+                  {getQualityLabel(entry.quality)}
+                </div>
+                 <div className="p-2 rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] col-span-2">
+                  <span className="block text-[10px] uppercase tracking-wide opacity-60 mb-1">Resolution</span>
+                  {formatResolution(entry.size)}
+                </div>
+             </div>
+           </div>
+
+           <div className="mt-auto pt-6 border-t border-[var(--border-subtle)] space-y-3 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={onDownload}
+                disabled={isDownloading}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--accent-primary)] px-4 py-3 text-sm font-bold text-black shadow-lg shadow-sky-900/20 transition-all hover:bg-gray-200 hover:shadow-sky-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isDownloading ? <SpinnerIcon className="h-4 w-4 animate-spin" /> : <DownloadIcon className="h-4 w-4" />}
+                {isDownloading ? "Saving..." : "Download Image"}
+              </button>
+              
+              {onEdit ? (
+                <button
+                  type="button"
+                  onClick={onEdit}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-4 py-3 text-sm font-semibold text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-subtle)] hover:text-white hover:border-[var(--text-muted)]"
+                >
+                  <PlusIcon className="h-4 w-4" />
+                  Use as Reference
+                </button>
+              ) : null}
+           </div>
         </div>
       </div>
     </div>
   );
 }
-

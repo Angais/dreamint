@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { DownloadIcon } from "./icons";
 
 type AttachmentLightboxProps = {
-  attachment: { url: string; name: string; id?: string };
+  attachment: { url: string; name: string; id?: string; width?: number | null; height?: number | null };
   onClose: () => void;
 };
 
@@ -44,7 +44,7 @@ export function AttachmentLightbox({ attachment, onClose }: AttachmentLightboxPr
       const downloadUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = downloadUrl;
-      link.download = attachment.name || `seedream-input-${Date.now()}.png`;
+      link.download = attachment.name || `nano-banana-input-${Date.now()}.png`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -60,7 +60,7 @@ export function AttachmentLightbox({ attachment, onClose }: AttachmentLightboxPr
     <div
       ref={containerRef}
       tabIndex={-1}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-8 outline-none"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm px-4 py-8 outline-none animate-in fade-in duration-200"
     >
       <button
         type="button"
@@ -68,18 +68,18 @@ export function AttachmentLightbox({ attachment, onClose }: AttachmentLightboxPr
         aria-label="Close attachment"
         onClick={onClose}
       />
-      <div className="relative z-10 w-full max-w-4xl rounded-3xl border border-[#1c1d27] bg-[#0f1017] p-6 shadow-[0_45px_120px_-50px_rgba(0,0,0,0.9)]">
+      <div className="relative z-10 w-full max-w-4xl rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-6 shadow-2xl animate-in zoom-in-95 duration-200">
         <div className="flex justify-end">
           <button
             type="button"
-            className="rounded-full border border-[#2a2b36] bg-[#151620] px-3 py-1 text-xs font-semibold text-[#dcdde5] transition-colors hover:border-[#343545]"
+            className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-1.5 text-xs font-semibold text-[var(--text-secondary)] transition-colors hover:border-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-subtle)]"
             onClick={onClose}
           >
             Close
           </button>
         </div>
-        <div className="mt-4 flex flex-col gap-4 text-sm text-[#cfd0da]">
-          <div className="relative flex max-h-[70vh] w-full justify-center overflow-hidden rounded-2xl border border-[#181922] bg-black/30">
+        <div className="mt-4 flex flex-col gap-5 text-sm text-[var(--text-secondary)]">
+          <div className="relative flex max-h-[70vh] w-full justify-center overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-black/50">
             <Image
               src={attachment.url}
               alt={attachment.name}
@@ -90,23 +90,21 @@ export function AttachmentLightbox({ attachment, onClose }: AttachmentLightboxPr
               draggable={false}
             />
           </div>
-          <div className="flex flex-col gap-2">
-            <p className="text-base font-medium text-white">{attachment.name}</p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={handleDownload}
-                disabled={isDownloading}
-                className="flex items-center gap-2 rounded-full border border-[#2a2b36] bg-[#151620] px-5 py-2.5 text-sm font-semibold text-[#dcdde5] transition-colors hover:border-[#343545] disabled:cursor-not-allowed disabled:border-[#2a2b36] disabled:text-[#77798a]"
-              >
-                {isDownloading ? (
-                  <span className="h-4 w-4 animate-spin border border-[#dcdde5]/60 border-t-transparent rounded-full" />
-                ) : (
-                  <DownloadIcon className="h-4 w-4" />
-                )}
-                {isDownloading ? "Preparing" : "Download"}
-              </button>
-            </div>
+          <div className="flex items-center justify-between">
+            <p className="text-base font-semibold text-[var(--text-primary)]">{attachment.name}</p>
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={isDownloading}
+              className="flex items-center gap-2 rounded-lg bg-[var(--accent-primary)] px-4 py-2 text-sm font-bold text-black shadow-lg shadow-sky-900/20 transition-all hover:bg-sky-400 hover:shadow-sky-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isDownloading ? (
+                <span className="h-4 w-4 animate-spin border-2 border-white/60 border-t-transparent rounded-full" />
+              ) : (
+                <DownloadIcon className="h-4 w-4" />
+              )}
+              {isDownloading ? "Downloading..." : "Download"}
+            </button>
           </div>
         </div>
       </div>

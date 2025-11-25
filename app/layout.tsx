@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Dreamint",
-  description: "Dreamint lets you craft image generations with FAL Seedream 4.0.",
+  description: "Craft image generations with Dreamint.",
   icons: {
     icon: "/Dreaming.png",
   },

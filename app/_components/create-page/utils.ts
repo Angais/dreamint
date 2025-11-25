@@ -10,18 +10,7 @@ export function resizeTextarea(element: HTMLTextAreaElement | null) {
 }
 
 export function normalizeImages(images: string[]): string[] {
-  const unique = images.filter((src) => src);
-  const normalized = unique.slice(0, 4);
-
-  if (normalized.length === 0) {
-    return ["", "", "", ""];
-  }
-
-  while (normalized.length < 4) {
-    normalized.push(unique[normalized.length % unique.length]);
-  }
-
-  return normalized;
+  return images.filter((src) => src && src.length > 0);
 }
 
 export function parseSeed(value: string): number | null {
