@@ -29,8 +29,8 @@ export function GenerationGroup({
   onDeleteGeneration,
 }: GenerationGroupProps) {
   return (
-    <div className="space-y-6">
-      <h2 className="text-xs font-semibold uppercase tracking-[0.4em] text-[#6a6c7b]">
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <h2 className="text-xs font-bold uppercase tracking-[0.4em] text-text-muted pl-1">
         {label}
       </h2>
       <div className="space-y-10">
@@ -41,12 +41,12 @@ export function GenerationGroup({
           return (
             <div
               key={generation.id}
-              className="flex flex-col gap-6 lg:flex-row lg:items-start"
+              className="flex flex-col gap-6 lg:flex-row lg:items-start group"
             >
               <div className="w-full lg:flex-1 lg:min-w-0">
                 <GenerationGallery generation={generation} onExpand={onExpand} />
               </div>
-              <div className="w-full max-w-[180px] lg:w-44 lg:basis-44 lg:flex-none lg:self-start lg:shrink-0">
+              <div className="w-full max-w-[180px] lg:w-44 lg:basis-44 lg:flex-none lg:self-start lg:shrink-0 transition-opacity duration-300 lg:opacity-80 lg:group-hover:opacity-100">
                 <GenerationDetailsCard
                   generation={generation}
                   isGenerating={isGenerating}
@@ -85,8 +85,8 @@ function GenerationGallery({ generation, onExpand }: GenerationGalleryProps) {
   });
 
   return (
-    <article className="w-full rounded-3xl border border-[#171822] bg-[#101117] shadow-[0_20px_50px_-40px_rgba(0,0,0,0.85)]">
-      <div className={`${layout.gridClass} overflow-hidden rounded-3xl border border-[#181922] bg-[#0c0d14] p-4`}>
+    <article className="glass-panel w-full rounded-3xl p-1 shadow-2xl transition-all duration-300 hover:shadow-[0_0_30px_-10px_rgba(99,102,241,0.15)]">
+      <div className={`${layout.gridClass} overflow-hidden rounded-[20px] bg-[rgba(0,0,0,0.3)]`}>
         {generation.images.map((src, index) => (
           <ImageTile
             key={`${generation.id}-${index}`}
@@ -129,7 +129,7 @@ function ImageTile({ src, className, prompt, onExpand, generationId, imageIndex,
 
   if (!src) {
     return (
-      <div className={`${className} animate-pulse rounded-2xl border border-dashed border[#20212d] bg-[#0f1017]`} />
+      <div className={`${className} animate-pulse bg-[#1f1f1f] border border-[#333]`} />
     );
   }
 
@@ -137,7 +137,7 @@ function ImageTile({ src, className, prompt, onExpand, generationId, imageIndex,
     <button
       type="button"
       onClick={onExpand}
-      className={`${className} rounded-2xl border border[#1a1b24] bg-[#0f1017] transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-[#e9eaef]/30 cursor-pointer`}
+      className={`${className} bg-[#0f1017] transition-all duration-300 hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-[#6366f1]/50 cursor-pointer overflow-hidden group/tile`}
       aria-label="Expand image"
     >
       <Image
@@ -150,7 +150,7 @@ function ImageTile({ src, className, prompt, onExpand, generationId, imageIndex,
         quality={100}
         unoptimized={shouldBypassOptimization}
         loading={shouldBypassOptimization ? "eager" : "lazy"}
-        className="h-full w-full object-cover select-none"
+        className="h-full w-full object-cover select-none transition-transform duration-500 group-hover/tile:scale-105"
         onLoadingComplete={(image) => {
           debugLog("gallery:image-loaded", {
             generationId,
@@ -168,36 +168,43 @@ function ImageTile({ src, className, prompt, onExpand, generationId, imageIndex,
           });
         }}
         style={{
-          imageRendering: "high-quality",
-          WebkitImageRendering: "optimizeQuality",
           transform: "translateZ(0)",
           backfaceVisibility: "hidden",
           filter: devicePixelRatio > 1 ? "none" : undefined,
         }}
       />
+      <div className="absolute inset-0 bg-black/0 transition-colors group-hover/tile:bg-black/10" />
     </button>
   );
 }
 
 const GRID_CLASS_MAP: Record<AspectKey, string> = {
-  "square-1-1": "grid grid-cols-2 gap-3",
-  "portrait-4-5": "grid grid-cols-2 gap-3 lg:grid-cols-4",
-  "portrait-9-16": "grid grid-cols-2 gap-3 lg:grid-cols-4",
-  "landscape-3-2": "grid grid-cols-2 gap-3 lg:grid-cols-4",
-  "landscape-16-9": "grid grid-cols-2 gap-3 lg:grid-cols-4",
-  "landscape-21-9": "grid grid-cols-2 gap-3 lg:grid-cols-4",
+  "square-1-1": "grid grid-cols-2 gap-0.5",
+  "portrait-2-3": "grid grid-cols-2 gap-0.5",
+  "portrait-3-4": "grid grid-cols-2 gap-0.5",
+  "portrait-4-5": "grid grid-cols-2 gap-0.5",
+  "portrait-9-16": "grid grid-cols-2 gap-0.5",
+  "landscape-3-2": "grid grid-cols-2 gap-0.5",
+  "landscape-4-3": "grid grid-cols-2 gap-0.5",
+  "landscape-5-4": "grid grid-cols-2 gap-0.5",
+  "landscape-16-9": "grid grid-cols-2 gap-0.5",
+  "landscape-21-9": "grid grid-cols-2 gap-0.5",
 };
 
 const TILE_CLASS_MAP: Record<AspectKey, string> = {
   "square-1-1": "relative aspect-square overflow-hidden",
+  "portrait-2-3": "relative aspect-[2/3] overflow-hidden",
+  "portrait-3-4": "relative aspect-[3/4] overflow-hidden",
   "portrait-4-5": "relative aspect-[4/5] overflow-hidden",
   "portrait-9-16": "relative aspect-[9/16] overflow-hidden",
   "landscape-3-2": "relative aspect-[3/2] overflow-hidden",
+  "landscape-4-3": "relative aspect-[4/3] overflow-hidden",
+  "landscape-5-4": "relative aspect-[5/4] overflow-hidden",
   "landscape-16-9": "relative aspect-[16/9] overflow-hidden",
   "landscape-21-9": "relative aspect-[21/9] overflow-hidden",
 };
 
-const DEFAULT_GRID_CLASS = "grid grid-cols-2 gap-3 lg:grid-cols-4";
+const DEFAULT_GRID_CLASS = "grid grid-cols-2 gap-0.5";
 const DEFAULT_TILE_CLASS = "relative aspect-square overflow-hidden";
 
 type GalleryLayout = {

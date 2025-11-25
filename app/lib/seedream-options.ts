@@ -1,12 +1,16 @@
-﻿export type AspectKey =
+export type AspectKey =
   | "square-1-1"
+  | "portrait-2-3"
+  | "portrait-3-4"
   | "portrait-4-5"
   | "portrait-9-16"
   | "landscape-3-2"
+  | "landscape-4-3"
+  | "landscape-5-4"
   | "landscape-16-9"
   | "landscape-21-9";
 
-export type QualityKey = "standard" | "high" | "ultra" | "four-k";
+export type QualityKey = "1k" | "2k" | "4k";
 
 type AspectDefinition = {
   value: AspectKey;
@@ -34,8 +38,24 @@ export const ASPECT_OPTIONS: AspectDefinition[] = [
     orientation: "square",
   },
   {
+    value: "portrait-2-3",
+    label: "Classic",
+    description: "2 : 3",
+    widthRatio: 2,
+    heightRatio: 3,
+    orientation: "portrait",
+  },
+  {
+    value: "portrait-3-4",
+    label: "Tall",
+    description: "3 : 4",
+    widthRatio: 3,
+    heightRatio: 4,
+    orientation: "portrait",
+  },
+  {
     value: "portrait-4-5",
-    label: "Portrait",
+    label: "Social",
     description: "4 : 5",
     widthRatio: 4,
     heightRatio: 5,
@@ -51,10 +71,26 @@ export const ASPECT_OPTIONS: AspectDefinition[] = [
   },
   {
     value: "landscape-3-2",
-    label: "Landscape",
+    label: "Classic",
     description: "3 : 2",
     widthRatio: 3,
     heightRatio: 2,
+    orientation: "landscape",
+  },
+  {
+    value: "landscape-4-3",
+    label: "Standard",
+    description: "4 : 3",
+    widthRatio: 4,
+    heightRatio: 3,
+    orientation: "landscape",
+  },
+  {
+    value: "landscape-5-4",
+    label: "Print",
+    description: "5 : 4",
+    widthRatio: 5,
+    heightRatio: 4,
     orientation: "landscape",
   },
   {
@@ -77,27 +113,21 @@ export const ASPECT_OPTIONS: AspectDefinition[] = [
 
 export const QUALITY_OPTIONS: QualityDefinition[] = [
   {
-    value: "standard",
-    label: "Standard",
-    description: "1536 max",
-    maxDimension: 1536,
+    value: "1k",
+    label: "1K",
+    description: "Fast (1024px)",
+    maxDimension: 1024,
   },
   {
-    value: "high",
-    label: "High",
-    description: "2048 max",
+    value: "2k",
+    label: "2K",
+    description: "Detailed (2048px)",
     maxDimension: 2048,
   },
   {
-    value: "ultra",
-    label: "Ultra",
-    description: "3072 max",
-    maxDimension: 3072,
-  },
-  {
-    value: "four-k",
+    value: "4k",
     label: "4K",
-    description: "4096 max",
+    description: "Ultra (4096px)",
     maxDimension: 4096,
   },
 ];
@@ -110,8 +140,11 @@ export function getQualityDefinition(value: QualityKey): QualityDefinition | und
   return QUALITY_OPTIONS.find((option) => option.value === value);
 }
 
-export function getAspectDescription(value: AspectKey): string {
-  return getAspectDefinition(value)?.description ?? value;
+export function getAspectDescription(value: string): string {
+  if (value === "custom") {
+    return "Custom";
+  }
+  return getAspectDefinition(value as AspectKey)?.description ?? value;
 }
 
 export function getQualityLabel(value: QualityKey): string {

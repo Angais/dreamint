@@ -28,7 +28,7 @@ export type GenerateSeedreamArgs = {
   prompt: string;
   aspect: GenerateAspect;
   quality: QualityKey;
-  seed?: number | null;
+  numImages?: number;
   apiKey?: string;
   sizeOverride?: { width: number; height: number };
   inputImages?: InputImage[];
@@ -38,7 +38,6 @@ export type SeedreamGeneration = {
   prompt: string;
   aspect: GenerateAspect;
   quality: QualityKey;
-  seed: number | null;
   createdAt: string;
   size: { width: number; height: number };
   images: string[];
@@ -49,7 +48,7 @@ export async function generateSeedream({
   prompt,
   aspect,
   quality,
-  seed,
+  numImages = 4,
   apiKey,
   sizeOverride,
   inputImages = [],
@@ -65,6 +64,8 @@ export async function generateSeedream({
   if (!trimmedPrompt) {
     throw new Error("Prompt is required.");
   }
+
+  const validNumImages = Math.max(1, Math.min(4, Math.round(numImages)));
 
   if (aspect !== "custom") {
     const aspectDefinition = getAspectDefinition(aspect);
@@ -124,18 +125,13 @@ export async function generateSeedream({
   const payload: Record<string, unknown> = {
     prompt: trimmedPrompt,
     image_size: size,
-    // Request four sequential generations 
-    num_images: 4,
-    max_images: 1,
+    num_images: validNumImages,
     sync_mode: true,
     enable_safety_checker: false,
   };
 
   if (useEditEndpoint) {
-    const requestedOutputs =
-      typeof payload.num_images === "number" && Number.isFinite(payload.num_images)
-        ? (payload.num_images as number)
-        : 1;
+    const requestedOutputs = validNumImages;
 
     if (effectiveInputImages.length + requestedOutputs > 15) {
       throw new Error("Total number of images (input + output) must not exceed 15.");
@@ -144,13 +140,9 @@ export async function generateSeedream({
     payload.image_urls = effectiveInputImages.map((image) => image.url);
   }
 
-  if (typeof seed === "number" && Number.isFinite(seed)) {
-    payload.seed = seed;
-  }
-
   const endpoint = useEditEndpoint
-    ? "https://fal.run/fal-ai/bytedance/seedream/v4/edit"
-    : "https://fal.run/fal-ai/bytedance/seedream/v4/text-to-image";
+    ? "https://fal.run/fal-ai/gemini-3-pro-image-preview/edit"
+    : "https://fal.run/fal-ai/gemini-3-pro-image-preview";
 
   const response = await fetch(endpoint, {
     method: "POST",
@@ -164,12 +156,11 @@ export async function generateSeedream({
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Seedream request failed (${response.status}): ${errorText}`);
+    throw new Error(`Request failed (${response.status}): ${errorText}`);
   }
 
   const json = (await response.json()) as {
     images?: { url?: string }[];
-    seed?: number;
   };
 
   const images = (json.images ?? [])
@@ -177,16 +168,15 @@ export async function generateSeedream({
     .filter((url): url is string => typeof url === "string" && url.length > 0);
 
   if (images.length === 0) {
-    throw new Error("Seedream did not return any images.");
+    throw new Error("No images returned.");
   }
 
   return {
     prompt: trimmedPrompt,
     aspect,
     quality,
-    seed: json.seed ?? null,
-    size,
     createdAt: new Date().toISOString(),
+    size,
     images,
     inputImages: effectiveInputImages,
   };

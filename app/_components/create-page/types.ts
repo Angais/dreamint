@@ -17,7 +17,7 @@ export type GalleryEntry = {
   imageIndex: number;
   src: string;
   prompt: string;
-  aspect: AspectKey;
+  aspect: AspectKey | "custom";
   quality: QualityKey;
   size: { width: number; height: number };
 };

@@ -3,7 +3,7 @@
 import NextImage from "next/image";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import localforage, { type LocalForage } from "localforage";
+import localforage from "localforage";
 import { debugLog } from "./create-page/logger";
 import { generateSeedream } from "../actions/generate-seedream";
 import { calculateImageSize, type AspectKey, type QualityKey } from "../lib/seedream-options";
@@ -12,33 +12,26 @@ import { GenerationGroup } from "./create-page/generation-list";
 import { Header } from "./create-page/header";
 import { Lightbox } from "./create-page/lightbox";
 import { AttachmentLightbox } from "./create-page/attachment-lightbox";
-import { BudgetWidget } from "./create-page/budget-widget";
-import { createId, groupByDate, normalizeImages, parseSeed } from "./create-page/utils";
+import { createId, groupByDate, normalizeImages } from "./create-page/utils";
 import type { GalleryEntry, Generation, PromptAttachment } from "./create-page/types";
 
 const defaultPrompt =
-  "Dreamlike pastel illustration of a floating island garden, cinematic lighting, painterly brushstrokes";
+  "Cinematic shot of a futuristic city at night, neon lights, rain reflections, highly detailed, 8k resolution";
 const defaultAspect: AspectKey = "portrait-9-16";
-const defaultQuality: QualityKey = "high";
-const ATTACHMENT_ASPECT_PREFIX = "attachment:";
+const defaultQuality: QualityKey = "2k";
 
 const STORAGE_KEYS = {
   prompt: "seedream:prompt",
   aspect: "seedream:aspect",
   quality: "seedream:quality",
-  seed: "seedream:seed",
+  imageCount: "seedream:image_count",
   generations: "seedream:generations",
   pendingGenerations: "seedream:pending_generations",
   apiKey: "seedream:api_key",
-  customWidth: "seedream:custom_width",
-  customHeight: "seedream:custom_height",
-  useCustomResolution: "seedream:use_custom_resolution",
   budgetCents: "seedream:budget_cents",
   spentCents: "seedream:spent_cents",
 } as const;
 
-const MIN_IMAGE_DIMENSION = 512;
-const MAX_IMAGE_DIMENSION = 4096;
 const MAX_ATTACHMENTS = 4;
 const ATTACHMENT_LIMIT_MESSAGE = `Maximum of ${MAX_ATTACHMENTS} images allowed.`;
 const ATTACHMENT_TYPE_MESSAGE = "Only image files can be used for editing.";
@@ -49,30 +42,19 @@ const ATTACHMENT_ERROR_MESSAGES = new Set([
   ATTACHMENT_READ_MESSAGE,
 ]);
 
-type AttachmentAspectOption = {
-  value: string;
-  label: string;
-  ratio: string;
-  resolution: string;
-  width: number;
-  height: number;
-  attachmentId: string;
-};
-
 const ASPECT_VALUES: AspectKey[] = [
   "square-1-1",
+  "portrait-2-3",
+  "portrait-3-4",
   "portrait-4-5",
   "portrait-9-16",
   "landscape-3-2",
+  "landscape-4-3",
+  "landscape-5-4",
   "landscape-16-9",
   "landscape-21-9",
-];const IMAGE_COST_CENTS = 3;
-const IMAGES_PER_BATCH = 4;
-const BATCH_COST_CENTS = IMAGE_COST_CENTS * IMAGES_PER_BATCH;
-
-
-
-const QUALITY_VALUES: QualityKey[] = ["standard", "high", "ultra", "four-k"];
+];
+const QUALITY_VALUES: QualityKey[] = ["1k", "2k", "4k"];
 
 function isAspectKey(value: string | null): value is AspectKey {
   return typeof value === "string" && (ASPECT_VALUES as string[]).includes(value);
@@ -96,27 +78,6 @@ function safePersist(key: string, value: string | null) {
   } catch (error) {
     console.error(`Unable to persist ${key} in localStorage`, error);
   }
-}
-
-function parseCustomDimension(value: string): number | null {
-  if (!value) {
-    return null;
-  }
-
-  const numeric = Number.parseInt(value, 10);
-  if (!Number.isFinite(numeric)) {
-    return null;
-  }
-
-  if (Number.isNaN(numeric)) {
-    return null;
-  }
-
-  if (numeric < MIN_IMAGE_DIMENSION || numeric > MAX_IMAGE_DIMENSION) {
-    return null;
-  }
-
-  return numeric;
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {
@@ -149,44 +110,45 @@ async function loadImageDimensions(url: string): Promise<{ width: number; height
   });
 }
 
-function gcd(a: number, b: number): number {
-  let x = Math.abs(a);
-  let y = Math.abs(b);
-  while (y) {
-    const temp = y;
-    y = x % y;
-    x = temp;
+function findClosestAspect(width: number, height: number): AspectKey {
+  const ratio = width / height;
+  let closestAspect: AspectKey = defaultAspect;
+  let minDiff = Number.MAX_VALUE;
+
+  for (const key of ASPECT_VALUES) {
+    const parts = key.split("-");
+    // format: orientation-w-h
+    if (parts.length < 3) continue;
+    
+    const w = parseInt(parts[1], 10);
+    const h = parseInt(parts[2], 10);
+    
+    if (isNaN(w) || isNaN(h)) continue;
+    
+    const targetRatio = w / h;
+    const diff = Math.abs(ratio - targetRatio);
+    
+    if (diff < minDiff) {
+      minDiff = diff;
+      closestAspect = key;
+    }
   }
-  return x || 1;
+  
+  return closestAspect;
 }
 
-function formatAspectRatioLabel(width: number, height: number): string {
-  if (width <= 0 || height <= 0) {
-    return "? : ?";
-  }
-  const divisor = gcd(width, height);
-  return `${Math.round(width / divisor)} : ${Math.round(height / divisor)}`;
-}
+let largeStateStore: typeof localforage | null = null;
 
-function formatResolutionLabel(width: number, height: number): string {
-  if (width <= 0 || height <= 0) {
-    return "Unknown";
-  }
-  return `${width} x ${height}`;
-}
-
-let largeStateStore: LocalForage | null = null;
-
-function getLargeStateStore(): LocalForage | null {
+function getLargeStateStore(): typeof localforage | null {
   if (typeof window === "undefined") {
     return null;
   }
 
   if (!largeStateStore) {
     largeStateStore = localforage.createInstance({
-      name: "seedream",
+      name: "nano-banana-pro",
       storeName: "state",
-      description: "Seedream gallery cache",
+      description: "Nano Banana Pro gallery cache",
     });
   }
 
@@ -195,14 +157,10 @@ function getLargeStateStore(): LocalForage | null {
 
 export function CreatePage() {
   const [prompt, setPrompt] = useState(defaultPrompt);
-  const [aspect, setAspect] = useState<AspectKey | "custom" >(defaultAspect);
-  const [aspectSelection, setAspectSelection] = useState<string>(defaultAspect);
+  const [aspect, setAspect] = useState<AspectKey>(defaultAspect);
   const [quality, setQuality] = useState<QualityKey>(defaultQuality);
-  const [seed, setSeed] = useState("");
+  const [imageCount, setImageCount] = useState<number>(4);
   const [apiKey, setApiKey] = useState("");
-  const [useCustomResolution, setUseCustomResolution] = useState(false);
-  const [customWidth, setCustomWidth] = useState("");
-  const [customHeight, setCustomHeight] = useState("");
   const [attachments, setAttachments] = useState<PromptAttachment[]>([]);
   const [attachmentPreview, setAttachmentPreview] = useState<PromptAttachment | null>(null);
   const [generations, setGenerations] = useState<Generation[]>([]);
@@ -211,8 +169,6 @@ export function CreatePage() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [lightboxSelection, setLightboxSelection] = useState<{ generationId: string; imageIndex: number } | null>(null);
-  const [budgetCents, setBudgetCents] = useState<number | null>(null);
-  const [spentCents, setSpentCents] = useState(0);
   const storageHydratedRef = useRef(false);
 
   const clearAttachmentError = useCallback(() => {
@@ -221,16 +177,6 @@ export function CreatePage() {
 
   const hasActiveGeneration = pendingGenerations.length > 0;
   const isAttachmentLimitReached = attachments.length >= MAX_ATTACHMENTS;
-
-  const budgetRemainingCents = useMemo(() => {
-    if (budgetCents === null) {
-      return null;
-    }
-
-    return Math.max(budgetCents - spentCents, 0);
-  }, [budgetCents, spentCents]);
-
-  const isBudgetLocked = budgetRemainingCents !== null && budgetRemainingCents < BATCH_COST_CENTS;
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -246,18 +192,9 @@ export function CreatePage() {
           setPrompt(storedPrompt);
         }
 
-        const storedAspectSelection = window.localStorage.getItem(STORAGE_KEYS.aspect);
-        if (storedAspectSelection) {
-          if (storedAspectSelection.startsWith(ATTACHMENT_ASPECT_PREFIX)) {
-            setAspect("custom");
-            setAspectSelection(storedAspectSelection);
-          } else if (storedAspectSelection === "custom") {
-            setAspect("custom");
-            setAspectSelection("custom");
-          } else if (isAspectKey(storedAspectSelection)) {
-            setAspect(storedAspectSelection);
-            setAspectSelection(storedAspectSelection);
-          }
+        const storedAspect = window.localStorage.getItem(STORAGE_KEYS.aspect);
+        if (isAspectKey(storedAspect)) {
+          setAspect(storedAspect);
         }
 
         const storedQuality = window.localStorage.getItem(STORAGE_KEYS.quality);
@@ -265,45 +202,17 @@ export function CreatePage() {
           setQuality(storedQuality);
         }
 
-        const storedSeed = window.localStorage.getItem(STORAGE_KEYS.seed);
-        if (storedSeed !== null) {
-          setSeed(storedSeed);
+        const storedImageCount = window.localStorage.getItem(STORAGE_KEYS.imageCount);
+        if (storedImageCount !== null) {
+          const count = parseInt(storedImageCount, 10);
+          if (Number.isFinite(count) && count >= 1 && count <= 4) {
+            setImageCount(count);
+          }
         }
 
         const storedApiKey = window.localStorage.getItem(STORAGE_KEYS.apiKey);
         if (storedApiKey !== null) {
           setApiKey(storedApiKey);
-        }
-
-        const storedUseCustom = window.localStorage.getItem(STORAGE_KEYS.useCustomResolution);
-        if (storedUseCustom === "true") {
-          setUseCustomResolution(true);
-        }
-
-        const storedCustomWidth = window.localStorage.getItem(STORAGE_KEYS.customWidth);
-        if (storedCustomWidth !== null) {
-          setCustomWidth(storedCustomWidth);
-        }
-
-        const storedCustomHeight = window.localStorage.getItem(STORAGE_KEYS.customHeight);
-        if (storedCustomHeight !== null) {
-          setCustomHeight(storedCustomHeight);
-        }
-
-        const storedBudgetValue = window.localStorage.getItem(STORAGE_KEYS.budgetCents);
-        if (storedBudgetValue !== null) {
-          const parsedBudget = Number.parseInt(storedBudgetValue, 10);
-          if (Number.isFinite(parsedBudget) && parsedBudget >= 0) {
-            setBudgetCents(parsedBudget);
-          }
-        }
-
-        const storedSpentValue = window.localStorage.getItem(STORAGE_KEYS.spentCents);
-        if (storedSpentValue !== null) {
-          const parsedSpent = Number.parseInt(storedSpentValue, 10);
-          if (Number.isFinite(parsedSpent) && parsedSpent >= 0) {
-            setSpentCents(parsedSpent);
-          }
         }
 
         let generationData: Generation[] | null = null;
@@ -392,52 +301,13 @@ export function CreatePage() {
     }
 
     safePersist(STORAGE_KEYS.prompt, prompt);
-    safePersist(STORAGE_KEYS.aspect, aspectSelection);
+    safePersist(STORAGE_KEYS.aspect, aspect);
     safePersist(STORAGE_KEYS.quality, quality);
-    safePersist(STORAGE_KEYS.seed, seed);
+    safePersist(STORAGE_KEYS.imageCount, String(imageCount));
 
     const normalizedApiKey = apiKey.trim();
     safePersist(STORAGE_KEYS.apiKey, normalizedApiKey.length > 0 ? normalizedApiKey : null);
-    safePersist(STORAGE_KEYS.useCustomResolution, useCustomResolution ? "true" : null);
-    safePersist(
-      STORAGE_KEYS.customWidth,
-      useCustomResolution && customWidth ? customWidth : null,
-    );
-    safePersist(
-      STORAGE_KEYS.customHeight,
-      useCustomResolution && customHeight ? customHeight : null,
-    );
-  }, [prompt, aspectSelection, quality, seed, apiKey, useCustomResolution, customWidth, customHeight]);
-
-  useEffect(() => {
-    if (!storageHydratedRef.current || typeof window === "undefined") {
-      return;
-    }
-
-    safePersist(
-      STORAGE_KEYS.budgetCents,
-      typeof budgetCents === "number" ? String(budgetCents) : null,
-    );
-  }, [budgetCents]);
-
-  useEffect(() => {
-    if (!storageHydratedRef.current || typeof window === "undefined") {
-      return;
-    }
-
-    safePersist(STORAGE_KEYS.spentCents, String(Math.max(0, spentCents)));
-  }, [spentCents]);
-
-  useEffect(() => {
-    if (spentCents < 0) {
-      setSpentCents(0);
-      return;
-    }
-
-    if (budgetCents !== null && spentCents > budgetCents) {
-      setSpentCents(budgetCents);
-    }
-  }, [budgetCents, spentCents]);
+  }, [prompt, aspect, quality, imageCount, apiKey]);
 
   useEffect(() => {
     if (!storageHydratedRef.current || typeof window === "undefined") {
@@ -504,115 +374,14 @@ export function CreatePage() {
     [attachments],
   );
 
-  const attachmentAspectOptions = useMemo<AttachmentAspectOption[]>(() => {
-    return attachments
-      .map((attachment, index) => {
-        if (!attachment.width || !attachment.height) {
-          return null;
-        }
-
-        return {
-          value: `${ATTACHMENT_ASPECT_PREFIX}${attachment.id}`,
-          label: `Image ${index + 1}`,
-          ratio: formatAspectRatioLabel(attachment.width, attachment.height),
-          resolution: formatResolutionLabel(attachment.width, attachment.height),
-          width: attachment.width,
-          height: attachment.height,
-          attachmentId: attachment.id,
-        };
-      })
-      .filter((option): option is AttachmentAspectOption => option !== null);
-  }, [attachments]);
-
   const handleAspectSelect = useCallback(
     (value: string) => {
-      setAspectSelection(value);
-
-      if (value.startsWith(ATTACHMENT_ASPECT_PREFIX)) {
-        const attachmentId = value.slice(ATTACHMENT_ASPECT_PREFIX.length);
-        const target = attachments.find((attachment) => attachment.id === attachmentId);
-        if (aspect !== "custom") {
-          setAspect("custom");
-        }
-        if (!useCustomResolution) {
-          setUseCustomResolution(true);
-        }
-        if (target && target.width && target.height) {
-          const widthString = String(target.width);
-          const heightString = String(target.height);
-          if (customWidth !== widthString) {
-            setCustomWidth(widthString);
-          }
-          if (customHeight !== heightString) {
-            setCustomHeight(heightString);
-          }
-        }
-        clearAttachmentError();
-        return;
-      }
-
-      if (value === "custom") {
-        if (aspect !== "custom") {
-          setAspect("custom");
-        }
-        if (!useCustomResolution) {
-          setUseCustomResolution(true);
-        }
-        return;
-      }
-
       if (isAspectKey(value)) {
-        if (aspect !== value) {
-          setAspect(value);
-        }
-        if (useCustomResolution) {
-          setUseCustomResolution(false);
-        }
-        return;
+        setAspect(value);
       }
     },
-    [aspect, attachments, clearAttachmentError, customHeight, customWidth, useCustomResolution],
+    [],
   );
-
-  useEffect(() => {
-    if (!aspectSelection.startsWith(ATTACHMENT_ASPECT_PREFIX)) {
-      return;
-    }
-
-    const attachmentId = aspectSelection.slice(ATTACHMENT_ASPECT_PREFIX.length);
-    const target = attachments.find((attachment) => attachment.id === attachmentId);
-
-    if (!target) {
-      if (aspect !== defaultAspect) {
-        setAspect(defaultAspect);
-      }
-      if (aspectSelection !== defaultAspect) {
-        setAspectSelection(defaultAspect);
-      }
-      if (useCustomResolution) {
-        setUseCustomResolution(false);
-      }
-      return;
-    }
-
-    if (aspect !== "custom") {
-      setAspect("custom");
-    }
-
-    if (target.width && target.height) {
-      const widthString = String(target.width);
-      const heightString = String(target.height);
-      if (customWidth !== widthString) {
-        setCustomWidth(widthString);
-      }
-      if (customHeight !== heightString) {
-        setCustomHeight(heightString);
-      }
-      if (!useCustomResolution) {
-        setUseCustomResolution(true);
-      }
-    }
-  }, [aspectSelection, attachments, aspect, customHeight, customWidth, useCustomResolution]);
 
   const groupedGenerations = useMemo(() => groupByDate(displayFeed), [displayFeed]);
   const pendingIdSet = useMemo(() => new Set(pendingGenerations.map((generation) => generation.id)), [pendingGenerations]);
@@ -732,6 +501,12 @@ export function CreatePage() {
           }
 
           addedCount = nextItems.length;
+          // Auto-set aspect based on first attachment if it's the first batch
+          if (previous.length === 0 && nextItems[0].width && nextItems[0].height) {
+             const closest = findClosestAspect(nextItems[0].width, nextItems[0].height);
+             setAspect(closest);
+          }
+
           return [...previous, ...nextItems];
         });
 
@@ -757,7 +532,7 @@ export function CreatePage() {
   );
 
   const handleAddAttachmentFromUrl = useCallback(
-    async (url: string, name = "Seedream edit input"): Promise<boolean> => {
+    async (url: string, name = "Edit input"): Promise<boolean> => {
       if (!url) {
         return false;
       }
@@ -781,82 +556,32 @@ export function CreatePage() {
         console.error("Failed to read dimensions for attachment", dimensionError);
       }
 
-      setAttachments((previous) => [
-        ...previous,
-        { id: createId("attachment"), name, url, kind: "remote", width, height },
-      ]);
+      setAttachments((previous) => {
+        const next = [
+          ...previous,
+          { id: createId("attachment"), name, url, kind: "remote" as const, width, height },
+        ];
+        
+        if (previous.length === 0 && width && height) {
+             const closest = findClosestAspect(width, height);
+             setAspect(closest);
+        }
+        
+        return next;
+      });
       clearAttachmentError();
       return true;
     },
     [attachments, clearAttachmentError, setError],
   );
-  const handleToggleCustomResolution = useCallback((enabled: boolean) => {
-    setUseCustomResolution(enabled);
-    if (enabled) {
-      const referenceAspect = aspect === "custom" ? defaultAspect : aspect;
-      const defaultSize = calculateImageSize(referenceAspect, quality);
-      setCustomWidth((previous) => (previous ? previous : String(defaultSize.width)));
-      setCustomHeight((previous) => (previous ? previous : String(defaultSize.height)));
-      if (!aspectSelection.startsWith(ATTACHMENT_ASPECT_PREFIX)) {
-        setAspectSelection("custom");
-      }
-      if (aspect !== "custom") {
-        setAspect("custom");
-      }
-    } else {
-      if (aspect === "custom") {
-        setAspect(defaultAspect);
-      }
-      if (aspectSelection === "custom" || aspectSelection.startsWith(ATTACHMENT_ASPECT_PREFIX)) {
-        setAspectSelection(defaultAspect);
-      }
-    }
-  }, [aspect, aspectSelection, quality]);
-  const handleCustomWidthChange = useCallback((value: string) => {
-    const digits = value.replace(/[^0-9]/g, "");
-    setCustomWidth(digits);
-  }, []);
-
-  const handleCustomHeightChange = useCallback((value: string) => {
-    const digits = value.replace(/[^0-9]/g, "");
-    setCustomHeight(digits);
-  }, []);
-
-  const handleBudgetUpdate = useCallback((nextBudgetCents: number) => {
-    setBudgetCents(nextBudgetCents);
-    debugLog("budget:update", { value: nextBudgetCents });
-  }, []);
-
-  const handleResetSpending = useCallback(() => {
-    setSpentCents(0);
-    debugLog("budget:reset-spending", { budgetCents });
-  }, [budgetCents]);
-
-  const handleClearBudget = useCallback(() => {
-    setBudgetCents(null);
-    setSpentCents(0);
-    debugLog("budget:clear", {});
-  }, []);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (isBudgetLocked) {
-      debugLog("submit:blocked-budget", {
-        budgetCents,
-        spentCents,
-        cost: BATCH_COST_CENTS,
-      });
-      return;
-    }
-
     debugLog("submit:start", {
       aspect,
-      aspectSelection,
       quality,
-      useCustomResolution,
-      customWidth,
-      customHeight,
+      imageCount,
       pendingGenerations: pendingGenerations.length,
       attachments: attachmentInputImages.map((image) => ({
         id: image.id,
@@ -865,41 +590,19 @@ export function CreatePage() {
       })),
     });
 
-    const parsedSeed = parseSeed(seed);
     const pendingId = createId("pending");
-
-    const customSize = useCustomResolution
-      ? (() => {
-          const widthValue = parseCustomDimension(customWidth);
-          const heightValue = parseCustomDimension(customHeight);
-          if (widthValue === null || heightValue === null) {
-            return null;
-          }
-
-          return { width: widthValue, height: heightValue };
-        })()
-      : null;
-
-    if (useCustomResolution && !customSize) {
-      debugLog("submit:invalid-custom-size", { customWidth, customHeight });
-      setError(`Custom resolution must be between ${MIN_IMAGE_DIMENSION} and ${MAX_IMAGE_DIMENSION} pixels.`);
-      setIsSettingsOpen(true);
-      return;
-    }
-
-    const baseAspectForSize = aspect === "custom" ? defaultAspect : aspect;
-    const pendingSize = customSize ?? calculateImageSize(baseAspectForSize, quality);
+    const pendingSize = calculateImageSize(aspect, quality);
     const inputImageSnapshot = attachmentInputImages.map((image) => ({ ...image }));
+    
     const pendingGeneration: Generation = {
       id: pendingId,
       prompt,
       aspect,
       quality,
-      seed: parsedSeed,
       size: pendingSize,
       createdAt: new Date().toISOString(),
       inputImages: inputImageSnapshot,
-      images: ["", "", "", ""],
+      images: Array(imageCount).fill(""),
     };
 
     debugLog("pending:prepare", {
@@ -919,19 +622,17 @@ export function CreatePage() {
     const trimmedApiKey = apiKey.trim();
     debugLog("submit:request", {
       pendingId,
-      seed: parsedSeed,
       apiKeyProvided: trimmedApiKey.length > 0,
       inputImages: inputImageSnapshot.length,
-      sizeOverride: customSize ?? null,
+      imageCount
     });
 
     const generationPromise = generateSeedream({
       prompt,
       aspect,
       quality,
-      seed: typeof parsedSeed === "number" ? parsedSeed : undefined,
+      numImages: imageCount,
       apiKey: trimmedApiKey.length > 0 ? trimmedApiKey : undefined,
-      sizeOverride: customSize ?? undefined,
       inputImages: inputImageSnapshot,
     });
 
@@ -940,7 +641,6 @@ export function CreatePage() {
         debugLog("generation:success", {
           pendingId,
           rawImageCount: result.images.length,
-          seed: result.seed ?? null,
           size: result.size,
         });
 
@@ -965,23 +665,12 @@ export function CreatePage() {
           });
           return next;
         });
-        setSeed(generation.seed ? String(generation.seed) : "");
-        setSpentCents((previous) => {
-          const next = Math.max(0, previous + BATCH_COST_CENTS);
-          debugLog("budget:increment", {
-            pendingId,
-            previous,
-            next,
-            cost: BATCH_COST_CENTS,
-          });
-          return next;
-        });
       })
       .catch((generationError: unknown) => {
         const message =
           generationError instanceof Error
             ? generationError.message
-            : "Seedream generation failed.";
+            : "Generation failed.";
         debugLog("generation:error", { pendingId, message, error: generationError });
         setError(message);
       })
@@ -1016,7 +705,7 @@ export function CreatePage() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `seedream-${Date.now()}.png`;
+      link.download = `nano-banana-${Date.now()}.png`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -1133,7 +822,7 @@ export function CreatePage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#08090f] text-[#f4f5f9]">
+    <div className="min-h-screen bg-[var(--bg-app)] text-[var(--text-primary)]">
       <div
         aria-hidden="true"
         className="pointer-events-none fixed left-6 top-6 z-50 hidden flex-col items-center gap-1 select-none 2xl:flex"
@@ -1143,54 +832,12 @@ export function CreatePage() {
           alt="Dreamint logo"
           width={28}
           height={28}
-          className="h-7 w-7 rounded-md object-cover"
+          className="h-7 w-7 rounded-md object-cover grayscale"
         />
         <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-white">Dreamint</span>
       </div>
-      <BudgetWidget
-        budgetCents={budgetCents}
-        spentCents={spentCents}
-        budgetRemainingCents={budgetRemainingCents}
-        batchCostCents={BATCH_COST_CENTS}
-        imageCostCents={IMAGE_COST_CENTS}
-        imagesPerBatch={IMAGES_PER_BATCH}
-        isBudgetLocked={isBudgetLocked}
-        onBudgetSave={handleBudgetUpdate}
-        onBudgetClear={handleClearBudget}
-        onResetSpending={handleResetSpending}
-      />
-      <div className="mx-auto flex min-h-screen w-full max-w-[1400px] flex-col gap-10 px-6 pb-16 pt-10 lg:px-10">
-        <Header
-          prompt={prompt}
-          aspectSelection={aspectSelection}
-          attachmentAspectOptions={attachmentAspectOptions}
-          quality={quality}
-          seed={seed}
-          apiKey={apiKey}
-          isGenerating={hasActiveGeneration}
-          isBudgetLocked={isBudgetLocked}
-          batchCostCents={BATCH_COST_CENTS}
-          isSettingsOpen={isSettingsOpen}
-          onSubmit={handleSubmit}
-          onPromptChange={setPrompt}
-          onAspectSelect={handleAspectSelect}
-          onQualityChange={setQuality}
-          onSeedChange={setSeed}
-          onApiKeyChange={setApiKey}
-          useCustomResolution={useCustomResolution}
-          customWidth={customWidth}
-          customHeight={customHeight}
-          onToggleCustomResolution={handleToggleCustomResolution}
-          onCustomWidthChange={handleCustomWidthChange}
-          onCustomHeightChange={handleCustomHeightChange}
-          onToggleSettings={setIsSettingsOpen}
-          attachments={attachments}
-          onAddAttachments={handleAddAttachments}
-          onRemoveAttachment={handleRemoveAttachment}
-          onPreviewAttachment={handlePreviewAttachment}
-          isAttachmentLimitReached={isAttachmentLimitReached}
-        />
-        <main className="flex flex-1 flex-col gap-10">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1400px] flex-col gap-12 px-6 pb-48 pt-16 lg:px-10">
+        <main className="flex flex-1 flex-col gap-12">
           {hasGenerations ? (
             groupedGenerations.map((group) => (
               <GenerationGroup
@@ -1211,6 +858,34 @@ export function CreatePage() {
           )}
         </main>
       </div>
+      
+      {/* Floating Header at Bottom */}
+      <div className="fixed bottom-8 left-0 right-0 z-40 px-6 pointer-events-none">
+        <div className="pointer-events-auto mx-auto w-full max-w-3xl">
+            <Header
+              prompt={prompt}
+              aspect={aspect}
+              quality={quality}
+              imageCount={imageCount}
+              apiKey={apiKey}
+                        isGenerating={hasActiveGeneration}
+                        isBudgetLocked={false}
+                        isSettingsOpen={isSettingsOpen}              onSubmit={handleSubmit}
+              onPromptChange={setPrompt}
+              onAspectSelect={handleAspectSelect}
+              onQualityChange={setQuality}
+              onImageCountChange={setImageCount}
+              onApiKeyChange={setApiKey}
+              onToggleSettings={setIsSettingsOpen}
+              attachments={attachments}
+              onAddAttachments={handleAddAttachments}
+              onRemoveAttachment={handleRemoveAttachment}
+              onPreviewAttachment={handlePreviewAttachment}
+              isAttachmentLimitReached={isAttachmentLimitReached}
+            />
+        </div>
+      </div>
+
       {attachmentPreview ? (
         <AttachmentLightbox attachment={attachmentPreview} onClose={() => setAttachmentPreview(null)} />
       ) : null}
@@ -1230,27 +905,3 @@ export function CreatePage() {
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
