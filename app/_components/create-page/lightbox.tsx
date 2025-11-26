@@ -1,8 +1,9 @@
 import Image from "next/image";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { WheelEvent } from "react";
 
 import { getAspectDescription, getQualityLabel } from "../../lib/seedream-options";
+import { CompareSlider } from "./compare-slider";
 import { ArrowLeftIcon, ArrowRightIcon, DownloadIcon, PlusIcon, SpinnerIcon } from "./icons";
 import type { GalleryEntry } from "./types";
 
@@ -30,6 +31,15 @@ export function Lightbox({
   onEdit,
 }: LightboxProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [isCompareMode, setIsCompareMode] = useState(false);
+  const [selectedReferenceIndex, setSelectedReferenceIndex] = useState(0);
+
+  const hasReferences = entry.inputImages && entry.inputImages.length > 0;
+
+  useEffect(() => {
+    setIsCompareMode(false);
+    setSelectedReferenceIndex(0);
+  }, [entry.generationId, entry.imageIndex]);
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -111,15 +121,26 @@ export function Lightbox({
               </button>
             ) : null}
             
-            <Image
-              src={entry.src}
-              alt={entry.prompt}
-              width={entry.size.width}
-              height={entry.size.height}
-              className="max-h-[70vh] w-auto max-w-full select-none object-contain shadow-lg"
-              draggable={false}
-              priority
-            />
+            {isCompareMode && hasReferences ? (
+              <div className="relative h-[50vh] w-full md:h-[70vh]">
+                <CompareSlider
+                  original={entry.inputImages[selectedReferenceIndex].url}
+                  generated={entry.src}
+                  originalAlt="Reference image"
+                  generatedAlt={entry.prompt}
+                />
+              </div>
+            ) : (
+              <Image
+                src={entry.src}
+                alt={entry.prompt}
+                width={entry.size.width}
+                height={entry.size.height}
+                className="max-h-[70vh] w-auto max-w-full select-none object-contain shadow-lg"
+                draggable={false}
+                priority
+              />
+            )}
             
             {canGoNext ? (
               <button
@@ -176,6 +197,43 @@ export function Lightbox({
                 {isDownloading ? <SpinnerIcon className="h-4 w-4 animate-spin" /> : <DownloadIcon className="h-4 w-4" />}
                 {isDownloading ? "Saving..." : "Download Image"}
               </button>
+
+              {hasReferences ? (
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsCompareMode(!isCompareMode)}
+                    className={`flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] px-4 py-3 text-sm font-semibold transition-colors hover:text-white hover:border-[var(--text-muted)] ${
+                      isCompareMode
+                        ? "bg-[var(--bg-subtle)] text-white border-[var(--text-muted)]"
+                        : "bg-[var(--bg-input)] text-[var(--text-secondary)]"
+                    }`}
+                  >
+                    <span className="text-lg leading-none">⇄</span>
+                    {isCompareMode ? "Exit Compare" : "Compare"}
+                  </button>
+
+                  {isCompareMode && entry.inputImages.length > 1 ? (
+                    <div className="grid grid-cols-4 gap-2 rounded-lg bg-[var(--bg-subtle)] p-2">
+                      {entry.inputImages.map((img, idx) => (
+                        <button
+                          type="button"
+                          key={img.id || idx}
+                          onClick={() => setSelectedReferenceIndex(idx)}
+                          className={`relative aspect-square overflow-hidden rounded-md border-2 transition-all ${
+                            selectedReferenceIndex === idx
+                              ? "border-[var(--accent-primary)] opacity-100"
+                              : "border-transparent opacity-50 hover:opacity-100"
+                          }`}
+                          title={img.name}
+                        >
+                          <Image src={img.url} alt={img.name} fill className="object-cover" sizes="60px" />
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               
               {onEdit ? (
                 <button

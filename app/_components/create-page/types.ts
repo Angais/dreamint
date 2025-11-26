@@ -22,4 +22,5 @@ export type GalleryEntry = {
   provider?: Provider;
   outputFormat?: OutputFormat;
   size: { width: number; height: number };
+  inputImages: Generation["inputImages"];
 };
