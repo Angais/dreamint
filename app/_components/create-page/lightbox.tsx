@@ -33,6 +33,8 @@ export function Lightbox({
   const containerRef = useRef<HTMLDivElement>(null);
   const [isCompareMode, setIsCompareMode] = useState(false);
   const [selectedReferenceIndex, setSelectedReferenceIndex] = useState(0);
+  const [compareSliderPosition, setCompareSliderPosition] = useState(50);
+  const [isDownloadingComparison, setIsDownloadingComparison] = useState(false);
   
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
   const isDragging = useRef(false);
@@ -44,6 +46,7 @@ export function Lightbox({
   useEffect(() => {
     setIsCompareMode(false);
     setSelectedReferenceIndex(0);
+    setCompareSliderPosition(50);
     setTransform({ x: 0, y: 0, scale: 1 });
   }, [entry.generationId, entry.imageIndex]);
 
@@ -153,6 +156,78 @@ export function Lightbox({
     isDragging.current = false;
   };
 
+  const handleDownloadComparison = async () => {
+    if (!hasReferences || !isCompareMode) return;
+    setIsDownloadingComparison(true);
+
+    try {
+      const originalUrl = entry.inputImages[selectedReferenceIndex].url;
+      const generatedUrl = entry.src;
+      const width = entry.size.width;
+      const height = entry.size.height;
+
+      const loadImage = (url: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new window.Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = url;
+      });
+
+      const [imgOriginal, imgGenerated] = await Promise.all([
+        loadImage(originalUrl),
+        loadImage(generatedUrl)
+      ]);
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error("No canvas context");
+
+      // 1. Draw Generated (Background) - Full
+      ctx.drawImage(imgGenerated, 0, 0, width, height);
+
+      // 2. Draw Original (Foreground) - Clipped
+      const splitX = (compareSliderPosition / 100) * width;
+      
+      ctx.save();
+      ctx.beginPath();
+      // Clip left side to show Original
+      ctx.rect(0, 0, splitX, height);
+      ctx.clip();
+      
+      ctx.drawImage(imgOriginal, 0, 0, width, height);
+      ctx.restore();
+
+      // 3. Draw the white line
+      ctx.beginPath();
+      ctx.moveTo(splitX, 0);
+      ctx.lineTo(splitX, height);
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = Math.max(2, width * 0.002); 
+      ctx.stroke();
+      
+      // 4. Convert to Blob and Download
+      const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error("Canvas to Blob failed");
+      
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `comparison-${entry.generationId.slice(0,8)}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+    } catch (e) {
+      console.error("Failed to download comparison", e);
+    } finally {
+      setIsDownloadingComparison(false);
+    }
+  };
+
   return (
     <div
       ref={containerRef}
@@ -206,6 +281,8 @@ export function Lightbox({
                     generated={entry.src}
                     originalAlt="Reference image"
                     generatedAlt={entry.prompt}
+                    position={compareSliderPosition}
+                    onPositionChange={setCompareSliderPosition}
                   />
                 </div>
               ) : (
@@ -276,6 +353,18 @@ export function Lightbox({
                 {isDownloading ? <SpinnerIcon className="h-4 w-4 animate-spin" /> : <DownloadIcon className="h-4 w-4" />}
                 {isDownloading ? "Saving..." : "Download Image"}
               </button>
+
+              {isCompareMode && hasReferences && (
+                  <button
+                    type="button"
+                    onClick={handleDownloadComparison}
+                    disabled={isDownloadingComparison}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--bg-subtle)] border border-[var(--border-subtle)] px-4 py-3 text-sm font-bold text-white shadow-lg transition-all hover:bg-[var(--bg-input)] disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isDownloadingComparison ? <SpinnerIcon className="h-4 w-4 animate-spin" /> : <DownloadIcon className="h-4 w-4" />}
+                    {isDownloadingComparison ? "Saving..." : "Save Comparison"}
+                  </button>
+              )}
 
               {hasReferences ? (
                 <div className="flex flex-col gap-2">

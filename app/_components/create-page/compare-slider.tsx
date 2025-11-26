@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { ArrowLeftIcon, ArrowRightIcon } from "./icons";
 
 type CompareSliderProps = {
@@ -9,6 +9,8 @@ type CompareSliderProps = {
   generated: string;
   originalAlt?: string;
   generatedAlt?: string;
+  position: number;
+  onPositionChange: (position: number) => void;
 };
 
 export function CompareSlider({
@@ -16,8 +18,9 @@ export function CompareSlider({
   generated,
   originalAlt = "Original image",
   generatedAlt = "Generated image",
+  position,
+  onPositionChange,
 }: CompareSliderProps) {
-  const [position, setPosition] = useState(50);
   const containerRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
 
@@ -29,8 +32,8 @@ export function CompareSlider({
     const rect = containerRef.current.getBoundingClientRect();
     const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
     const percentage = (x / rect.width) * 100;
-    setPosition(percentage);
-  }, []);
+    onPositionChange(percentage);
+  }, [onPositionChange]);
 
   const handleMouseDown = useCallback((event: React.MouseEvent | React.TouchEvent) => {
     if ('button' in event && event.button !== 0) {
