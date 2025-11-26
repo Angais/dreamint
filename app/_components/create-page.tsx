@@ -827,7 +827,7 @@ export function CreatePage() {
       const format = entry.outputFormat ?? "png";
       const extension = format === "jpeg" ? "jpg" : format;
       link.href = url;
-      link.download = `seedream-${Date.now()}.${extension}`;
+      link.download = `dreamint-${Date.now()}.${extension}`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
