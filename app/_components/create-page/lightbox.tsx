@@ -33,12 +33,18 @@ export function Lightbox({
   const containerRef = useRef<HTMLDivElement>(null);
   const [isCompareMode, setIsCompareMode] = useState(false);
   const [selectedReferenceIndex, setSelectedReferenceIndex] = useState(0);
+  
+  const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
+  const isDragging = useRef(false);
+  const dragStart = useRef({ x: 0, y: 0 });
+  const imageContainerRef = useRef<HTMLDivElement>(null);
 
   const hasReferences = entry.inputImages && entry.inputImages.length > 0;
 
   useEffect(() => {
     setIsCompareMode(false);
     setSelectedReferenceIndex(0);
+    setTransform({ x: 0, y: 0, scale: 1 });
   }, [entry.generationId, entry.imageIndex]);
 
   useEffect(() => {
@@ -83,11 +89,68 @@ export function Lightbox({
   }, [onPrev, onNext, onClose, canGoPrev, canGoNext]);
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
-    if (event.deltaY > 0 && canGoNext) {
-      onNext();
-    } else if (event.deltaY < 0 && canGoPrev) {
-      onPrev();
+    event.stopPropagation();
+    const scaleAmount = -event.deltaY * 0.001;
+    const newScale = Math.min(Math.max(0.1, transform.scale * (1 + scaleAmount)), 8);
+    
+    setTransform((prev) => ({
+      ...prev,
+      scale: newScale,
+    }));
+  };
+
+  const handleMouseDown = (event: React.MouseEvent) => {
+    const isLeft = event.button === 0;
+    const isRight = event.button === 2;
+
+    // In compare mode, only allow pan with right click (button 2)
+    // In normal mode, allow pan with left click (button 0)
+    if (isCompareMode) {
+      if (!isRight) return;
+    } else {
+      if (!isLeft) return;
     }
+
+    event.preventDefault();
+    isDragging.current = true;
+    dragStart.current = { x: event.clientX - transform.x, y: event.clientY - transform.y };
+  };
+
+  const handleMouseMove = (event: React.MouseEvent) => {
+    if (!isDragging.current) return;
+    event.preventDefault();
+
+    const nextX = event.clientX - dragStart.current.x;
+    const nextY = event.clientY - dragStart.current.y;
+
+    if (imageContainerRef.current) {
+      const { width: viewportWidth, height: viewportHeight } = imageContainerRef.current.getBoundingClientRect();
+      
+      const effectiveImageWidth = viewportWidth * transform.scale;
+      const effectiveImageHeight = viewportHeight * transform.scale;
+
+      const limitX = Math.max(0, (effectiveImageWidth - viewportWidth) / 2);
+      const limitY = Math.max(0, (effectiveImageHeight - viewportHeight) / 2);
+      
+      const clampedX = Math.max(-limitX, Math.min(limitX, nextX));
+      const clampedY = Math.max(-limitY, Math.min(limitY, nextY));
+      
+      setTransform((prev) => ({
+        ...prev,
+        x: clampedX,
+        y: clampedY,
+      }));
+    } else {
+      setTransform((prev) => ({
+        ...prev,
+        x: nextX,
+        y: nextY,
+      }));
+    }
+  };
+
+  const handleMouseUp = () => {
+    isDragging.current = false;
   };
 
   return (
@@ -95,7 +158,6 @@ export function Lightbox({
       ref={containerRef}
       tabIndex={-1}
       className="fixed inset-0 z-50 flex items-center justify-center bg-[#000]/95 backdrop-blur-sm px-4 py-8 outline-none animate-in fade-in duration-200"
-      onWheel={handleWheel}
     >
       <button
         type="button"
@@ -106,7 +168,16 @@ export function Lightbox({
       <div className="relative z-10 w-full max-w-6xl rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-2 shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col md:flex-row overflow-hidden">
         
         {/* Image Container */}
-        <div className="relative flex-1 bg-black/50 rounded-xl overflow-hidden flex items-center justify-center min-h-[50vh] md:min-h-[70vh]">
+        <div 
+          ref={imageContainerRef}
+          className="relative flex-1 bg-black/50 rounded-xl overflow-hidden flex items-center justify-center min-h-[50vh] md:min-h-[70vh]"
+          onWheel={handleWheel}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+          onContextMenu={(e) => e.preventDefault()}
+        >
             {canGoPrev ? (
               <button
                 type="button"
@@ -121,26 +192,34 @@ export function Lightbox({
               </button>
             ) : null}
             
-            {isCompareMode && hasReferences ? (
-              <div className="relative h-[50vh] w-full md:h-[70vh]">
-                <CompareSlider
-                  original={entry.inputImages[selectedReferenceIndex].url}
-                  generated={entry.src}
-                  originalAlt="Reference image"
-                  generatedAlt={entry.prompt}
+            <div 
+              style={{ 
+                transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+                cursor: isCompareMode ? 'default' : 'grab'
+              }}
+              className="relative flex h-full w-full items-center justify-center transition-transform duration-75 ease-out"
+            >
+              {isCompareMode && hasReferences ? (
+                <div className="relative h-[50vh] w-full md:h-[70vh]">
+                  <CompareSlider
+                    original={entry.inputImages[selectedReferenceIndex].url}
+                    generated={entry.src}
+                    originalAlt="Reference image"
+                    generatedAlt={entry.prompt}
+                  />
+                </div>
+              ) : (
+                <Image
+                  src={entry.src}
+                  alt={entry.prompt}
+                  width={entry.size.width}
+                  height={entry.size.height}
+                  className="max-h-[70vh] w-auto max-w-full select-none object-contain shadow-lg"
+                  draggable={false}
+                  priority
                 />
-              </div>
-            ) : (
-              <Image
-                src={entry.src}
-                alt={entry.prompt}
-                width={entry.size.width}
-                height={entry.size.height}
-                className="max-h-[70vh] w-auto max-w-full select-none object-contain shadow-lg"
-                draggable={false}
-                priority
-              />
-            )}
+              )}
+            </div>
             
             {canGoNext ? (
               <button

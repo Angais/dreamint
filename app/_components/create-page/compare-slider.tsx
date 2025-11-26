@@ -32,7 +32,10 @@ export function CompareSlider({
     setPosition(percentage);
   }, []);
 
-  const handleMouseDown = useCallback(() => {
+  const handleMouseDown = useCallback((event: React.MouseEvent | React.TouchEvent) => {
+    if ('button' in event && event.button !== 0) {
+        return;
+    }
     isDragging.current = true;
   }, []);
 
