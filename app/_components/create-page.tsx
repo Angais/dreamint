@@ -513,6 +513,7 @@ export function CreatePage() {
           provider: generation.provider,
           outputFormat: generation.outputFormat,
           size: generation.size,
+          inputImages: generation.inputImages ?? [],
         });
       });
     });
