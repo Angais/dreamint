@@ -14,7 +14,10 @@ import {
 
 const MIN_IMAGE_DIMENSION = 512;
 const MAX_IMAGE_DIMENSION = 4096;
-const MAX_MODEL_INPUT_IMAGES = 10;
+// Gemini 3 Pro Image supports up to 14 reference images; keep the same cap here.
+const MAX_MODEL_INPUT_IMAGES = 14;
+// Gemini image gen can take up to ~3-4 minutes in some regions; use a generous timeout.
+const DEFAULT_REQUEST_TIMEOUT_MS = 240_000;
 
 export type InputImage = {
   id: string;
@@ -34,8 +37,7 @@ export type GenerateSeedreamArgs = {
   numImages?: number;
   provider: Provider;
   apiKey?: string; // FAL Key
-  vertexApiKey?: string; // Google/Vertex Key
-  vertexProjectId?: string; // Google Cloud Project ID
+  geminiApiKey?: string; // Gemini API key (Generative Language)
   sizeOverride?: { width: number; height: number };
   inputImages?: InputImage[];
 };
@@ -52,6 +54,22 @@ export type SeedreamGeneration = {
   inputImages: InputImage[];
 };
 
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    return response;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export async function generateSeedream({
   prompt,
   aspect,
@@ -60,8 +78,7 @@ export async function generateSeedream({
   numImages = 4,
   provider,
   apiKey,
-  vertexApiKey,
-  vertexProjectId,
+  geminiApiKey,
   sizeOverride,
   inputImages = [],
 }: GenerateSeedreamArgs): Promise<SeedreamGeneration> {
@@ -147,8 +164,73 @@ export async function generateSeedream({
     "4k": "4K",
   };
 
-  const apiAspectRatio = aspectRatioMap[aspect] || "1:1";
+  const deriveAspectRatioFromSize = (dimensions: { width: number; height: number }) => {
+    const width = Math.max(1, Math.round(dimensions.width));
+    const height = Math.max(1, Math.round(dimensions.height));
+    let a = width;
+    let b = height;
+
+    while (b !== 0) {
+      const temp = b;
+      b = a % b;
+      a = temp;
+    }
+
+    const divisor = Math.max(1, a);
+    const simplifiedWidth = Math.max(1, Math.round(width / divisor));
+    const simplifiedHeight = Math.max(1, Math.round(height / divisor));
+    return `${simplifiedWidth}:${simplifiedHeight}`;
+  };
+
+  const apiAspectRatio = aspectRatioMap[aspect] || deriveAspectRatioFromSize(size);
   const apiResolution = resolutionMap[quality] || "1K";
+
+  const inlineImageParts = effectiveInputImages
+    .map((img) => {
+      if (!img.url.startsWith("data:")) {
+        return null;
+      }
+      const [mimePart, base64Data] = img.url.split(",");
+      const mimeType = mimePart.match(/:(.*?);/)?.[1] || "image/png";
+      return {
+        inlineData: {
+          mimeType,
+          data: base64Data,
+        },
+      };
+    })
+    .filter((item): item is { inlineData: { mimeType: string; data: string } } => Boolean(item));
+
+  const baseContents = [
+    {
+      role: "user",
+      parts: [{ text: trimmedPrompt }, ...inlineImageParts],
+    },
+  ];
+
+  const extractImageFromParts = (
+    parts:
+      | Array<{
+          inlineData?: { mimeType: string; data: string };
+          inline_data?: { mime_type?: string; data?: string };
+        }>
+      | undefined,
+  ): string | null => {
+    for (const part of parts ?? []) {
+      const inline =
+        part?.inlineData ??
+        (part?.inline_data
+          ? {
+              mimeType: part.inline_data.mime_type ?? "image/png",
+              data: part.inline_data.data ?? "",
+            }
+          : undefined);
+      if (inline?.data && inline.mimeType) {
+        return `data:${inline.mimeType};base64,${inline.data}`;
+      }
+    }
+    return null;
+  };
 
   // --- FAL PROVIDER LOGIC ---
   if (provider === "fal") {
@@ -180,15 +262,19 @@ export async function generateSeedream({
       ? "https://fal.run/fal-ai/gemini-3-pro-image-preview/edit"
       : "https://fal.run/fal-ai/gemini-3-pro-image-preview";
 
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Key ${resolvedApiKey}`,
+    const response = await fetchWithTimeout(
+      endpoint,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Key ${resolvedApiKey}`,
+        },
+        body: JSON.stringify(payload),
+        cache: "no-store",
       },
-      body: JSON.stringify(payload),
-      cache: "no-store",
-    });
+      DEFAULT_REQUEST_TIMEOUT_MS,
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -220,107 +306,105 @@ export async function generateSeedream({
     };
   }
 
-  // --- GOOGLE/VERTEX PROVIDER LOGIC ---
-  if (provider === "google") {
-    const resolvedApiKey = (vertexApiKey ?? "").trim() || process.env.GOOGLE_API_KEY;
+  // --- GEMINI API (GENERATIVE LANGUAGE) LOGIC ---
+  if (provider === "gemini") {
+    const resolvedApiKey =
+      (geminiApiKey ?? "").trim() || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+
     if (!resolvedApiKey) {
-      throw new Error("Missing Google/Vertex API key.");
+      throw new Error("Missing Gemini API key. Add one in settings or set GEMINI_API_KEY.");
     }
 
-    // For Vertex AI (including Express Mode), Project ID is required to construct the URL
-    if (!vertexProjectId) {
-      throw new Error("Google Cloud Project ID is required for Vertex AI.");
-    }
+    const basePayload = {
+      contents: baseContents,
+      generationConfig: {
+        responseModalities: ["TEXT", "IMAGE"],
+        imageConfig: {
+          aspectRatio: apiAspectRatio,
+          imageSize: apiResolution,
+        },
+      },
+    };
 
-    // Prepare concurrent requests
+    // Use the fast native image model to avoid very long turnaround (Pro Image Preview can be slower / gated).
+    // Default to Pro Image Preview. If you hit persistent 5xx errors, swap back to 2.5 flash.
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${encodeURIComponent(
+      resolvedApiKey,
+    )}`;
+
     const requests = Array.from({ length: validNumImages }).map(async () => {
-      // Vertex AI Endpoint (Global)
-      const endpoint = `https://aiplatform.googleapis.com/v1/projects/${vertexProjectId}/locations/global/publishers/google/models/gemini-3-pro-image-preview:generateContent?key=${resolvedApiKey}`;
-      
-      const payload: Record<string, unknown> = {
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: trimmedPrompt }]
-          }
-        ],
-        generation_config: {
-          response_modalities: ["TEXT", "IMAGE"],
-          image_config: {
-             aspect_ratio: apiAspectRatio,
-             image_size: apiResolution,
-          },
-        }
+      const payload = {
+        ...basePayload,
+        contents: basePayload.contents.map((content) => ({
+          ...content,
+          parts: content.parts.map((part) => ({ ...part })),
+        })),
       };
 
-      // Handle input images for "edit" or multimodal prompt
-      // Note: Gemini 3 Pro Image Preview might support input images in the `parts` array.
-      if (effectiveInputImages.length > 0) {
-        const contents = payload.contents as Array<{ parts: Array<Record<string, unknown>> }>;
-        const parts = contents[0].parts;
-        effectiveInputImages.forEach((img) => {
-          if (img.url.startsWith("data:")) {
-            const [mimePart, base64Data] = img.url.split(",");
-            const mimeType = mimePart.match(/:(.*?);/)?.[1] || "image/png";
-            parts.push({
-              inlineData: {
-                mimeType,
-                data: base64Data,
-              },
-            });
-          }
-        });
-      }
-      
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        cache: "no-store",
-      });
+      const response = await fetchWithTimeout(
+        endpoint,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": resolvedApiKey,
+          },
+          body: JSON.stringify(payload),
+          cache: "no-store",
+        },
+        DEFAULT_REQUEST_TIMEOUT_MS,
+      );
 
       if (!response.ok) {
         const errorText = await response.text();
-        // Try to parse error for better message
         try {
-           const errJson = JSON.parse(errorText) as { error?: { message?: string; code?: number; status?: string } };
-           if (errJson.error?.message) {
-             throw new Error(`Google API Error: ${errJson.error.message}`);
-           }
-        } catch(e) { 
-          if (e instanceof Error && e.message.startsWith("Google API Error")) throw e;
+          const errJson = JSON.parse(errorText) as { error?: { message?: string } };
+          if (errJson.error?.message) {
+            const isUnavailable = response.status === 503;
+            const suffix = isUnavailable ? " (service unavailable)" : "";
+            throw new Error(
+              `Gemini API Error${suffix}: ${errJson.error.message || "Request failed"}. Try again or switch provider.`,
+            );
+          }
+        } catch (error) {
+          if (error instanceof Error && error.message.startsWith("Gemini API Error")) {
+            throw error;
+          }
         }
-        throw new Error(`Google API Error (${response.status}): ${errorText}`);
+        if (response.status === 503) {
+          throw new Error(
+            "Gemini API is temporarily unavailable (503). Please retry shortly or switch to FAL.",
+          );
+        }
+        throw new Error(`Gemini API Error (${response.status}): ${errorText}`);
       }
 
       const json = (await response.json()) as {
-        candidates?: {
-          content?: {
-            parts?: {
-              inlineData?: {
-                mimeType: string;
-                data: string;
-              };
-            }[];
-          };
-        }[];
+        candidates?: { content?: { parts?: Array<{ inlineData?: { mimeType: string; data: string }; inline_data?: { mime_type?: string; data?: string } }> } }[];
       };
-      
-      const candidate = json.candidates?.[0];
-      if (!candidate) return null;
-      
-      const part = candidate.content?.parts?.find((p) => p.inlineData);
-      if (part && part.inlineData && part.inlineData.data) {
-        return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-      }
-      return null;
+
+      const candidateParts = json.candidates?.[0]?.content?.parts;
+      const image = extractImageFromParts(candidateParts);
+      return image;
     });
 
-    const results = await Promise.all(requests);
-    const images = results.filter((img): img is string => typeof img === "string");
+    const results = await Promise.all(
+      requests.map((req) =>
+        req.catch((error) => {
+          throw new Error(
+            error instanceof Error && error.name === "AbortError"
+              ? "Gemini API request timed out. Check your connection and try again."
+              : error instanceof Error
+              ? error.message
+              : "Gemini API request failed.",
+          );
+        }),
+      ),
+    );
+    const images = results.filter((img): img is string => typeof img === "string" && img.length > 0);
 
     if (images.length === 0) {
-      throw new Error("No images returned from Google API.");
+      throw new Error("No images returned from Gemini API.");
     }
 
     return {

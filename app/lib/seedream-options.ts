@@ -1,9 +1,9 @@
-export type Provider = "fal" | "google";
+export type Provider = "fal" | "gemini";
 export type OutputFormat = "png" | "jpeg" | "webp";
 
 export const PROVIDER_OPTIONS: { value: Provider; label: string }[] = [
   { value: "fal", label: "FAL.ai" },
-  { value: "google", label: "Google Vertex" },
+  { value: "gemini", label: "Gemini API" },
 ];
 
 export type AspectKey =
