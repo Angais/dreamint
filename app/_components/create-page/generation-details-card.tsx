@@ -177,7 +177,7 @@ export function GenerationDetailsCard({
         ) : null}
         
         {generation && !isInterrupted ? (
-          <p className="text-xs leading-relaxed text-[var(--text-primary)] opacity-90 line-clamp-6 font-normal">
+          <p className="text-xs leading-relaxed text-[var(--text-primary)] opacity-90 font-normal max-h-32 overflow-y-auto">
             {generation.prompt}
           </p>
         ) : !generation ? (
