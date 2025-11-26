@@ -250,7 +250,7 @@ export function Lightbox({
            </div>
 
            <div className="flex-1 overflow-y-auto pr-2">
-             <p className="text-sm leading-relaxed text-[var(--text-primary)] font-medium mb-4">
+             <p className="text-sm leading-relaxed text-[var(--text-primary)] font-medium mb-4 max-h-32 overflow-y-auto">
                {entry.prompt}
              </p>
              

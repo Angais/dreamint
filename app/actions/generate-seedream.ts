@@ -17,7 +17,7 @@ const MAX_IMAGE_DIMENSION = 4096;
 // Gemini 3 Pro Image supports up to 14 reference images; keep the same cap here.
 const MAX_MODEL_INPUT_IMAGES = 14;
 // Gemini image gen can take up to ~3-4 minutes in some regions; use a generous timeout.
-const DEFAULT_REQUEST_TIMEOUT_MS = 240_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 480_000;
 
 export type InputImage = {
   id: string;

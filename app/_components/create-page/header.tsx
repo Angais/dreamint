@@ -271,7 +271,7 @@ export function Header({
                     }
                     }}
                     rows={1}
-                    className="flex-1 resize-none overflow-hidden bg-transparent text-lg leading-[1.6] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none font-medium"
+                    className="flex-1 resize-none overflow-y-auto max-h-40 bg-transparent text-lg leading-[1.6] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none font-medium"
                     placeholder="What are you imagining?"
                 />
                  <button
