@@ -185,6 +185,7 @@ export function GenerationDetailsCard({
             Waiting for prompt...
           </p>
         ) : null}
+
       </div>
 
       {/* Input Images (Compact) */}

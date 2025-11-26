@@ -32,13 +32,12 @@ const STORAGE_KEYS = {
   generations: "seedream:generations",
   pendingGenerations: "seedream:pending_generations",
   apiKey: "seedream:api_key",
-  vertexApiKey: "seedream:vertex_api_key",
-  vertexProjectId: "seedream:vertex_project_id",
   budgetCents: "seedream:budget_cents",
   spentCents: "seedream:spent_cents",
+  geminiApiKey: "seedream:gemini_api_key",
 } as const;
 
-const MAX_ATTACHMENTS = 4;
+const MAX_ATTACHMENTS = 8;
 const ATTACHMENT_LIMIT_MESSAGE = `Maximum of ${MAX_ATTACHMENTS} images allowed.`;
 const ATTACHMENT_TYPE_MESSAGE = "Only image files can be used for editing.";
 const ATTACHMENT_READ_MESSAGE = "Unable to load one of the images you pasted or uploaded.";
@@ -170,8 +169,7 @@ export function CreatePage() {
   const [provider, setProvider] = useState<Provider>("fal");
   const [imageCount, setImageCount] = useState<number>(4);
   const [apiKey, setApiKey] = useState("");
-  const [vertexApiKey, setVertexApiKey] = useState("");
-  const [vertexProjectId, setVertexProjectId] = useState("");
+  const [geminiApiKey, setGeminiApiKey] = useState("");
   const [attachments, setAttachments] = useState<PromptAttachment[]>([]);
   const [attachmentPreview, setAttachmentPreview] = useState<PromptAttachment | null>(null);
   const [generations, setGenerations] = useState<Generation[]>([]);
@@ -181,13 +179,13 @@ export function CreatePage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [lightboxSelection, setLightboxSelection] = useState<{ generationId: string; imageIndex: number } | null>(null);
   const storageHydratedRef = useRef(false);
+  const pendingHydratedRef = useRef(false);
   const pendingReconciledRef = useRef(false);
 
   const clearAttachmentError = useCallback(() => {
     setError((previous) => (previous && ATTACHMENT_ERROR_MESSAGES.has(previous) ? null : previous));
   }, [setError]);
 
-  const hasActiveGeneration = pendingGenerations.length > 0;
   const isAttachmentLimitReached = attachments.length >= MAX_ATTACHMENTS;
 
   useEffect(() => {
@@ -215,7 +213,7 @@ export function CreatePage() {
         }
 
         const storedProvider = window.localStorage.getItem(STORAGE_KEYS.provider);
-        if (storedProvider === "fal" || storedProvider === "google") {
+        if (storedProvider === "fal" || storedProvider === "gemini") {
           setProvider(storedProvider);
         }
 
@@ -237,14 +235,9 @@ export function CreatePage() {
           setApiKey(storedApiKey);
         }
 
-        const storedVertexApiKey = window.localStorage.getItem(STORAGE_KEYS.vertexApiKey);
-        if (storedVertexApiKey !== null) {
-          setVertexApiKey(storedVertexApiKey);
-        }
-
-        const storedVertexProjectId = window.localStorage.getItem(STORAGE_KEYS.vertexProjectId);
-        if (storedVertexProjectId !== null) {
-          setVertexProjectId(storedVertexProjectId);
+        const storedGeminiApiKey = window.localStorage.getItem(STORAGE_KEYS.geminiApiKey);
+        if (storedGeminiApiKey !== null) {
+          setGeminiApiKey(storedGeminiApiKey);
         }
 
         let generationData: Generation[] | null = null;
@@ -263,6 +256,7 @@ export function CreatePage() {
 
           if (Array.isArray(restoredPending)) {
             pendingData = restoredPending;
+            pendingHydratedRef.current = restoredPending.length > 0;
           }
         }
 
@@ -318,12 +312,15 @@ export function CreatePage() {
         }
       } catch (error) {
         console.error("Unable to restore Seedream state", error);
-      } finally {
-        if (!cancelled) {
-          storageHydratedRef.current = true;
+    } finally {
+      if (!cancelled) {
+        storageHydratedRef.current = true;
+        if (!pendingHydratedRef.current) {
+          pendingReconciledRef.current = true;
         }
       }
-    };
+    }
+  };
 
     loadState();
 
@@ -333,16 +330,17 @@ export function CreatePage() {
   }, []);
 
   useEffect(() => {
-    if (!storageHydratedRef.current || pendingReconciledRef.current) {
+    if (!storageHydratedRef.current || pendingReconciledRef.current || !pendingHydratedRef.current) {
       return;
     }
 
     if (pendingGenerations.length === 0) {
       pendingReconciledRef.current = true;
+      pendingHydratedRef.current = false;
       return;
     }
 
-    const noKeys = apiKey.trim().length === 0 && vertexApiKey.trim().length === 0;
+    const noKeys = apiKey.trim().length === 0 && geminiApiKey.trim().length === 0;
     if (noKeys) {
       debugLog("pending:cleared-no-keys", {
         count: pendingGenerations.length,
@@ -353,6 +351,7 @@ export function CreatePage() {
         void store.removeItem(STORAGE_KEYS.pendingGenerations);
       }
       pendingReconciledRef.current = true;
+      pendingHydratedRef.current = false;
       return;
     }
 
@@ -370,7 +369,8 @@ export function CreatePage() {
     });
     setPendingGenerations([]);
     pendingReconciledRef.current = true;
-  }, [pendingGenerations, apiKey, vertexApiKey]);
+    pendingHydratedRef.current = false;
+  }, [pendingGenerations, apiKey, geminiApiKey]);
 
   const activeFeed = useMemo(
     () => [...pendingGenerations, ...generations],
@@ -403,12 +403,18 @@ export function CreatePage() {
     const normalizedApiKey = apiKey.trim();
     safePersist(STORAGE_KEYS.apiKey, normalizedApiKey.length > 0 ? normalizedApiKey : null);
 
-    const normalizedVertexApiKey = vertexApiKey.trim();
-    safePersist(STORAGE_KEYS.vertexApiKey, normalizedVertexApiKey.length > 0 ? normalizedVertexApiKey : null);
+    const normalizedGeminiApiKey = geminiApiKey.trim();
+    safePersist(STORAGE_KEYS.geminiApiKey, normalizedGeminiApiKey.length > 0 ? normalizedGeminiApiKey : null);
 
-    const normalizedVertexProjectId = vertexProjectId.trim();
-    safePersist(STORAGE_KEYS.vertexProjectId, normalizedVertexProjectId.length > 0 ? normalizedVertexProjectId : null);
-  }, [aspect, quality, outputFormat, provider, imageCount, apiKey, vertexApiKey, vertexProjectId]);
+  }, [
+    aspect,
+    quality,
+    outputFormat,
+    provider,
+    imageCount,
+    apiKey,
+    geminiApiKey,
+  ]);
 
   useEffect(() => {
     if (!storageHydratedRef.current || typeof window === "undefined") {
@@ -726,15 +732,13 @@ export function CreatePage() {
     });
 
     const trimmedApiKey = apiKey.trim();
-    const trimmedVertexApiKey = vertexApiKey.trim();
-    const trimmedVertexProjectId = vertexProjectId.trim();
+    const trimmedGeminiApiKey = geminiApiKey.trim();
     
     debugLog("submit:request", {
       pendingId,
       provider,
       apiKeyProvided: trimmedApiKey.length > 0,
-      vertexApiKeyProvided: trimmedVertexApiKey.length > 0,
-      vertexProjectIdProvided: trimmedVertexProjectId.length > 0,
+      geminiApiKeyProvided: trimmedGeminiApiKey.length > 0,
       inputImages: inputImageSnapshot.length,
       imageCount
     });
@@ -747,8 +751,7 @@ export function CreatePage() {
       provider,
       outputFormat,
       apiKey: trimmedApiKey.length > 0 ? trimmedApiKey : undefined,
-      vertexApiKey: trimmedVertexApiKey.length > 0 ? trimmedVertexApiKey : undefined,
-      vertexProjectId: trimmedVertexProjectId.length > 0 ? trimmedVertexProjectId : undefined,
+      geminiApiKey: trimmedGeminiApiKey.length > 0 ? trimmedGeminiApiKey : undefined,
       inputImages: inputImageSnapshot,
     });
 
@@ -944,8 +947,7 @@ export function CreatePage() {
         provider: generation.provider,
         outputFormat: generation.outputFormat ?? defaultOutputFormat,
         apiKey: apiKey.trim() || undefined,
-        vertexApiKey: vertexApiKey.trim() || undefined,
-        vertexProjectId: vertexProjectId.trim() || undefined,
+        geminiApiKey: geminiApiKey.trim() || undefined,
         inputImages: inputImageSnapshot,
       });
 
@@ -999,7 +1001,7 @@ export function CreatePage() {
           });
         });
     },
-    [apiKey, vertexApiKey, vertexProjectId, generations],
+    [apiKey, geminiApiKey, generations],
   );
 
   const handleDeleteGeneration = useCallback(
@@ -1126,9 +1128,7 @@ export function CreatePage() {
                 provider={provider}
                 imageCount={imageCount}
                 apiKey={apiKey}
-                vertexApiKey={vertexApiKey}
-                vertexProjectId={vertexProjectId}
-                isGenerating={hasActiveGeneration}
+                geminiApiKey={geminiApiKey}
                 isBudgetLocked={false}
                 isSettingsOpen={isSettingsOpen}
                 onSubmit={handleSubmit}
@@ -1139,8 +1139,7 @@ export function CreatePage() {
                 onProviderChange={setProvider}
                 onImageCountChange={setImageCount}
                 onApiKeyChange={setApiKey}
-                onVertexApiKeyChange={setVertexApiKey}
-                onVertexProjectIdChange={setVertexProjectId}
+                onGeminiApiKeyChange={setGeminiApiKey}
                 onToggleSettings={setIsSettingsOpen}
                 attachments={attachments}
                 onAddAttachments={handleAddAttachments}

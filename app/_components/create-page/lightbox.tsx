@@ -101,7 +101,7 @@ export function Lightbox({
               <button
                 type="button"
                 aria-label="Previous image"
-                className="group absolute left-4 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/60 p-3 text-white backdrop-blur transition hover:bg-[var(--accent-primary)] hover:text-white focus:outline-none"
+                className="group absolute left-4 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/70 p-3 text-white backdrop-blur transition hover:bg-white hover:text-black hover:shadow-lg focus:outline-none"
                 onClick={(event) => {
                   event.stopPropagation();
                   onPrev();
@@ -125,7 +125,7 @@ export function Lightbox({
               <button
                 type="button"
                 aria-label="Next image"
-                className="group absolute right-4 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/60 p-3 text-white backdrop-blur transition hover:bg-[var(--accent-primary)] hover:text-white focus:outline-none"
+                className="group absolute right-4 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/70 p-3 text-white backdrop-blur transition hover:bg-white hover:text-black hover:shadow-lg focus:outline-none"
                 onClick={(event) => {
                   event.stopPropagation();
                   onNext();

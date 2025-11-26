@@ -30,9 +30,7 @@ type HeaderProps = {
   provider: Provider;
   imageCount: number;
   apiKey: string;
-  vertexApiKey: string;
-  vertexProjectId: string;
-  isGenerating: boolean;
+  geminiApiKey: string;
   isBudgetLocked: boolean;
   isSettingsOpen: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -43,8 +41,7 @@ type HeaderProps = {
   onProviderChange: (value: Provider) => void;
   onImageCountChange: (value: number) => void;
   onApiKeyChange: (value: string) => void;
-  onVertexApiKeyChange: (value: string) => void;
-  onVertexProjectIdChange: (value: string) => void;
+  onGeminiApiKeyChange: (value: string) => void;
   onToggleSettings: Dispatch<SetStateAction<boolean>>;
   attachments: PromptAttachment[];
   onAddAttachments: (files: File[]) => void;
@@ -61,8 +58,7 @@ export function Header({
   provider,
   imageCount,
   apiKey,
-  vertexApiKey,
-  vertexProjectId,
+  geminiApiKey,
   isBudgetLocked,
   isSettingsOpen,
   onSubmit,
@@ -73,8 +69,7 @@ export function Header({
   onProviderChange,
   onImageCountChange,
   onApiKeyChange,
-  onVertexApiKeyChange,
-  onVertexProjectIdChange,
+  onGeminiApiKeyChange,
   onToggleSettings,
   attachments,
   onAddAttachments,
@@ -446,43 +441,27 @@ export function Header({
                                   className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-secondary)] focus:border-white focus:text-white focus:outline-none transition-all"
                               />
                           </div>
-                        ) : (
-                          <div className="space-y-3">
-                              <div className="space-y-2">
-                                <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Google / Vertex API Key</span>
-                                <input
-                                    value={vertexApiKey}
-                                    onChange={(e) => onVertexApiKeyChange(e.target.value)}
-                                    type="password"
-                                    placeholder="AIzaSy..."
-                                    className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-secondary)] focus:border-white focus:text-white focus:outline-none transition-all"
-                                />
-                              </div>
-                              <div className="space-y-2">
-                                <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Google Cloud Project ID</span>
-                                <input
-                                    value={vertexProjectId}
-                                    onChange={(e) => onVertexProjectIdChange(e.target.value)}
-                                    type="text"
-                                    placeholder="my-project-id"
-                                    className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-secondary)] focus:border-white focus:text-white focus:outline-none transition-all"
-                                />
-                                <p className="text-[9px] text-[var(--text-muted)]">
-                                  Required for Vertex AI Express Mode. Leave empty to try Gemini API (Generative Language).
-                                </p>
-                              </div>
+                        ) : null}
+
+                        {provider === "gemini" ? (
+                          <div className="space-y-2">
+                              <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Gemini API Key</span>
+                              <input
+                                  value={geminiApiKey}
+                                  onChange={(e) => onGeminiApiKeyChange(e.target.value)}
+                                  type="password"
+                                  placeholder="AIzaSy... (Gemini API)"
+                                  className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-secondary)] focus:border-white focus:text-white focus:outline-none transition-all"
+                              />
+                              <p className="text-[9px] text-[var(--text-muted)]">
+                                Gemini API runs on the Generative Language endpoint.
+                              </p>
                           </div>
-                        )}
-                        
-                        {provider === "google" ? (
-                          <p className="text-[10px] font-bold text-orange-400 mt-1 text-center">
-                            ⚠️ WARNING: I HAVE NO IDEA HOW THIS WORKS, CHECK CODE AND DO UNDER YOUR OWN RISK.
-                          </p>
-                        ) : (
-                          <p className="text-[10px] font-bold text-orange-400 mt-1 text-center">
-                            ⚠️ Note: You might get bugs or unexpected usage and I&apos;m not responsible.
-                          </p>
-                        )}
+                        ) : null}
+
+                        <p className="text-[10px] font-bold text-orange-400 mt-1 text-center">
+                          ⚠️ API calls may fail or incur charges; you are fully responsible for any usage.
+                        </p>
                         
                         <p className="text-[10px] text-[var(--text-muted)] text-center">Keys are stored locally on your device.</p>
                      </div>
