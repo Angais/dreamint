@@ -16,7 +16,7 @@ export function AttachmentPreviewList({ attachments, onRemove, onPreview }: Atta
   }
 
   return (
-    <div className="mt-2 flex flex-wrap gap-3">
+    <div className="mt-0 flex flex-wrap gap-2">
       {attachments.map((attachment) => (
         <div
           key={attachment.id}
