@@ -253,7 +253,7 @@ export function Header({
           onDrop={handleDrop}
         >
             {/* Prompt Area */}
-            <div className="relative flex w-full items-start gap-3 px-5 py-4">
+            <div className="relative flex w-full items-start gap-3 px-4 py-3 md:px-5 md:py-4">
                  <textarea
                     ref={promptTextareaRef}
                     value={prompt}
@@ -271,7 +271,7 @@ export function Header({
                     }
                     }}
                     rows={1}
-                    className="flex-1 resize-none overflow-y-auto max-h-40 bg-transparent text-lg leading-[1.6] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none font-medium"
+                    className="flex-1 resize-none overflow-y-auto max-h-40 bg-transparent text-base md:text-lg leading-[1.6] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none font-medium"
                     placeholder="What are you imagining?"
                 />
                  <button
@@ -295,7 +295,7 @@ export function Header({
 
             {/* Attachments */}
              {attachments.length > 0 ? (
-                <div className="px-5 pb-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="px-4 pb-2 animate-in fade-in slide-in-from-top-2 duration-300">
                     <AttachmentPreviewList attachments={attachments} onRemove={onRemoveAttachment} onPreview={onPreviewAttachment} />
                 </div>
             ) : null}

@@ -232,7 +232,7 @@ export function Lightbox({
     <div
       ref={containerRef}
       tabIndex={-1}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#000]/95 backdrop-blur-sm px-4 py-8 outline-none animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#000]/95 backdrop-blur-sm p-0 md:px-4 md:py-8 outline-none animate-in fade-in duration-200"
     >
       <button
         type="button"
@@ -240,12 +240,12 @@ export function Lightbox({
         aria-label="Close image"
         onClick={onClose}
       />
-      <div className="relative z-10 w-full max-w-6xl rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-2 shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col md:flex-row overflow-hidden">
+      <div className="relative z-10 w-full max-w-6xl h-full md:h-auto md:max-h-[90vh] rounded-none md:rounded-2xl border-0 md:border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-0 md:p-2 shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col md:flex-row overflow-hidden">
         
         {/* Image Container */}
         <div 
           ref={imageContainerRef}
-          className="relative flex-1 bg-black/50 rounded-xl overflow-hidden flex items-center justify-center min-h-[50vh] md:min-h-[70vh]"
+          className="relative flex-1 bg-black/50 md:rounded-xl overflow-hidden flex items-center justify-center min-h-0 md:min-h-[70vh]"
           onWheel={handleWheel}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
@@ -275,7 +275,7 @@ export function Lightbox({
               className="relative flex h-full w-full items-center justify-center transition-transform duration-75 ease-out"
             >
               {isCompareMode && hasReferences ? (
-                <div className="relative h-[50vh] w-full md:h-[70vh]">
+                <div className="relative h-full w-full">
                   <CompareSlider
                     original={entry.inputImages[selectedReferenceIndex].url}
                     generated={entry.src}
@@ -291,7 +291,7 @@ export function Lightbox({
                   alt={entry.prompt}
                   width={entry.size.width}
                   height={entry.size.height}
-                  className="max-h-[70vh] w-auto max-w-full select-none object-contain shadow-lg"
+                  className="max-h-full w-auto max-w-full select-none object-contain shadow-lg"
                   draggable={false}
                   priority
                 />
@@ -314,8 +314,8 @@ export function Lightbox({
         </div>
 
         {/* Sidebar for Details */}
-        <div className="w-full md:w-[320px] bg-[var(--bg-panel)] p-6 flex flex-col border-l border-[var(--border-subtle)]">
-           <div className="flex justify-between items-start mb-6">
+        <div className="w-full md:w-[320px] bg-[var(--bg-panel)] p-4 md:p-6 flex flex-col border-l border-[var(--border-subtle)] max-h-[50vh] md:max-h-full">
+           <div className="flex justify-between items-start mb-3 md:mb-6">
              <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Details</h2>
               <button
                 type="button"
@@ -331,7 +331,7 @@ export function Lightbox({
                {entry.prompt}
              </p>
              
-             <div className="grid grid-cols-2 gap-3 text-xs text-[var(--text-secondary)] mb-6">
+             <div className="grid grid-cols-2 gap-3 text-xs text-[var(--text-secondary)] mb-3 md:mb-6">
                 <div className="p-2 rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)]">
                   <span className="block text-[10px] uppercase tracking-wide opacity-60 mb-1">Aspect</span>
                   {getAspectDescription(entry.aspect)}
@@ -343,7 +343,7 @@ export function Lightbox({
              </div>
            </div>
 
-           <div className="mt-auto pt-6 border-t border-[var(--border-subtle)] space-y-3 flex flex-col gap-2">
+           <div className="mt-auto pt-3 md:pt-6 border-t border-[var(--border-subtle)] space-y-3 flex flex-col gap-2">
               <button
                 type="button"
                 onClick={onDownload}
