@@ -87,6 +87,13 @@ export function GenerationDetailsCard({
   onRetry,
 }: GenerationDetailsCardProps) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const validInputImages = useMemo(
+    () =>
+      generation?.inputImages?.filter(
+        (img) => typeof img?.url === "string" && img.url.trim().length > 0,
+      ) ?? [],
+    [generation?.inputImages],
+  );
   
   // Get simple aspect ratio e.g. "16:9" from description like "16 : 9"
   const aspectLabel = generation
@@ -189,9 +196,9 @@ export function GenerationDetailsCard({
       </div>
 
       {/* Input Images (Compact) */}
-      {generation && generation.inputImages?.length ? (
+      {generation && validInputImages.length ? (
         <div className="flex flex-wrap gap-1.5 pt-1 border-t border-[var(--border-subtle)]">
-          {generation.inputImages.map((image, index) => (
+          {validInputImages.map((image, index) => (
             <button
               key={image.id ?? `${generation.id}-input-${index}`}
               type="button"
@@ -201,7 +208,7 @@ export function GenerationDetailsCard({
             >
               <Image
                 src={image.url}
-                alt={image.name}
+                alt={image.name || "Reference image"}
                 width={32}
                 height={32}
                 unoptimized
@@ -230,7 +237,7 @@ export function GenerationDetailsCard({
             <div className="flex items-center gap-1">
                 <button
                     type="button"
-                    onClick={() => onUsePrompt(generation.prompt, generation.inputImages)}
+                    onClick={() => onUsePrompt(generation.prompt, validInputImages)}
                     className="flex items-center justify-center h-6 w-6 rounded hover:bg-[var(--bg-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
                     title="Reuse Prompt"
                 >

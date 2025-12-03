@@ -3,7 +3,6 @@
 import NextImage from "next/image";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import localforage from "localforage";
 import { debugLog } from "./create-page/logger";
 import { generateSeedream } from "../actions/generate-seedream";
 import { calculateImageSize, type AspectKey, type QualityKey, type Provider, type OutputFormat } from "../lib/seedream-options";
@@ -15,6 +14,7 @@ import { Lightbox } from "./create-page/lightbox";
 import { AttachmentLightbox } from "./create-page/attachment-lightbox";
 import { createId, groupByDate, normalizeImages } from "./create-page/utils";
 import type { GalleryEntry, Generation, PromptAttachment } from "./create-page/types";
+import { clearPending, loadPending, restoreGenerations, persistGenerations, savePending, deleteGenerationData, cleanOrphanedImages } from "./create-page/storage";
 
 const defaultPrompt =
   "Cinematic shot of a futuristic city at night, neon lights, rain reflections, highly detailed, 8k resolution";
@@ -29,8 +29,6 @@ const STORAGE_KEYS = {
   provider: "seedream:provider",
   outputFormat: "seedream:output_format",
   imageCount: "seedream:image_count",
-  generations: "seedream:generations",
-  pendingGenerations: "seedream:pending_generations",
   apiKey: "seedream:api_key",
   budgetCents: "seedream:budget_cents",
   spentCents: "seedream:spent_cents",
@@ -115,6 +113,33 @@ async function loadImageDimensions(url: string): Promise<{ width: number; height
   });
 }
 
+async function ensureSerializableUrl(url: string): Promise<string> {
+  if (!url || url.startsWith("data:") || typeof window === "undefined") {
+    return url;
+  }
+
+  if (!url.startsWith("blob:")) {
+    return url;
+  }
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch blob url (${response.status})`);
+    }
+    const blob = await response.blob();
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(typeof reader.result === "string" ? reader.result : url);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.error("Unable to convert blob URL for attachment", error);
+    return url;
+  }
+}
+
 function findClosestAspect(width: number, height: number): AspectKey {
   const ratio = width / height;
   let closestAspect: AspectKey = defaultAspect;
@@ -142,23 +167,7 @@ function findClosestAspect(width: number, height: number): AspectKey {
   return closestAspect;
 }
 
-let largeStateStore: typeof localforage | null = null;
 
-function getLargeStateStore(): typeof localforage | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  if (!largeStateStore) {
-    largeStateStore = localforage.createInstance({
-      name: "nano-banana-pro",
-      storeName: "state",
-      description: "Nano Banana Pro gallery cache",
-    });
-  }
-
-  return largeStateStore;
-}
 
 export function CreatePage() {
   const [view, setView] = useState<"create" | "gallery">("create");
@@ -181,6 +190,7 @@ export function CreatePage() {
   const storageHydratedRef = useRef(false);
   const pendingHydratedRef = useRef(false);
   const pendingReconciledRef = useRef(false);
+  const cleanupRanRef = useRef(false);
 
   const clearAttachmentError = useCallback(() => {
     setError((previous) => (previous && ATTACHMENT_ERROR_MESSAGES.has(previous) ? null : previous));
@@ -243,11 +253,10 @@ export function CreatePage() {
         let generationData: Generation[] | null = null;
         let pendingData: Generation[] | null = null;
 
-        const store = getLargeStateStore();
-        if (store) {
+        try {
           const [restoredGenerations, restoredPending] = await Promise.all([
-            store.getItem<Generation[]>(STORAGE_KEYS.generations),
-            store.getItem<Generation[]>(STORAGE_KEYS.pendingGenerations),
+            restoreGenerations(),
+            loadPending(),
           ]);
 
           if (Array.isArray(restoredGenerations)) {
@@ -258,38 +267,8 @@ export function CreatePage() {
             pendingData = restoredPending;
             pendingHydratedRef.current = restoredPending.length > 0;
           }
-        }
-
-        if (!generationData) {
-          const legacyGenerations = window.localStorage.getItem(STORAGE_KEYS.generations);
-          if (legacyGenerations) {
-            try {
-              const parsed = JSON.parse(legacyGenerations) as Generation[];
-              if (Array.isArray(parsed)) {
-                generationData = parsed;
-              }
-            } catch (legacyError) {
-              console.error("Failed to parse legacy generations cache", legacyError);
-            } finally {
-              window.localStorage.removeItem(STORAGE_KEYS.generations);
-            }
-          }
-        }
-
-        if (!pendingData) {
-          const legacyPending = window.localStorage.getItem(STORAGE_KEYS.pendingGenerations);
-          if (legacyPending) {
-            try {
-              const parsed = JSON.parse(legacyPending) as Generation[];
-              if (Array.isArray(parsed)) {
-                pendingData = parsed;
-              }
-            } catch (legacyError) {
-              console.error("Failed to parse legacy pending cache", legacyError);
-            } finally {
-              window.localStorage.removeItem(STORAGE_KEYS.pendingGenerations);
-            }
-          }
+        } catch (storageError) {
+          console.error("Storage restoration failed", storageError);
         }
 
         if (!cancelled) {
@@ -346,10 +325,7 @@ export function CreatePage() {
         count: pendingGenerations.length,
       });
       setPendingGenerations([]);
-      const store = getLargeStateStore();
-      if (store) {
-        void store.removeItem(STORAGE_KEYS.pendingGenerations);
-      }
+      void clearPending();
       pendingReconciledRef.current = true;
       pendingHydratedRef.current = false;
       return;
@@ -421,24 +397,7 @@ export function CreatePage() {
       return;
     }
 
-    const store = getLargeStateStore();
-    if (!store) {
-      return;
-    }
-
-    const persistGenerations = async () => {
-      try {
-        if (generations.length > 0) {
-          await store.setItem(STORAGE_KEYS.generations, generations);
-        } else {
-          await store.removeItem(STORAGE_KEYS.generations);
-        }
-      } catch (error) {
-        console.error("Unable to persist generations to storage", error);
-      }
-    };
-
-    void persistGenerations();
+    void persistGenerations(generations);
   }, [generations]);
 
   useEffect(() => {
@@ -446,24 +405,7 @@ export function CreatePage() {
       return;
     }
 
-    const store = getLargeStateStore();
-    if (!store) {
-      return;
-    }
-
-    const persistPending = async () => {
-      try {
-        if (pendingGenerations.length > 0) {
-          await store.setItem(STORAGE_KEYS.pendingGenerations, pendingGenerations);
-        } else {
-          await store.removeItem(STORAGE_KEYS.pendingGenerations);
-        }
-      } catch (error) {
-        console.error("Unable to persist pending generations to storage", error);
-      }
-    };
-
-    void persistPending();
+    void savePending(pendingGenerations);
   }, [pendingGenerations]);
 
   const displayFeed = activeFeed;
@@ -553,6 +495,14 @@ export function CreatePage() {
   useEffect(() => {
     setIsDownloading(false);
   }, [lightboxSelection]);
+
+  useEffect(() => {
+    if (!storageHydratedRef.current || cleanupRanRef.current) {
+      return;
+    }
+    cleanupRanRef.current = true;
+    void cleanOrphanedImages(generations, pendingGenerations);
+  }, [generations, pendingGenerations]);
 
   const handleAddAttachments = useCallback(
     async (files: File[]) => {
@@ -647,19 +597,21 @@ export function CreatePage() {
         return false;
       }
 
+      const resolvedUrl = await ensureSerializableUrl(url);
+
       if (attachments.length >= MAX_ATTACHMENTS) {
         setError(ATTACHMENT_LIMIT_MESSAGE);
         return false;
       }
 
-      if (attachments.some((attachment) => attachment.url === url)) {
+      if (attachments.some((attachment) => attachment.url === resolvedUrl)) {
         return false;
       }
 
       let width: number | null = null;
       let height: number | null = null;
       try {
-        const dimensions = await loadImageDimensions(url);
+        const dimensions = await loadImageDimensions(resolvedUrl);
         width = dimensions?.width ?? null;
         height = dimensions?.height ?? null;
       } catch (dimensionError) {
@@ -669,7 +621,7 @@ export function CreatePage() {
       setAttachments((previous) => {
         const next = [
           ...previous,
-          { id: createId("attachment"), name, url, kind: "remote" as const, width, height },
+          { id: createId("attachment"), name, url: resolvedUrl, kind: "remote" as const, width, height },
         ];
         
         if (previous.length === 0 && width && height) {
@@ -912,7 +864,10 @@ export function CreatePage() {
 
       const pendingId = createId("pending");
       const numImages = Math.max(1, generation.images.length || 1);
-      const pendingSize = calculateImageSize(generation.aspect, generation.quality);
+      const pendingSize =
+        generation.aspect === "custom" && generation.size
+          ? generation.size
+          : calculateImageSize(generation.aspect as AspectKey, generation.quality);
       const inputImageSnapshot = generation.inputImages?.map((image) => ({ ...image })) ?? [];
 
       const pendingGeneration: Generation = {
@@ -1009,6 +964,12 @@ export function CreatePage() {
     (generationId: string) => {
       const shouldClearError = Boolean(error && displayFeed.length > 0 && displayFeed[0].id === generationId);
 
+      const generationToDelete =
+        generations.find((generation) => generation.id === generationId) ??
+        pendingGenerations.find((generation) => generation.id === generationId);
+
+      void deleteGenerationData(generationId, generationToDelete);
+
       setGenerations((previous) => previous.filter((generation) => generation.id !== generationId));
       setPendingGenerations((previous) => previous.filter((generation) => generation.id !== generationId));
       setLightboxSelection((selection) =>
@@ -1019,31 +980,36 @@ export function CreatePage() {
         setError(null);
       }
     },
-    [displayFeed, error, setError, setLightboxSelection],
+    [displayFeed, error, generations, pendingGenerations, setError, setLightboxSelection],
   );
 
-  const handleUsePrompt = useCallback((value: string, inputImages: Generation["inputImages"]) => {
-    setPrompt(value);
-    setIsSettingsOpen(false);
+  const handleUsePrompt = useCallback(
+    async (value: string, inputImages: Generation["inputImages"]) => {
+      setPrompt(value);
+      setIsSettingsOpen(false);
 
-    if (inputImages.length > 0) {
-      setAttachments(
-        inputImages.slice(0, MAX_ATTACHMENTS).map((image) => ({
-          id: image.id ?? createId("attachment"),
-          name: image.name,
-          url: image.url,
-          width: image.width ?? null,
-          height: image.height ?? null,
-          kind: "remote" as const,
-        })),
-      );
-      clearAttachmentError();
-    } else {
-      setAttachments([]);
-      setAttachmentPreview(null);
-      clearAttachmentError();
-    }
-  }, [clearAttachmentError]);
+      if (inputImages.length > 0) {
+        const normalized = await Promise.all(
+          inputImages.slice(0, MAX_ATTACHMENTS).map(async (image) => ({
+            id: image.id ?? createId("attachment"),
+            name: image.name ?? "Reference image",
+            url: await ensureSerializableUrl(image.url),
+            width: image.width ?? null,
+            height: image.height ?? null,
+            kind: "remote" as const,
+          })),
+        );
+
+        setAttachments(normalized);
+        clearAttachmentError();
+      } else {
+        setAttachments([]);
+        setAttachmentPreview(null);
+        clearAttachmentError();
+      }
+    },
+    [clearAttachmentError],
+  );
 
   return (
     <div className="min-h-screen bg-[var(--bg-app)] text-[var(--text-primary)]">

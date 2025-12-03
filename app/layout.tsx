@@ -1,16 +1,6 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+import { AccessGuard } from "./_components/access-guard";
 
 export const metadata: Metadata = {
   title: "Dreamint",
@@ -25,12 +15,14 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const accessProtectionEnabled = Boolean(process.env.ACCESS_PASSWORD?.trim());
+
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>{children}</body>
+      <body className="antialiased">
+        <AccessGuard protectionEnabled={accessProtectionEnabled}>{children}</AccessGuard>
+      </body>
     </html>
   );
 }
-
-
 
