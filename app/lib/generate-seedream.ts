@@ -1,6 +1,4 @@
-"use server";
-
-import "server-only";
+"use client";
 
 import {
   calculateImageSize,
@@ -10,7 +8,7 @@ import {
   type QualityKey,
   type Provider,
   type OutputFormat,
-} from "../lib/seedream-options";
+} from "./seedream-options";
 
 const MIN_IMAGE_DIMENSION = 512;
 const MAX_IMAGE_DIMENSION = 4096;

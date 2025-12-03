@@ -47,6 +47,7 @@ npm run dev
 
 ## Notes and limitations
 - Everything is client-initiated; server jobs are not durable. Closing the page interrupts in-flight requests.
+- Image generation runs fully in the browser with your own API keys; the host just serves the site (and optional password gate).
 - Attachment, gallery, and provider keys are stored locally in your browser; clear your browser storage to wipe state.
 - Max four outputs per request; max eight input images (UI cap; model accepts more).
 

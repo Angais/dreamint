@@ -4,7 +4,7 @@ import NextImage from "next/image";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { debugLog } from "./create-page/logger";
-import { generateSeedream } from "../actions/generate-seedream";
+import { generateSeedream } from "../lib/generate-seedream";
 import { calculateImageSize, type AspectKey, type QualityKey, type Provider, type OutputFormat } from "../lib/seedream-options";
 import { EmptyState } from "./create-page/empty-state";
 import { GenerationGroup } from "./create-page/generation-list";
