@@ -1,4 +1,4 @@
-import type { SeedreamGeneration } from "../../actions/generate-seedream";
+import type { SeedreamGeneration } from "../../lib/generate-seedream";
 import type { AspectKey, QualityKey, Provider, OutputFormat } from "../../lib/seedream-options";
 
 export type PromptAttachment = {
