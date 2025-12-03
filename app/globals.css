@@ -25,6 +25,11 @@
   
   /* Status */
   --color-error: #ef4444;
+
+  /* Local font fallbacks (no remote fetch) */
+  --font-geist-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-geist-mono: "SFMono-Regular", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
 }
 
 @theme inline {

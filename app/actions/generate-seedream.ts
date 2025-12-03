@@ -234,9 +234,9 @@ export async function generateSeedream({
 
   // --- FAL PROVIDER LOGIC ---
   if (provider === "fal") {
-    const resolvedApiKey = (apiKey ?? "").trim() || process.env.FAL_API_KEY;
+    const resolvedApiKey = (apiKey ?? "").trim();
     if (!resolvedApiKey) {
-      throw new Error("Missing FAL API key. Add one in settings or set FAL_API_KEY.");
+      throw new Error("Missing FAL API key. Add one in settings.");
     }
 
     const payload: Record<string, unknown> = {
@@ -308,11 +308,10 @@ export async function generateSeedream({
 
   // --- GEMINI API (GENERATIVE LANGUAGE) LOGIC ---
   if (provider === "gemini") {
-    const resolvedApiKey =
-      (geminiApiKey ?? "").trim() || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    const resolvedApiKey = (geminiApiKey ?? "").trim();
 
     if (!resolvedApiKey) {
-      throw new Error("Missing Gemini API key. Add one in settings or set GEMINI_API_KEY.");
+      throw new Error("Missing Gemini API key. Add one in settings.");
     }
 
     const basePayload = {

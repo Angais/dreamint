@@ -14,7 +14,7 @@ Dreamint is a browser-based workspace for generating and editing images with the
 
 ## Requirements
 - Node.js 18+
-- FAL API key for Gemini 3 Pro Image Preview or a Gemini API key.
+- Provider keys: FAL (Gemini 3 Pro Image Preview) and/or Gemini API. Keys are supplied in-app and stay in your browser; they are not stored on the server.
 
 ## Setup
 ```bash
@@ -22,14 +22,17 @@ npm install
 ```
 
 ## Running locally
-1) Provide credentials (any of these):
-   - Add `FAL_API_KEY` to `.env.local`, **or**
-   - Use the in-app Settings toggle to paste your key(s).
-2) Start dev server:
+1) Start dev server:
 ```bash
 npm run dev
 ```
 3) Open http://localhost:3000
+4) Add your FAL/Gemini keys in the in-app Settings. They persist in your browser storage only.
+
+## Access protection (optional)
+- Set `ACCESS_PASSWORD` in your deploy environment to require a one-time password on first visit.
+- Successful unlock sets a signed, HttpOnly session cookie (12h TTL, auto-refresh) and enforces a 5-try lockout (10 minutes) on failures.
+- If `ACCESS_PASSWORD` is unset, the gate is disabled.
 
 ## Using the app
 - Choose aspect, quality, and **Output Format** from the control bar. The format is sent to FAL and used when downloading from the lightbox.
@@ -44,7 +47,7 @@ npm run dev
 
 ## Notes and limitations
 - Everything is client-initiated; server jobs are not durable. Closing the page interrupts in-flight requests.
-- Attachment and gallery data are stored locally; clear your browser storage to wipe state.
+- Attachment, gallery, and provider keys are stored locally in your browser; clear your browser storage to wipe state.
 - Max four outputs per request; max eight input images (UI cap; model accepts more).
 
 ## Scripts

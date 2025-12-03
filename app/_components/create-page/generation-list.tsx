@@ -211,14 +211,14 @@ const ImageTile = memo(function ImageTile({
         unoptimized={shouldBypassOptimization}
         loading={shouldBypassOptimization ? "eager" : "lazy"}
         className="h-full w-full object-cover select-none transition-transform duration-500 group-hover/tile:scale-105"
-        onLoad={(image) => {
+        onLoad={({ currentTarget }) => {
           debugLog("gallery:image-loaded", {
             generationId,
             imageIndex,
-            naturalWidth: image.naturalWidth,
-            naturalHeight: image.naturalHeight,
-            renderedWidth: image.width,
-            renderedHeight: image.height,
+            naturalWidth: currentTarget.naturalWidth,
+            naturalHeight: currentTarget.naturalHeight,
+            renderedWidth: currentTarget.width,
+            renderedHeight: currentTarget.height,
             devicePixelRatio: typeof window !== "undefined" ? window.devicePixelRatio : null,
             requestedWidth: width,
             requestedHeight: height,
