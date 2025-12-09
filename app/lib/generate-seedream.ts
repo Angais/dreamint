@@ -38,6 +38,7 @@ export type GenerateSeedreamArgs = {
   geminiApiKey?: string; // Gemini API key (Generative Language)
   sizeOverride?: { width: number; height: number };
   inputImages?: InputImage[];
+  useGoogleSearch?: boolean;
 };
 
 export type SeedreamGeneration = {
@@ -46,6 +47,7 @@ export type SeedreamGeneration = {
   quality: QualityKey;
   outputFormat: OutputFormat;
   provider: Provider;
+  useGoogleSearch?: boolean;
   createdAt: string;
   size: { width: number; height: number };
   images: string[];
@@ -79,6 +81,7 @@ export async function generateSeedream({
   geminiApiKey,
   sizeOverride,
   inputImages = [],
+  useGoogleSearch = false,
 }: GenerateSeedreamArgs): Promise<SeedreamGeneration> {
   const trimmedPrompt = prompt.trim();
 
@@ -205,6 +208,7 @@ export async function generateSeedream({
       parts: [{ text: trimmedPrompt }, ...inlineImageParts],
     },
   ];
+  const effectiveGoogleSearch = provider === "gemini" && Boolean(useGoogleSearch);
 
   const extractImageFromParts = (
     parts:
@@ -297,6 +301,7 @@ export async function generateSeedream({
       quality,
       outputFormat,
       provider,
+      useGoogleSearch: effectiveGoogleSearch,
       createdAt: new Date().toISOString(),
       size,
       images,
@@ -321,6 +326,7 @@ export async function generateSeedream({
           imageSize: apiResolution,
         },
       },
+      ...(effectiveGoogleSearch ? { tools: [{ google_search: {} }] } : {}),
     };
 
     // Use the fast native image model to avoid very long turnaround (Pro Image Preview can be slower / gated).
@@ -410,6 +416,7 @@ export async function generateSeedream({
       quality,
       outputFormat,
       provider,
+      useGoogleSearch: effectiveGoogleSearch,
       createdAt: new Date().toISOString(),
       size,
       images,
