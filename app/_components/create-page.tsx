@@ -695,6 +695,9 @@ export function CreatePage() {
       return next;
     });
 
+    setPrompt("");
+    setAttachments([]);
+
     const trimmedApiKey = apiKey.trim();
     const trimmedGeminiApiKey = geminiApiKey.trim();
     
@@ -758,6 +761,8 @@ export function CreatePage() {
             : "Generation failed.";
         debugLog("generation:error", { pendingId, message, error: generationError });
         setError(message);
+        setPrompt(prompt);
+        setAttachments(attachments);
       })
       .finally(() => {
         setPendingGenerations((previous) => {

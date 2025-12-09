@@ -55,7 +55,7 @@ export const GenerationGroup = memo(function GenerationGroup({
                   isGenerating={isGenerating}
                 />
               </div>
-              <div className="w-full max-w-[180px] lg:w-44 lg:basis-44 lg:flex-none lg:self-start lg:shrink-0 transition-opacity duration-300 lg:opacity-80 lg:group-hover:opacity-100">
+              <div className="w-full lg:max-w-[180px] lg:w-44 lg:basis-44 lg:flex-none lg:self-start lg:shrink-0 transition-opacity duration-300 lg:opacity-80 lg:group-hover:opacity-100">
                 <GenerationDetailsCard
                   generation={generation}
                   isGenerating={isGenerating}
@@ -275,9 +275,19 @@ type GalleryLayout = {
 };
 
 function resolveGalleryLayout(generation: Generation): GalleryLayout {
+  const imageCount = generation.images.length;
+
   if (generation.aspect !== "custom") {
+    let gridClass = GRID_CLASS_MAP[generation.aspect];
+
+    if (imageCount === 1) {
+      gridClass = "grid grid-cols-1 lg:grid-cols-2";
+    } else if (imageCount === 2 && generation.aspect.startsWith("landscape")) {
+      gridClass = "grid grid-cols-1 gap-0.5 lg:grid-cols-2";
+    }
+
     return {
-      gridClass: GRID_CLASS_MAP[generation.aspect],
+      gridClass,
       tileClass: TILE_CLASS_MAP[generation.aspect],
       source: "preset",
       ratio: null,
@@ -307,9 +317,16 @@ function resolveGalleryLayout(generation: Generation): GalleryLayout {
     };
   }
 
+  let gridClass = DEFAULT_GRID_CLASS;
+  if (imageCount === 1) {
+    gridClass = "grid grid-cols-1 lg:grid-cols-2";
+  } else if (imageCount === 2 && ratio > 1.1) {
+    gridClass = "grid grid-cols-1 gap-0.5 lg:grid-cols-2";
+  }
+
   if (ratio >= 2.2) {
     return {
-      gridClass: DEFAULT_GRID_CLASS,
+      gridClass,
       tileClass: "relative aspect-[21/9] overflow-hidden",
       source: "custom",
       ratio,
@@ -318,7 +335,7 @@ function resolveGalleryLayout(generation: Generation): GalleryLayout {
 
   if (ratio >= 1.7) {
     return {
-      gridClass: DEFAULT_GRID_CLASS,
+      gridClass,
       tileClass: "relative aspect-[16/9] overflow-hidden",
       source: "custom",
       ratio,
@@ -327,7 +344,7 @@ function resolveGalleryLayout(generation: Generation): GalleryLayout {
 
   if (ratio >= 1.3) {
     return {
-      gridClass: DEFAULT_GRID_CLASS,
+      gridClass,
       tileClass: "relative aspect-[3/2] overflow-hidden",
       source: "custom",
       ratio,
@@ -336,7 +353,7 @@ function resolveGalleryLayout(generation: Generation): GalleryLayout {
 
   if (ratio >= 0.9) {
     return {
-      gridClass: DEFAULT_GRID_CLASS,
+      gridClass,
       tileClass: "relative aspect-square overflow-hidden",
       source: "custom",
       ratio,
@@ -345,7 +362,7 @@ function resolveGalleryLayout(generation: Generation): GalleryLayout {
 
   if (ratio >= 0.7) {
     return {
-      gridClass: DEFAULT_GRID_CLASS,
+      gridClass,
       tileClass: "relative aspect-[4/5] overflow-hidden",
       source: "custom",
       ratio,
@@ -353,7 +370,7 @@ function resolveGalleryLayout(generation: Generation): GalleryLayout {
   }
 
   return {
-    gridClass: DEFAULT_GRID_CLASS,
+    gridClass,
     tileClass: "relative aspect-[9/16] overflow-hidden",
     source: "custom",
     ratio,
