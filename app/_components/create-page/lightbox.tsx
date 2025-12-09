@@ -4,7 +4,7 @@ import type { WheelEvent } from "react";
 
 import { getAspectDescription, getQualityLabel } from "../../lib/seedream-options";
 import { CompareSlider } from "./compare-slider";
-import { ArrowLeftIcon, ArrowRightIcon, DownloadIcon, PlusIcon, SpinnerIcon } from "./icons";
+import { ArrowLeftIcon, ArrowRightIcon, ChevronDownIcon, DownloadIcon, InfoIcon, PlusIcon, SpinnerIcon, XIcon } from "./icons";
 import type { GalleryEntry } from "./types";
 
 type LightboxProps = {
@@ -35,6 +35,7 @@ export function Lightbox({
   const [selectedReferenceIndex, setSelectedReferenceIndex] = useState(0);
   const [compareSliderPosition, setCompareSliderPosition] = useState(50);
   const [isDownloadingComparison, setIsDownloadingComparison] = useState(false);
+  const [showDetails, setShowDetails] = useState(true);
   
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
   const isDragging = useRef(false);
@@ -405,18 +406,53 @@ export function Lightbox({
                 <ArrowRightIcon className="h-5 w-5" />
               </button>
             ) : null}
+
+            {/* Mobile Close Button (when details hidden) */}
+            {!showDetails && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="absolute top-4 right-4 z-30 rounded-full bg-black/70 p-3 text-white backdrop-blur-md shadow-lg border border-white/10 transition hover:bg-white hover:text-black md:hidden"
+                aria-label="Close"
+              >
+                <XIcon className="h-5 w-5" />
+              </button>
+            )}
+
+            {/* Mobile Show Details Trigger */}
+            {!showDetails && (
+              <button
+                type="button"
+                onClick={() => setShowDetails(true)}
+                className="absolute bottom-4 right-4 z-30 rounded-full bg-black/70 p-3 text-white backdrop-blur-md shadow-lg border border-white/10 transition hover:bg-white hover:text-black md:hidden"
+                aria-label="Show details"
+              >
+                <InfoIcon className="h-5 w-5" />
+              </button>
+            )}
         </div>
 
         {/* Sidebar for Details */}
-        <div className="w-full md:w-[320px] bg-[var(--bg-panel)] p-4 md:p-6 flex flex-col border-l border-[var(--border-subtle)] max-h-[50vh] md:max-h-full">
-           <div className="flex justify-between items-start mb-3 md:mb-6">
-             <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Details</h2>
+        <div className={`${showDetails ? "flex" : "hidden"} md:flex absolute bottom-0 left-0 right-0 z-20 md:static md:z-auto w-full md:w-[320px] bg-[var(--bg-panel)] p-4 md:p-6 flex-col border-t md:border-t-0 md:border-l border-[var(--border-subtle)] max-h-[50vh] md:max-h-full shadow-2xl md:shadow-none`}>
+           <div className="flex justify-between items-center mb-3 md:mb-6">
+             <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowDetails(false)}
+                  className="md:hidden rounded-full p-1 text-[var(--text-muted)] hover:bg-[var(--bg-input)] hover:text-white transition-colors"
+                  aria-label="Hide details"
+                >
+                  <ChevronDownIcon className="h-5 w-5" />
+                </button>
+                <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Details</h2>
+             </div>
               <button
                 type="button"
-                className="rounded-md p-2 -mt-2 -mr-2 text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-subtle)]"
+                className="rounded-full p-2 -mr-2 text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-subtle)] transition-colors"
                 onClick={onClose}
+                aria-label="Close"
               >
-                 <span className="text-xs font-bold">ESC</span>
+                 <XIcon className="h-5 w-5" />
               </button>
            </div>
 
