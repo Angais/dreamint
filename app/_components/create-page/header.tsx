@@ -416,7 +416,6 @@ export function Header({
                  >
                      <LightningIcon className="h-4 w-4" />
                      <span className="hidden md:inline">{isBudgetLocked ? "Limit Reached" : "Generate"}</span>
-                     <span className="md:hidden">Run</span>
                  </button>
             </div>
             

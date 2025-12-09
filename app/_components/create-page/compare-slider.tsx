@@ -11,6 +11,7 @@ type CompareSliderProps = {
   generatedAlt?: string;
   position: number;
   onPositionChange: (position: number) => void;
+  isPannable?: boolean;
 };
 
 export function CompareSlider({
@@ -20,8 +21,10 @@ export function CompareSlider({
   generatedAlt = "Generated image",
   position,
   onPositionChange,
+  isPannable = false,
 }: CompareSliderProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const handleRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
 
   const handleMove = useCallback((clientX: number) => {
@@ -35,12 +38,31 @@ export function CompareSlider({
     onPositionChange(percentage);
   }, [onPositionChange]);
 
-  const handleMouseDown = useCallback((event: React.MouseEvent | React.TouchEvent) => {
-    if ('button' in event && event.button !== 0) {
+  const handleMouseDown = useCallback((event: React.MouseEvent) => {
+    if (event.button !== 0) {
         return;
     }
     isDragging.current = true;
   }, []);
+
+  const handleTouchStart = useCallback((event: React.TouchEvent) => {
+    if (event.touches.length > 1) {
+        return;
+    }
+
+    if (isPannable) {
+        const target = event.target as Node;
+        const isHandle = handleRef.current && (handleRef.current === target || handleRef.current.contains(target));
+        
+        if (isHandle) {
+             isDragging.current = true;
+             event.stopPropagation();
+        }
+    } else {
+        isDragging.current = true;
+        event.stopPropagation();
+    }
+  }, [isPannable]);
 
   const handleMouseUp = useCallback(() => {
     isDragging.current = false;
@@ -48,6 +70,7 @@ export function CompareSlider({
 
   const handleTouchMove = useCallback(
     (event: React.TouchEvent) => {
+      if (event.touches.length > 1 || !isDragging.current) return;
       handleMove(event.touches[0].clientX);
     },
     [handleMove],
@@ -78,7 +101,7 @@ export function CompareSlider({
       ref={containerRef}
       className="relative h-full w-full cursor-ew-resize select-none overflow-hidden"
       onMouseDown={handleMouseDown}
-      onTouchStart={handleMouseDown}
+      onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleMouseUp}
     >
@@ -120,7 +143,10 @@ export function CompareSlider({
         className="absolute bottom-0 top-0 w-0.5 bg-white shadow-[0_0_10px_rgba(0,0,0,0.5)]"
         style={{ left: `${position}%` }}
       >
-        <div className="absolute left-1/2 top-1/2 flex h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white shadow-lg">
+        <div
+            ref={handleRef}
+            className="absolute left-1/2 top-1/2 flex h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white shadow-lg"
+        >
           <div className="flex gap-0.5 text-black">
             <ArrowLeftIcon className="h-3 w-3" />
             <ArrowRightIcon className="h-3 w-3" />
