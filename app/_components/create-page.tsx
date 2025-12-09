@@ -15,6 +15,7 @@ import { AttachmentLightbox } from "./create-page/attachment-lightbox";
 import { createId, groupByDate, normalizeImages } from "./create-page/utils";
 import type { GalleryEntry, Generation, PromptAttachment } from "./create-page/types";
 import { clearPending, loadPending, restoreGenerations, persistGenerations, savePending, deleteGenerationData, cleanOrphanedImages } from "./create-page/storage";
+import { useInfiniteScroll } from "./create-page/use-infinite-scroll";
 
 const defaultPrompt =
   "Cinematic shot of a futuristic city at night, neon lights, rain reflections, highly detailed, 8k resolution";
@@ -376,6 +377,11 @@ export function CreatePage() {
     [generations, pendingGenerations],
   );
 
+  const { limit: feedLimit, loadMoreRef: feedLoadMoreRef } = useInfiniteScroll({
+    initialLimit: 10,
+    increment: 10,
+  });
+
   useEffect(() => {
     if (!storageHydratedRef.current || typeof window === "undefined") {
       return;
@@ -434,6 +440,7 @@ export function CreatePage() {
   }, [pendingGenerations]);
 
   const displayFeed = activeFeed;
+  const visibleFeed = useMemo(() => displayFeed.slice(0, feedLimit), [displayFeed, feedLimit]);
   const hasGenerations = displayFeed.length > 0;
 
   const attachmentInputImages = useMemo(
@@ -457,7 +464,7 @@ export function CreatePage() {
     [],
   );
 
-  const groupedGenerations = useMemo(() => groupByDate(displayFeed), [displayFeed]);
+  const groupedGenerations = useMemo(() => groupByDate(visibleFeed), [visibleFeed]);
   const pendingIdSet = useMemo(() => new Set(pendingGenerations.map((generation) => generation.id)), [pendingGenerations]);
 
   const galleryEntries = useMemo<GalleryEntry[]>(() => {
@@ -1109,20 +1116,23 @@ export function CreatePage() {
               ) : null}
 
               {hasGenerations ? (
-                groupedGenerations.map((group) => (
-                <GenerationGroup
-                  key={group.key}
-                  label={group.label}
-                  generations={group.items}
-                  pendingIdSet={pendingIdSet}
-                  onExpand={handleExpand}
-                  onUsePrompt={handleUsePrompt}
-                  onPreviewInputImage={handlePreviewInputImage}
-                  onDeleteGeneration={handleDeleteGeneration}
-                  onRetryGeneration={handleRetryGeneration}
-                />
-              ))
-            ) : (
+                <>
+                  {groupedGenerations.map((group) => (
+                    <GenerationGroup
+                      key={group.key}
+                      label={group.label}
+                      generations={group.items}
+                      pendingIdSet={pendingIdSet}
+                      onExpand={handleExpand}
+                      onUsePrompt={handleUsePrompt}
+                      onPreviewInputImage={handlePreviewInputImage}
+                      onDeleteGeneration={handleDeleteGeneration}
+                      onRetryGeneration={handleRetryGeneration}
+                    />
+                  ))}
+                  <div ref={feedLoadMoreRef} className="h-4 w-full" />
+                </>
+              ) : (
               <EmptyState />
             )}
             </main>
