@@ -314,80 +314,91 @@ export function Header({
             <div className="flex flex-nowrap items-center justify-between gap-3 rounded-b-[20px] bg-[var(--bg-subtle)] px-3 py-2 md:px-4 md:py-3 border-t border-[var(--border-subtle)]">
                  <div className="flex flex-1 items-center gap-2 overflow-x-auto pr-2 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
                     
-                    {/* Aspect Selector (Desktop: Full Label) */}
-                     <div className="relative group/select shrink-0 hidden md:block">
-                        <select
-                            value={aspect}
-                            onChange={(event) => onAspectSelect(event.target.value)}
-                            className="appearance-none cursor-pointer rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] pl-3 pr-8 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:text-white hover:border-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-white/20 transition-colors"
-                        >
-                             {ASPECT_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                {option.label} ({option.description})
-                                </option>
-                            ))}
-                        </select>
-                        <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
-                             <svg width="8" height="5" viewBox="0 0 8 5" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M1 1L4 4L7 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                            </svg>
-                        </div>
-                     </div>
-
-                     {/* Aspect Selector (Mobile: Numbers Only) */}
-                     <div className="relative group/select shrink-0 md:hidden">
-                        <select
-                            value={aspect}
-                            onChange={(event) => onAspectSelect(event.target.value)}
-                            className="appearance-none cursor-pointer rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] pl-2 pr-6 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:text-white hover:border-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-white/20 transition-colors"
-                        >
-                             {ASPECT_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                {option.description.replace(/\s/g, "")}
-                                </option>
-                            ))}
-                        </select>
-                        <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
-                             <svg width="8" height="5" viewBox="0 0 8 5" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M1 1L4 4L7 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                            </svg>
-                        </div>
-                     </div>
-
-                     {/* Quality Selector (Dropdown) */}
-                     <div className="relative group/select shrink-0">
-                        <select
-                            value={quality}
-                            onChange={(event) => onQualityChange(event.target.value as QualityKey)}
-                            className="appearance-none cursor-pointer rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] pl-2 pr-6 md:pl-3 md:pr-8 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:text-white hover:border-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-white/20 transition-colors"
-                        >
-                             {QUALITY_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                {option.label}
-                                </option>
-                            ))}
-                        </select>
-                        <div className="pointer-events-none absolute right-2 md:right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
-                             <svg width="8" height="5" viewBox="0 0 8 5" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M1 1L4 4L7 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                            </svg>
-                        </div>
-                     </div>
-
-                     {/* Image Count Selector (Dropdown) */}
-                     <div className="relative group/select shrink-0">
-                        <select
-                            value={imageCount}
-                            onChange={(event) => onImageCountChange(parseInt(event.target.value, 10))}
-                            className="appearance-none cursor-pointer rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] pl-2 pr-6 md:pl-3 md:pr-8 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:text-white hover:border-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-white/20 transition-colors"
-                        >
-                             {[1, 2, 3, 4].map((count) => (
-                                <option key={count} value={count}>
-                                {count} {count === 1 ? "Image" : "Images"}
-                                </option>
-                            ))}
-                        </select>
-                        <div className="pointer-events-none absolute right-2 md:right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
+                                         {/* Aspect Selector (Desktop: Full Label) */}
+                                         <div className="relative group/select shrink-0 hidden md:block">
+                                            <select
+                                                value={aspect}
+                                                onChange={(event) => {
+                                                    onAspectSelect(event.target.value);
+                                                    promptTextareaRef.current?.focus();
+                                                }}
+                                                className="appearance-none cursor-pointer rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] pl-3 pr-8 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:text-white hover:border-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-white/20 transition-colors"
+                                            >
+                                                 {ASPECT_OPTIONS.map((option) => (
+                                                    <option key={option.value} value={option.value}>
+                                                    {option.label} ({option.description})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
+                                                 <svg width="8" height="5" viewBox="0 0 8 5" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                    <path d="M1 1L4 4L7 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                                </svg>
+                                            </div>
+                                         </div>
+                    
+                                         {/* Aspect Selector (Mobile: Numbers Only) */}
+                                         <div className="relative group/select shrink-0 md:hidden">
+                                            <select
+                                                value={aspect}
+                                                onChange={(event) => {
+                                                    onAspectSelect(event.target.value);
+                                                    promptTextareaRef.current?.focus();
+                                                }}
+                                                className="appearance-none cursor-pointer rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] pl-2 pr-6 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:text-white hover:border-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-white/20 transition-colors"
+                                            >
+                                                 {ASPECT_OPTIONS.map((option) => (
+                                                    <option key={option.value} value={option.value}>
+                                                    {option.description.replace(/\s/g, "")}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
+                                                 <svg width="8" height="5" viewBox="0 0 8 5" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                    <path d="M1 1L4 4L7 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                                </svg>
+                                            </div>
+                                         </div>
+                    
+                                         {/* Quality Selector (Dropdown) */}
+                                         <div className="relative group/select shrink-0">
+                                            <select
+                                                value={quality}
+                                                onChange={(event) => {
+                                                    onQualityChange(event.target.value as QualityKey);
+                                                    promptTextareaRef.current?.focus();
+                                                }}
+                                                className="appearance-none cursor-pointer rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] pl-2 pr-6 md:pl-3 md:pr-8 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:text-white hover:border-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-white/20 transition-colors"
+                                            >
+                                                 {QUALITY_OPTIONS.map((option) => (
+                                                    <option key={option.value} value={option.value}>
+                                                    {option.label}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <div className="pointer-events-none absolute right-2 md:right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
+                                                 <svg width="8" height="5" viewBox="0 0 8 5" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                    <path d="M1 1L4 4L7 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                                </svg>
+                                            </div>
+                                         </div>
+                    
+                                         {/* Image Count Selector (Dropdown) */}
+                                         <div className="relative group/select shrink-0">
+                                            <select
+                                                value={imageCount}
+                                                onChange={(event) => {
+                                                    onImageCountChange(parseInt(event.target.value, 10));
+                                                    promptTextareaRef.current?.focus();
+                                                }}
+                                                className="appearance-none cursor-pointer rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] pl-2 pr-6 md:pl-3 md:pr-8 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:text-white hover:border-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-white/20 transition-colors"
+                                            >
+                                                 {[1, 2, 3, 4].map((count) => (
+                                                    <option key={count} value={count}>
+                                                    {count} {count === 1 ? "Image" : "Images"}
+                                                    </option>
+                                                ))}
+                                            </select>                        <div className="pointer-events-none absolute right-2 md:right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
                              <svg width="8" height="5" viewBox="0 0 8 5" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <path d="M1 1L4 4L7 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                             </svg>
