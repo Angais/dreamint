@@ -10,8 +10,6 @@ type GenerationGroupProps = {
   label: string;
   generations: Generation[];
   pendingIdSet: Set<string>;
-  errorGenerationId: string | null;
-  errorMessage: string | null;
   onExpand: (generationId: string, imageIndex: number) => void;
   onUsePrompt: (prompt: string, inputImages: Generation["inputImages"]) => void;
   onPreviewInputImage?: (image: Generation["inputImages"][number]) => void;
@@ -23,8 +21,6 @@ export const GenerationGroup = memo(function GenerationGroup({
   label,
   generations,
   pendingIdSet,
-  errorGenerationId,
-  errorMessage,
   onExpand,
   onUsePrompt,
   onPreviewInputImage,
@@ -40,7 +36,6 @@ export const GenerationGroup = memo(function GenerationGroup({
         {generations.map((generation) => {
           const isGenerating = pendingIdSet.has(generation.id);
           const isInterrupted = !isGenerating && generation.images.some((img) => !img);
-          const cardError = generation.id === errorGenerationId ? errorMessage : null;
 
           return (
             <div
@@ -59,7 +54,6 @@ export const GenerationGroup = memo(function GenerationGroup({
                 <GenerationDetailsCard
                   generation={generation}
                   isGenerating={isGenerating}
-                  errorMessage={cardError}
                   onUsePrompt={onUsePrompt}
                   onPreviewInputImage={onPreviewInputImage}
                   onDeleteGeneration={onDeleteGeneration}

@@ -459,7 +459,6 @@ export function CreatePage() {
 
   const groupedGenerations = useMemo(() => groupByDate(displayFeed), [displayFeed]);
   const pendingIdSet = useMemo(() => new Set(pendingGenerations.map((generation) => generation.id)), [pendingGenerations]);
-  const errorGenerationId = error && displayFeed.length > 0 ? displayFeed[0].id : null;
 
   const galleryEntries = useMemo<GalleryEntry[]>(() => {
     const entries: GalleryEntry[] = [];
@@ -1000,8 +999,6 @@ export function CreatePage() {
 
   const handleDeleteGeneration = useCallback(
     (generationId: string) => {
-      const shouldClearError = Boolean(error && displayFeed.length > 0 && displayFeed[0].id === generationId);
-
       const generationToDelete =
         generations.find((generation) => generation.id === generationId) ??
         pendingGenerations.find((generation) => generation.id === generationId);
@@ -1013,12 +1010,8 @@ export function CreatePage() {
       setLightboxSelection((selection) =>
         selection && selection.generationId === generationId ? null : selection,
       );
-
-      if (shouldClearError) {
-        setError(null);
-      }
     },
-    [displayFeed, error, generations, pendingGenerations, setError, setLightboxSelection],
+    [generations, pendingGenerations, setLightboxSelection],
   );
 
   const handleUsePrompt = useCallback(
@@ -1100,6 +1093,21 @@ export function CreatePage() {
 
           {view === "create" ? (
             <main className="flex flex-1 flex-col gap-12">
+              {error ? (
+                <div className="rounded-lg border border-red-900/50 bg-red-950/20 px-4 py-3 flex items-start justify-between gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div className="text-sm text-red-400 font-medium">{error}</div>
+                  <button
+                    onClick={() => setError(null)}
+                    className="text-red-400 hover:text-red-300 transition-colors"
+                    aria-label="Dismiss error"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                      <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                    </svg>
+                  </button>
+                </div>
+              ) : null}
+
               {hasGenerations ? (
                 groupedGenerations.map((group) => (
                 <GenerationGroup
@@ -1107,8 +1115,6 @@ export function CreatePage() {
                   label={group.label}
                   generations={group.items}
                   pendingIdSet={pendingIdSet}
-                  errorGenerationId={errorGenerationId}
-                  errorMessage={error}
                   onExpand={handleExpand}
                   onUsePrompt={handleUsePrompt}
                   onPreviewInputImage={handlePreviewInputImage}

@@ -68,7 +68,6 @@ function deriveAspectLabel(size: { width: number; height: number }): string {
 type GenerationDetailsCardProps = {
   generation: Generation | null;
   isGenerating: boolean;
-  errorMessage: string | null;
   onUsePrompt: (prompt: string, inputImages: Generation["inputImages"]) => void;
   onPreviewInputImage?: (image: Generation["inputImages"][number]) => void;
   onDeleteGeneration?: (generationId: string) => void;
@@ -79,7 +78,6 @@ type GenerationDetailsCardProps = {
 export function GenerationDetailsCard({
   generation,
   isGenerating,
-  errorMessage,
   onUsePrompt,
   onPreviewInputImage,
   onDeleteGeneration,
@@ -177,10 +175,6 @@ export function GenerationDetailsCard({
                </button>
              )}
            </div>
-        ) : errorMessage ? (
-          <p className="rounded-lg border border-red-900/50 bg-red-950/20 px-3 py-2 text-xs text-red-400 leading-snug">
-            {errorMessage}
-          </p>
         ) : null}
         
         {generation && !isInterrupted ? (
