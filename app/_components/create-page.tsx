@@ -172,6 +172,7 @@ function findClosestAspect(width: number, height: number): AspectKey {
 
 export function CreatePage() {
   const [view, setView] = useState<"create" | "gallery">("create");
+  const [viewportHeight, setViewportHeight] = useState("100dvh");
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [aspect, setAspect] = useState<AspectKey>(defaultAspect);
   const [quality, setQuality] = useState<QualityKey>(defaultQuality);
@@ -193,6 +194,21 @@ export function CreatePage() {
   const pendingHydratedRef = useRef(false);
   const pendingReconciledRef = useRef(false);
   const cleanupRanRef = useRef(false);
+
+  useEffect(() => {
+    if (!window.visualViewport) return;
+
+    const handleResize = () => {
+      if (window.visualViewport) {
+        setViewportHeight(`${window.visualViewport.height}px`);
+      }
+    };
+
+    window.visualViewport.addEventListener("resize", handleResize);
+    handleResize();
+
+    return () => window.visualViewport?.removeEventListener("resize", handleResize);
+  }, []);
 
   const clearAttachmentError = useCallback(() => {
     setError((previous) => (previous && ATTACHMENT_ERROR_MESSAGES.has(previous) ? null : previous));
@@ -1034,10 +1050,13 @@ export function CreatePage() {
   );
 
   return (
-    <div className="min-h-screen bg-[var(--bg-app)] text-[var(--text-primary)]">
+    <div
+      style={{ height: viewportHeight }}
+      className="fixed inset-0 flex flex-col bg-[var(--bg-app)] text-[var(--text-primary)]"
+    >
       <div
         aria-hidden="true"
-        className="pointer-events-none fixed left-6 top-6 z-50 hidden flex-col items-center gap-1 select-none 2xl:flex"
+        className="pointer-events-none absolute left-6 top-6 z-50 hidden flex-col items-center gap-1 select-none 2xl:flex"
       >
         <NextImage
           src="/Dreaming.png"
@@ -1049,66 +1068,68 @@ export function CreatePage() {
         <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-white">Dreamint</span>
       </div>
 
-      {/* Main Content */}
-      <div className="mx-auto flex min-h-screen w-full max-w-[1400px] flex-col gap-8 px-6 pb-48 pt-10 lg:px-10">
-        
-        {/* Navigation Tabs */}
-        <div className="pointer-events-none sticky top-4 z-30 flex justify-center">
-          <div className="pointer-events-auto flex items-center gap-1 rounded-full bg-[var(--bg-subtle)] p-1 border border-[var(--border-subtle)] shadow-lg shadow-black/20">
-            <button
-              onClick={() => setView("create")}
-              className={`rounded-full px-6 py-2 text-xs font-bold uppercase tracking-wide transition-all ${
-                view === "create"
-                  ? "bg-[var(--text-primary)] text-black shadow-sm"
-                  : "text-[var(--text-secondary)] hover:text-white"
-              }`}
-            >
-              Create
-            </button>
-            <button
-              onClick={() => setView("gallery")}
-              className={`rounded-full px-6 py-2 text-xs font-bold uppercase tracking-wide transition-all ${
-                view === "gallery"
-                  ? "bg-[var(--text-primary)] text-black shadow-sm"
-                  : "text-[var(--text-secondary)] hover:text-white"
-              }`}
-            >
-              Gallery
-            </button>
+      {/* Main Scrollable Content */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden">
+        <div className="mx-auto flex min-h-full w-full max-w-[1400px] flex-col gap-8 px-6 pb-40 pt-10 lg:px-10">
+          
+          {/* Navigation Tabs */}
+          <div className="pointer-events-none sticky top-4 z-30 flex justify-center">
+            <div className="pointer-events-auto flex items-center gap-1 rounded-full bg-[var(--bg-subtle)] p-1 border border-[var(--border-subtle)] shadow-lg shadow-black/20">
+              <button
+                onClick={() => setView("create")}
+                className={`rounded-full px-6 py-2 text-xs font-bold uppercase tracking-wide transition-all ${
+                  view === "create"
+                    ? "bg-[var(--text-primary)] text-black shadow-sm"
+                    : "text-[var(--text-secondary)] hover:text-white"
+                }`}
+              >
+                Create
+              </button>
+              <button
+                onClick={() => setView("gallery")}
+                className={`rounded-full px-6 py-2 text-xs font-bold uppercase tracking-wide transition-all ${
+                  view === "gallery"
+                    ? "bg-[var(--text-primary)] text-black shadow-sm"
+                    : "text-[var(--text-secondary)] hover:text-white"
+                }`}
+              >
+                Gallery
+              </button>
+            </div>
           </div>
-        </div>
 
-        {view === "create" ? (
-          <main className="flex flex-1 flex-col gap-12">
-            {hasGenerations ? (
-              groupedGenerations.map((group) => (
-              <GenerationGroup
-                key={group.key}
-                label={group.label}
-                generations={group.items}
-                pendingIdSet={pendingIdSet}
-                errorGenerationId={errorGenerationId}
-                errorMessage={error}
-                onExpand={handleExpand}
-                onUsePrompt={handleUsePrompt}
-                onPreviewInputImage={handlePreviewInputImage}
-                onDeleteGeneration={handleDeleteGeneration}
-                onRetryGeneration={handleRetryGeneration}
-              />
-            ))
+          {view === "create" ? (
+            <main className="flex flex-1 flex-col gap-12">
+              {hasGenerations ? (
+                groupedGenerations.map((group) => (
+                <GenerationGroup
+                  key={group.key}
+                  label={group.label}
+                  generations={group.items}
+                  pendingIdSet={pendingIdSet}
+                  errorGenerationId={errorGenerationId}
+                  errorMessage={error}
+                  onExpand={handleExpand}
+                  onUsePrompt={handleUsePrompt}
+                  onPreviewInputImage={handlePreviewInputImage}
+                  onDeleteGeneration={handleDeleteGeneration}
+                  onRetryGeneration={handleRetryGeneration}
+                />
+              ))
+            ) : (
+              <EmptyState />
+            )}
+            </main>
           ) : (
-            <EmptyState />
+            <GalleryView generations={generations} onExpand={handleExpand} />
           )}
-          </main>
-        ) : (
-          <GalleryView generations={generations} onExpand={handleExpand} />
-        )}
+        </div>
       </div>
       
-      {/* Floating Header at Bottom (Only in Create View) */}
+      {/* Header (Floating) */}
       {view === "create" && (
-        <div className="fixed bottom-8 left-0 right-0 z-40 px-6 pointer-events-none">
-          <div className="pointer-events-auto mx-auto w-full max-w-3xl">
+        <div className="absolute bottom-0 left-0 right-0 z-40 w-full px-6 pb-6 pt-2 pointer-events-none">
+          <div className="mx-auto w-full max-w-3xl pointer-events-auto">
               <Header
                 prompt={prompt}
                 aspect={aspect}

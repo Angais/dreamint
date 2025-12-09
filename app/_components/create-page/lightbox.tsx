@@ -41,6 +41,14 @@ export function Lightbox({
   const dragStart = useRef({ x: 0, y: 0 });
   const imageContainerRef = useRef<HTMLDivElement>(null);
 
+  // Touch handling state
+  const touchRef = useRef({
+    lastDist: 0,
+    startPan: { x: 0, y: 0 },
+    isPinching: false,
+    isPanning: false,
+  });
+
   const hasReferences = entry.inputImages && entry.inputImages.length > 0;
 
   useEffect(() => {
@@ -156,6 +164,87 @@ export function Lightbox({
     isDragging.current = false;
   };
 
+  const getDistance = (touches: React.TouchList) => {
+    return Math.hypot(
+      touches[0].clientX - touches[1].clientX,
+      touches[0].clientY - touches[1].clientY
+    );
+  };
+
+  const handleTouchStart = (event: React.TouchEvent) => {
+    if (event.touches.length === 1) {
+      // Single touch - start panning
+      touchRef.current.isPanning = true;
+      touchRef.current.isPinching = false;
+      touchRef.current.startPan = {
+        x: event.touches[0].clientX - transform.x,
+        y: event.touches[0].clientY - transform.y,
+      };
+    } else if (event.touches.length === 2) {
+      // Two fingers - start pinching
+      touchRef.current.isPinching = true;
+      touchRef.current.isPanning = false;
+      touchRef.current.lastDist = getDistance(event.touches);
+    }
+  };
+
+  const handleTouchMove = (event: React.TouchEvent) => {
+    event.preventDefault(); // Prevent scrolling
+
+    if (touchRef.current.isPinching && event.touches.length === 2) {
+      const dist = getDistance(event.touches);
+      const scaleChange = dist / touchRef.current.lastDist;
+      const newScale = Math.min(Math.max(0.5, transform.scale * scaleChange), 8); // Limits: 0.5x to 8x
+
+      setTransform((prev) => ({
+        ...prev,
+        scale: newScale,
+      }));
+      
+      touchRef.current.lastDist = dist;
+    } else if (touchRef.current.isPanning && event.touches.length === 1) {
+       // Only allow panning if not in compare mode (slider needs touch) or handle appropriately
+       // Actually, compare slider usually handles its own touch if we don't preventDefault.
+       // But we called preventDefault above.
+       // If compare mode is active, the slider component needs the touch events.
+       // So we should maybe not preventDefault if target is slider? 
+       // For now, let's assume panning image is desired unless strictly on the slider knob.
+       
+       // NOTE: If isCompareMode is true, we might want to disable image panning 
+       // to let the user use the slider? 
+       // Or we treat single touch as pan, and require slider interaction to be specific?
+       // The slider component likely uses mouse/touch listeners.
+       // Let's allow panning if isCompareMode is false.
+
+       const nextX = event.touches[0].clientX - touchRef.current.startPan.x;
+       const nextY = event.touches[0].clientY - touchRef.current.startPan.y;
+       
+       if (imageContainerRef.current) {
+        const { width: viewportWidth, height: viewportHeight } = imageContainerRef.current.getBoundingClientRect();
+        
+        const effectiveImageWidth = viewportWidth * transform.scale;
+        const effectiveImageHeight = viewportHeight * transform.scale;
+  
+        const limitX = Math.max(0, (effectiveImageWidth - viewportWidth) / 2);
+        const limitY = Math.max(0, (effectiveImageHeight - viewportHeight) / 2);
+        
+        const clampedX = Math.max(-limitX, Math.min(limitX, nextX));
+        const clampedY = Math.max(-limitY, Math.min(limitY, nextY));
+        
+        setTransform((prev) => ({
+          ...prev,
+          x: clampedX,
+          y: clampedY,
+        }));
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    touchRef.current.isPanning = false;
+    touchRef.current.isPinching = false;
+  };
+
   const handleDownloadComparison = async () => {
     if (!hasReferences || !isCompareMode) return;
     setIsDownloadingComparison(true);
@@ -246,11 +335,15 @@ export function Lightbox({
         <div 
           ref={imageContainerRef}
           className="relative flex-1 bg-black/50 md:rounded-xl overflow-hidden flex items-center justify-center min-h-0 md:min-h-[70vh]"
+          style={{ touchAction: "none" }}
           onWheel={handleWheel}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
           onContextMenu={(e) => e.preventDefault()}
         >
             {canGoPrev ? (
@@ -283,6 +376,7 @@ export function Lightbox({
                     generatedAlt={entry.prompt}
                     position={compareSliderPosition}
                     onPositionChange={setCompareSliderPosition}
+                    isPannable={transform.scale > 1}
                   />
                 </div>
               ) : (
