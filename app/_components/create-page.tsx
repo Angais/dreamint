@@ -33,6 +33,7 @@ const STORAGE_KEYS = {
   budgetCents: "seedream:budget_cents",
   spentCents: "seedream:spent_cents",
   geminiApiKey: "seedream:gemini_api_key",
+  googleSearchEnabled: "seedream:google_search_enabled",
 } as const;
 
 const MAX_ATTACHMENTS = 8;
@@ -179,6 +180,7 @@ export function CreatePage() {
   const [imageCount, setImageCount] = useState<number>(4);
   const [apiKey, setApiKey] = useState("");
   const [geminiApiKey, setGeminiApiKey] = useState("");
+  const [useGoogleSearch, setUseGoogleSearch] = useState(false);
   const [attachments, setAttachments] = useState<PromptAttachment[]>([]);
   const [attachmentPreview, setAttachmentPreview] = useState<PromptAttachment | null>(null);
   const [generations, setGenerations] = useState<Generation[]>([]);
@@ -248,6 +250,11 @@ export function CreatePage() {
         const storedGeminiApiKey = window.localStorage.getItem(STORAGE_KEYS.geminiApiKey);
         if (storedGeminiApiKey !== null) {
           setGeminiApiKey(storedGeminiApiKey);
+        }
+
+        const storedGoogleSearch = window.localStorage.getItem(STORAGE_KEYS.googleSearchEnabled);
+        if (storedGoogleSearch === "true") {
+          setUseGoogleSearch(true);
         }
 
         let generationData: Generation[] | null = null;
@@ -375,6 +382,7 @@ export function CreatePage() {
     safePersist(STORAGE_KEYS.outputFormat, outputFormat);
     safePersist(STORAGE_KEYS.provider, provider);
     safePersist(STORAGE_KEYS.imageCount, String(imageCount));
+    safePersist(STORAGE_KEYS.googleSearchEnabled, useGoogleSearch ? "true" : null);
 
     const normalizedApiKey = apiKey.trim();
     safePersist(STORAGE_KEYS.apiKey, normalizedApiKey.length > 0 ? normalizedApiKey : null);
@@ -390,6 +398,7 @@ export function CreatePage() {
     imageCount,
     apiKey,
     geminiApiKey,
+    useGoogleSearch,
   ]);
 
   useEffect(() => {
@@ -656,6 +665,7 @@ export function CreatePage() {
     const pendingId = createId("pending");
     const pendingSize = calculateImageSize(aspect, quality);
     const inputImageSnapshot = attachmentInputImages.map((image) => ({ ...image }));
+    const enableGoogleSearch = provider === "gemini" && useGoogleSearch;
     
     const pendingGeneration: Generation = {
       id: pendingId,
@@ -664,6 +674,7 @@ export function CreatePage() {
       quality,
       outputFormat,
       provider, // Added provider here
+      useGoogleSearch: enableGoogleSearch,
       size: pendingSize,
       createdAt: new Date().toISOString(),
       inputImages: inputImageSnapshot,
@@ -693,7 +704,8 @@ export function CreatePage() {
       apiKeyProvided: trimmedApiKey.length > 0,
       geminiApiKeyProvided: trimmedGeminiApiKey.length > 0,
       inputImages: inputImageSnapshot.length,
-      imageCount
+      imageCount,
+      googleSearch: enableGoogleSearch,
     });
 
     const generationPromise = generateSeedream({
@@ -705,6 +717,7 @@ export function CreatePage() {
       outputFormat,
       apiKey: trimmedApiKey.length > 0 ? trimmedApiKey : undefined,
       geminiApiKey: trimmedGeminiApiKey.length > 0 ? trimmedGeminiApiKey : undefined,
+      useGoogleSearch: enableGoogleSearch,
       inputImages: inputImageSnapshot,
     });
 
@@ -869,6 +882,8 @@ export function CreatePage() {
           ? generation.size
           : calculateImageSize(generation.aspect as AspectKey, generation.quality);
       const inputImageSnapshot = generation.inputImages?.map((image) => ({ ...image })) ?? [];
+      const enableGoogleSearch =
+        generation.provider === "gemini" && Boolean(generation.useGoogleSearch);
 
       const pendingGeneration: Generation = {
         ...generation,
@@ -878,6 +893,7 @@ export function CreatePage() {
         inputImages: inputImageSnapshot,
         size: pendingSize,
         outputFormat: generation.outputFormat ?? defaultOutputFormat,
+        useGoogleSearch: enableGoogleSearch,
       };
 
       debugLog("pending:retry", {
@@ -904,6 +920,7 @@ export function CreatePage() {
         outputFormat: generation.outputFormat ?? defaultOutputFormat,
         apiKey: apiKey.trim() || undefined,
         geminiApiKey: geminiApiKey.trim() || undefined,
+        useGoogleSearch: enableGoogleSearch,
         inputImages: inputImageSnapshot,
       });
 
@@ -1093,6 +1110,7 @@ export function CreatePage() {
                 quality={quality}
                 outputFormat={outputFormat}
                 provider={provider}
+                useGoogleSearch={useGoogleSearch}
                 imageCount={imageCount}
                 apiKey={apiKey}
                 geminiApiKey={geminiApiKey}
@@ -1104,6 +1122,7 @@ export function CreatePage() {
                 onQualityChange={setQuality}
                 onOutputFormatChange={setOutputFormat}
                 onProviderChange={setProvider}
+                onToggleGoogleSearch={setUseGoogleSearch}
                 onImageCountChange={setImageCount}
                 onApiKeyChange={setApiKey}
                 onGeminiApiKeyChange={setGeminiApiKey}

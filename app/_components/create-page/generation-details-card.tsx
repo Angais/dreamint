@@ -222,7 +222,7 @@ export function GenerationDetailsCard({
 
       {/* Tech Specs & Actions */}
       {generation && !isInterrupted && (
-        <div className="mt-auto pt-3 border-t border-[var(--border-subtle)] flex items-center justify-between gap-2">
+        <div className="mt-auto pt-3 border-t border-[var(--border-subtle)] flex flex-wrap items-center justify-between gap-2 gap-y-2">
             {/* Tech Badges */}
             <div className="flex items-center gap-1.5">
                 <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
@@ -231,6 +231,11 @@ export function GenerationDetailsCard({
                 <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
                     {aspectLabel ?? "Custom"}
                 </span>
+            {generation.useGoogleSearch ? (
+                  <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
+                    Search
+                  </span>
+                ) : null}
             </div>
 
             {/* Compact Actions */}
