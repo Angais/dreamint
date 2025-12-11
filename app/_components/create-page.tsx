@@ -14,7 +14,7 @@ import { Lightbox } from "./create-page/lightbox";
 import { AttachmentLightbox } from "./create-page/attachment-lightbox";
 import { createId, groupByDate, normalizeImages } from "./create-page/utils";
 import type { GalleryEntry, Generation, PromptAttachment } from "./create-page/types";
-import { clearPending, loadPending, restoreGenerations, persistGenerations, savePending, deleteGenerationData, cleanOrphanedImages } from "./create-page/storage";
+import { clearPending, loadPending, restoreGenerations, persistGenerations, savePending, deleteGenerationData, deleteOutputImageData, cleanOrphanedImages } from "./create-page/storage";
 import { useInfiniteScroll } from "./create-page/use-infinite-scroll";
 
 const defaultPrompt =
@@ -1021,6 +1021,68 @@ export function CreatePage() {
     [generations, pendingGenerations, setLightboxSelection],
   );
 
+  const handleDeleteImage = useCallback((generationId: string, imageIndex: number) => {
+    void deleteOutputImageData(generationId, imageIndex);
+
+    setGenerations((previous) =>
+      previous.map((generation) => {
+        if (generation.id !== generationId) return generation;
+        const deletedSet = new Set(generation.deletedImages ?? []);
+        deletedSet.add(imageIndex);
+        const images = [...generation.images];
+        images[imageIndex] = "";
+        return {
+          ...generation,
+          images,
+          deletedImages: Array.from(deletedSet),
+        };
+      }),
+    );
+
+    setLightboxSelection((selection) =>
+      selection &&
+      selection.generationId === generationId &&
+      selection.imageIndex === imageIndex
+        ? null
+        : selection,
+    );
+  }, []);
+
+  const handleDeleteImages = useCallback((items: Array<{ generationId: string; imageIndex: number }>) => {
+    if (items.length === 0) return;
+    void Promise.allSettled(items.map((item) => deleteOutputImageData(item.generationId, item.imageIndex)));
+
+    const grouped = items.reduce<Record<string, number[]>>((acc, item) => {
+      (acc[item.generationId] ??= []).push(item.imageIndex);
+      return acc;
+    }, {});
+
+    setGenerations((previous) =>
+      previous.map((generation) => {
+        const indexes = grouped[generation.id];
+        if (!indexes) return generation;
+        const deletedSet = new Set(generation.deletedImages ?? []);
+        const images = [...generation.images];
+        indexes.forEach((index) => {
+          deletedSet.add(index);
+          images[index] = "";
+        });
+        return { ...generation, images, deletedImages: Array.from(deletedSet) };
+      }),
+    );
+
+    setLightboxSelection((selection) =>
+      selection &&
+      items.some(
+        (item) =>
+          item.generationId === selection.generationId &&
+          item.imageIndex === selection.imageIndex,
+      )
+        ? null
+        : selection,
+    );
+  }, []);
+
   const handleUsePrompt = useCallback(
     async (value: string, inputImages: Generation["inputImages"]) => {
       setPrompt(value);
@@ -1127,6 +1189,7 @@ export function CreatePage() {
                       onUsePrompt={handleUsePrompt}
                       onPreviewInputImage={handlePreviewInputImage}
                       onDeleteGeneration={handleDeleteGeneration}
+                      onDeleteImage={handleDeleteImage}
                       onRetryGeneration={handleRetryGeneration}
                     />
                   ))}
@@ -1137,7 +1200,7 @@ export function CreatePage() {
             )}
             </main>
           ) : (
-            <GalleryView generations={generations} onExpand={handleExpand} />
+            <GalleryView generations={generations} onExpand={handleExpand} onDeleteImages={handleDeleteImages} />
           )}
         </div>
       </div>
@@ -1193,6 +1256,12 @@ export function CreatePage() {
           canGoPrev={canGoPrev}
           canGoNext={canGoNext}
           onEdit={() => { void handleLightboxEdit(lightboxEntry); }}
+          onDelete={() => handleDeleteImage(lightboxEntry.generationId, lightboxEntry.imageIndex)}
+          canDelete={
+            !generations
+              .find((gen) => gen.id === lightboxEntry.generationId)
+              ?.deletedImages?.includes(lightboxEntry.imageIndex)
+          }
         />
       ) : null}
     </div>

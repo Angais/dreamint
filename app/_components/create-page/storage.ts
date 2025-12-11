@@ -23,9 +23,13 @@ function getImageKey(generationId: string, index: number, type: "output" | "inpu
   return `img:${generationId}:${index}`;
 }
 
+function getThumbnailKey(generationId: string, index: number): string {
+  return `thumb:${generationId}:${index}`;
+}
+
 // Helper to check if a string is a reference key
 function isRef(str: string): boolean {
-  return str.startsWith("ref:img:");
+  return str.startsWith("ref:");
 }
 
 function getRefKey(str: string): string {
@@ -42,9 +46,20 @@ async function removeGenerationAssets(generation: Generation) {
   const removals: Promise<unknown>[] = [];
 
   generation.images.forEach((img, index) => {
-    if (!img) return;
-    const key = isRef(img) ? getRefKey(img) : getImageKey(generation.id, index, "output");
-    removals.push(store.removeItem(key));
+    const outputKey = img
+      ? isRef(img)
+        ? getRefKey(img)
+        : getImageKey(generation.id, index, "output")
+      : getImageKey(generation.id, index, "output");
+    removals.push(store.removeItem(outputKey));
+
+    const thumb = generation.thumbnails?.[index];
+    const thumbKey = thumb
+      ? isRef(thumb)
+        ? getRefKey(thumb)
+        : getThumbnailKey(generation.id, index)
+      : getThumbnailKey(generation.id, index);
+    removals.push(store.removeItem(thumbKey));
   });
 
   (generation.inputImages || []).forEach((img) => {
@@ -64,6 +79,71 @@ async function urlToBlob(url: string): Promise<Blob> {
   return res.blob();
 }
 
+async function createThumbnailBlob(blob: Blob, maxSize = 384): Promise<Blob | null> {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    let srcWidth = 0;
+    let srcHeight = 0;
+    let source: CanvasImageSource | null = null;
+    let bitmapToClose: ImageBitmap | null = null;
+
+    if ("createImageBitmap" in window) {
+      const bitmap = await createImageBitmap(blob);
+      bitmapToClose = bitmap;
+      srcWidth = bitmap.width;
+      srcHeight = bitmap.height;
+      source = bitmap;
+    } else {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const image = new Image();
+        const objectUrl = URL.createObjectURL(blob);
+        image.decoding = "async";
+        image.onload = () => {
+          URL.revokeObjectURL(objectUrl);
+          resolve(image);
+        };
+        image.onerror = () => {
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error("Failed to decode image"));
+        };
+        image.src = objectUrl;
+      });
+      srcWidth = img.naturalWidth;
+      srcHeight = img.naturalHeight;
+      source = img;
+    }
+
+    if (!source || !srcWidth || !srcHeight) {
+      return null;
+    }
+
+    const scale = Math.min(1, maxSize / Math.max(srcWidth, srcHeight));
+    const targetWidth = Math.max(1, Math.round(srcWidth * scale));
+    const targetHeight = Math.max(1, Math.round(srcHeight * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return null;
+    }
+
+    ctx.drawImage(source, 0, 0, targetWidth, targetHeight);
+    bitmapToClose?.close();
+
+    return await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.82),
+    );
+  } catch (error) {
+    console.error("Failed to create thumbnail", error);
+    return null;
+  }
+}
+
 /**
  * Saves the generations metadata to storage.
  * Images are extracted, converted to Blobs, and stored individually.
@@ -75,48 +155,65 @@ export async function persistGenerations(generations: Generation[]) {
   const persistedGenerations = await Promise.all(
     generations.map(async (gen) => {
       // Handle Output Images
-      const images = await Promise.all(
-        gen.images.map(async (img, index) => {
-          if (!img) return "";
-          
-          // If it's already a reference (shouldn't happen in app state ideally, but for safety)
-          if (isRef(img)) return img;
+      const outputResults: Array<{ image: string; thumbnail: string }> = [];
 
-          const key = getImageKey(gen.id, index, "output");
+      for (let index = 0; index < gen.images.length; index += 1) {
+        const img = gen.images[index];
 
-          // If it's a blob URL, it means we likely loaded it from storage previously.
-          // We assume the data is already in storage under 'key'.
-          // However, to be safe against "new" blob URLs (created this session but not loaded from storage),
-          // we could check if the key exists. 
-          // Optimization: Assume blob: URLs correspond to existing keys if they were loaded.
-          // BUT: New generations created in this session might use blob URLs (if we changed that logic)
-          // OR: New generations come as data/http URLs.
-          
-          if (img.startsWith("blob:")) {
-            // It's a blob URL. We assume it is backed by storage.
-            // If we wanted to be 100% sure, we'd re-read the blob and save it, 
-            // but fetching a blob URL is cheap.
-             // Let's verify if it needs saving? 
-             // Actually, if the user JUST generated it, it might be a blob URL if we changed the generation logic.
-             // But currently generateSeedream returns base64/http.
-             // So blob: URLs ONLY come from our `loadGenerations` (hydration).
-             // So it's safe to assume it's already in DB.
-             return makeRef(key);
+        if (!img) {
+          outputResults.push({ image: "", thumbnail: "" });
+          continue;
+        }
+
+        if (isRef(img)) {
+          const existingThumb = gen.thumbnails?.[index];
+          outputResults.push({
+            image: img,
+            thumbnail: existingThumb && isRef(existingThumb) ? existingThumb : existingThumb ?? "",
+          });
+          continue;
+        }
+
+        const key = getImageKey(gen.id, index, "output");
+        const thumbKey = getThumbnailKey(gen.id, index);
+        const existingThumb = gen.thumbnails?.[index];
+
+        if (img.startsWith("blob:")) {
+          if (!existingThumb || isRef(existingThumb)) {
+            try {
+              const blob = await urlToBlob(img);
+              const thumbnailBlob = await createThumbnailBlob(blob);
+              if (thumbnailBlob) {
+                await store.setItem(thumbKey, thumbnailBlob);
+              }
+            } catch (error) {
+              console.error(`Failed to generate thumbnail ${thumbKey}`, error);
+            }
           }
 
-          // It is a Data URL or HTTP URL. Save it.
-          try {
-            const blob = await urlToBlob(img);
-            await store.setItem(key, blob);
-            return makeRef(key);
-          } catch (e) {
-            console.error(`Failed to save image ${key}`, e);
-            // Fallback: keep original string if save fails? 
-            // But that defeats the purpose. If we can't save, we might lose it.
-            return img; 
+          outputResults.push({ image: makeRef(key), thumbnail: makeRef(thumbKey) });
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          continue;
+        }
+
+        try {
+          const blob = await urlToBlob(img);
+          await store.setItem(key, blob);
+          const thumbnailBlob = await createThumbnailBlob(blob);
+          if (thumbnailBlob) {
+            await store.setItem(thumbKey, thumbnailBlob);
           }
-        })
-      );
+          outputResults.push({ image: makeRef(key), thumbnail: makeRef(thumbKey) });
+        } catch (e) {
+          console.error(`Failed to save image ${key}`, e);
+          outputResults.push({ image: img, thumbnail: existingThumb ?? "" });
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+
+      const images = outputResults.map((result) => result.image);
+      const thumbnails = outputResults.map((result) => result.thumbnail);
 
       // Handle Input Images (References)
       const inputImages = await Promise.all(
@@ -146,6 +243,7 @@ export async function persistGenerations(generations: Generation[]) {
       return {
         ...gen,
         images,
+        thumbnails,
         inputImages
       };
     })
@@ -246,11 +344,58 @@ export async function restoreGenerations(): Promise<Generation[] | null> {
                  } catch {
                      return inputImg;
                  }
-            }
+          }
         })
       );
+
+      const storedThumbs = Array.isArray(gen.thumbnails) ? gen.thumbnails : [];
+      const thumbnails: string[] = [];
+
+      for (let index = 0; index < gen.images.length; index += 1) {
+        const img = gen.images[index];
+        const thumbValue = storedThumbs[index];
+        const thumbKey = getThumbnailKey(gen.id, index);
+
+        if (thumbValue) {
+          if (isRef(thumbValue)) {
+            const key = getRefKey(thumbValue);
+            try {
+              const blob = await store!.getItem<Blob>(key);
+              thumbnails.push(blob ? URL.createObjectURL(blob) : "");
+            } catch {
+              thumbnails.push("");
+            }
+            continue;
+          }
+
+          if (thumbValue.startsWith("blob:")) {
+            thumbnails.push(thumbValue);
+            continue;
+          }
+        }
+
+        const outputKey = isRef(img) ? getRefKey(img) : getImageKey(gen.id, index, "output");
+        try {
+          const outputBlob = await store!.getItem<Blob>(outputKey);
+          if (!outputBlob) {
+            thumbnails.push("");
+            continue;
+          }
+          const thumbBlob = await createThumbnailBlob(outputBlob);
+          if (!thumbBlob) {
+            thumbnails.push("");
+            continue;
+          }
+          await store!.setItem(thumbKey, thumbBlob);
+          thumbnails.push(URL.createObjectURL(thumbBlob));
+        } catch {
+          thumbnails.push("");
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
       
-      const hydratedGen = { ...gen, images, inputImages };
+      const hydratedGen = { ...gen, images, thumbnails, inputImages };
 
       // If we did migration on the fly, we should probably save the updated ref structure
       // BUT: calling persistGenerations here might be race-condition prone if the app is also saving.
@@ -374,6 +519,13 @@ export async function deleteGenerationData(generationId: string, generation?: Ge
   await Promise.allSettled(writes);
 }
 
+export async function deleteOutputImageData(generationId: string, imageIndex: number) {
+  if (!store) return;
+  const key = getImageKey(generationId, imageIndex, "output");
+  const thumbKey = getThumbnailKey(generationId, imageIndex);
+  await Promise.allSettled([store.removeItem(key), store.removeItem(thumbKey)]);
+}
+
 export async function cleanOrphanedImages(
   generations?: Generation[] | null,
   pending?: Generation[] | null,
@@ -391,6 +543,14 @@ export async function cleanOrphanedImages(
       if (!img) return;
       const key = isRef(img) ? getRefKey(img) : getImageKey(gen.id, index, "output");
       referencedKeys.add(key);
+
+      const thumbRef = gen.thumbnails?.[index];
+      const thumbKey = thumbRef
+        ? isRef(thumbRef)
+          ? getRefKey(thumbRef)
+          : getThumbnailKey(gen.id, index)
+        : getThumbnailKey(gen.id, index);
+      referencedKeys.add(thumbKey);
     });
     (gen.inputImages || []).forEach((img) => {
       if (!img.url) return;
@@ -404,7 +564,10 @@ export async function cleanOrphanedImages(
 
   const keys = await store.keys();
   const removals = keys
-    .filter((key) => key.startsWith("img:") && !referencedKeys.has(key))
+    .filter(
+      (key) =>
+        (key.startsWith("img:") || key.startsWith("thumb:")) && !referencedKeys.has(key),
+    )
     .map((key) => store.removeItem(key));
 
   if (removals.length === 0) return;

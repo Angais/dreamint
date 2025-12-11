@@ -4,7 +4,7 @@ import type { WheelEvent } from "react";
 
 import { getAspectDescription, getQualityLabel } from "../../lib/seedream-options";
 import { CompareSlider } from "./compare-slider";
-import { ArrowLeftIcon, ArrowRightIcon, ChevronDownIcon, DownloadIcon, InfoIcon, PlusIcon, SpinnerIcon, XIcon } from "./icons";
+import { ArrowLeftIcon, ArrowRightIcon, DownloadIcon, InfoIcon, PlusIcon, SpinnerIcon, XIcon } from "./icons";
 import type { GalleryEntry } from "./types";
 
 type LightboxProps = {
@@ -17,6 +17,8 @@ type LightboxProps = {
   canGoPrev: boolean;
   canGoNext: boolean;
   onEdit?: () => void;
+  onDelete?: () => void;
+  canDelete?: boolean;
 };
 
 export function Lightbox({
@@ -29,13 +31,21 @@ export function Lightbox({
   canGoPrev,
   canGoNext,
   onEdit,
+  onDelete,
+  canDelete = true,
 }: LightboxProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isCompareMode, setIsCompareMode] = useState(false);
   const [selectedReferenceIndex, setSelectedReferenceIndex] = useState(0);
   const [compareSliderPosition, setCompareSliderPosition] = useState(50);
   const [isDownloadingComparison, setIsDownloadingComparison] = useState(false);
-  const [showDetails, setShowDetails] = useState(true);
+  const shouldShowDetailsOnOpen = () => {
+    if (typeof window === "undefined") {
+      return true;
+    }
+    return window.matchMedia("(min-width: 768px)").matches;
+  };
+  const [showDetails, setShowDetails] = useState(shouldShowDetailsOnOpen);
   
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
   const isDragging = useRef(false);
@@ -57,6 +67,7 @@ export function Lightbox({
     setSelectedReferenceIndex(0);
     setCompareSliderPosition(50);
     setTransform({ x: 0, y: 0, scale: 1 });
+    setShowDetails(shouldShowDetailsOnOpen());
   }, [entry.generationId, entry.imageIndex]);
 
   useEffect(() => {
@@ -407,54 +418,54 @@ export function Lightbox({
               </button>
             ) : null}
 
-            {/* Mobile Close Button (when details hidden) */}
-            {!showDetails && (
-              <button
-                type="button"
-                onClick={onClose}
-                className="absolute top-4 right-4 z-30 rounded-full bg-black/70 p-3 text-white backdrop-blur-md shadow-lg border border-white/10 transition hover:bg-white hover:text-black md:hidden"
-                aria-label="Close"
-              >
-                <XIcon className="h-5 w-5" />
-              </button>
-            )}
-
-            {/* Mobile Show Details Trigger */}
-            {!showDetails && (
-              <button
-                type="button"
-                onClick={() => setShowDetails(true)}
-                className="absolute bottom-4 right-4 z-30 rounded-full bg-black/70 p-3 text-white backdrop-blur-md shadow-lg border border-white/10 transition hover:bg-white hover:text-black md:hidden"
-                aria-label="Show details"
-              >
-                <InfoIcon className="h-5 w-5" />
-              </button>
-            )}
+	            {/* Mobile Close Preview Button (always visible) */}
+	            <button
+	              type="button"
+	              onClick={onClose}
+	              className="absolute top-4 right-4 z-30 rounded-full bg-black/70 p-3 text-white backdrop-blur-md shadow-lg border border-white/10 transition hover:bg-white hover:text-black md:hidden"
+	              aria-label="Close preview"
+	            >
+	              <XIcon className="h-5 w-5" />
+	            </button>
+	
+	            {/* Mobile Show Details Trigger (only when hidden) */}
+	            {!showDetails && (
+	              <button
+	                type="button"
+	                onClick={() => setShowDetails(true)}
+	                className="absolute bottom-4 right-4 z-30 rounded-full bg-black/70 p-3 text-white backdrop-blur-md shadow-lg border border-white/10 transition hover:bg-white hover:text-black md:hidden"
+	                aria-label="Show details"
+	              >
+	                <InfoIcon className="h-5 w-5" />
+	              </button>
+	            )}
         </div>
 
         {/* Sidebar for Details */}
         <div className={`${showDetails ? "flex" : "hidden"} md:flex absolute bottom-0 left-0 right-0 z-20 md:static md:z-auto w-full md:w-[320px] bg-[var(--bg-panel)] p-4 md:p-6 flex-col border-t md:border-t-0 md:border-l border-[var(--border-subtle)] max-h-[50vh] md:max-h-full shadow-2xl md:shadow-none`}>
-           <div className="flex justify-between items-center mb-3 md:mb-6">
-             <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowDetails(false)}
-                  className="md:hidden rounded-full p-1 text-[var(--text-muted)] hover:bg-[var(--bg-input)] hover:text-white transition-colors"
-                  aria-label="Hide details"
-                >
-                  <ChevronDownIcon className="h-5 w-5" />
-                </button>
-                <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Details</h2>
-             </div>
-              <button
-                type="button"
-                className="rounded-full p-2 -mr-2 text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-subtle)] transition-colors"
-                onClick={onClose}
-                aria-label="Close"
-              >
-                 <XIcon className="h-5 w-5" />
-              </button>
-           </div>
+	           <div className="flex justify-between items-center mb-3 md:mb-6">
+	             <div className="flex items-center gap-3">
+	                <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Details</h2>
+	             </div>
+	              {/* Mobile: close details panel */}
+	              <button
+	                type="button"
+	                className="md:hidden rounded-full p-2 -mr-2 text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-subtle)] transition-colors"
+	                onClick={() => setShowDetails(false)}
+	                aria-label="Hide details"
+	              >
+	                 <XIcon className="h-5 w-5" />
+	              </button>
+	              {/* Desktop: close preview */}
+	              <button
+	                type="button"
+	                className="hidden md:inline-flex rounded-full p-2 -mr-2 text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-subtle)] transition-colors"
+	                onClick={onClose}
+	                aria-label="Close preview"
+	              >
+	                 <XIcon className="h-5 w-5" />
+	              </button>
+	           </div>
 
            <div className="flex-1 overflow-y-auto pr-2">
              <p className="text-sm leading-relaxed text-[var(--text-primary)] font-medium mb-4 max-h-32 overflow-y-auto">
@@ -483,6 +494,29 @@ export function Lightbox({
                 {isDownloading ? <SpinnerIcon className="h-4 w-4 animate-spin" /> : <DownloadIcon className="h-4 w-4" />}
                 {isDownloading ? "Saving..." : "Download Image"}
               </button>
+
+              {onDelete ? (
+                <button
+                  type="button"
+                  onClick={onDelete}
+                  disabled={!canDelete}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-950/40 border border-red-900/60 px-4 py-3 text-sm font-bold text-red-200 shadow-lg transition-all hover:bg-red-900/60 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="h-4 w-4"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                  Delete Image
+                </button>
+              ) : null}
 
               {isCompareMode && hasReferences && (
                   <button
