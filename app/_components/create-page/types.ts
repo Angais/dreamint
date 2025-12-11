@@ -10,7 +10,11 @@ export type PromptAttachment = {
   height?: number | null;
 };
 
-export type Generation = SeedreamGeneration & { id: string };
+export type Generation = SeedreamGeneration & {
+  id: string;
+  deletedImages?: number[];
+  thumbnails?: string[];
+};
 
 export type GalleryEntry = {
   generationId: string;

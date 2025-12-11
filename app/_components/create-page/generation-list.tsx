@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { memo } from "react";
+import { memo, useMemo } from "react";
 
 import { type AspectKey } from "../../lib/seedream-options";
 import { GenerationDetailsCard } from "./generation-details-card";
@@ -14,6 +14,7 @@ type GenerationGroupProps = {
   onUsePrompt: (prompt: string, inputImages: Generation["inputImages"]) => void;
   onPreviewInputImage?: (image: Generation["inputImages"][number]) => void;
   onDeleteGeneration: (generationId: string) => void;
+  onDeleteImage: (generationId: string, imageIndex: number) => void;
   onRetryGeneration?: (generationId: string) => void;
 };
 
@@ -25,6 +26,7 @@ export const GenerationGroup = memo(function GenerationGroup({
   onUsePrompt,
   onPreviewInputImage,
   onDeleteGeneration,
+  onDeleteImage,
   onRetryGeneration,
 }: GenerationGroupProps) {
   return (
@@ -35,7 +37,10 @@ export const GenerationGroup = memo(function GenerationGroup({
       <div className="space-y-10">
         {generations.map((generation) => {
           const isGenerating = pendingIdSet.has(generation.id);
-          const isInterrupted = !isGenerating && generation.images.some((img) => !img);
+          const deletedSet = new Set(generation.deletedImages ?? []);
+          const isInterrupted =
+            !isGenerating &&
+            generation.images.some((img, index) => !img && !deletedSet.has(index));
 
           return (
             <div
@@ -46,6 +51,7 @@ export const GenerationGroup = memo(function GenerationGroup({
                 <GenerationGallery
                   generation={generation}
                   onExpand={onExpand}
+                  onDeleteImage={onDeleteImage}
                   isInterrupted={isInterrupted}
                   isGenerating={isGenerating}
                 />
@@ -72,6 +78,7 @@ export const GenerationGroup = memo(function GenerationGroup({
 type GenerationGalleryProps = {
   generation: Generation;
   onExpand: (generationId: string, imageIndex: number) => void;
+  onDeleteImage: (generationId: string, imageIndex: number) => void;
   isInterrupted: boolean;
   isGenerating: boolean;
 };
@@ -79,10 +86,12 @@ type GenerationGalleryProps = {
 const GenerationGallery = memo(function GenerationGallery({
   generation,
   onExpand,
+  onDeleteImage,
   isInterrupted,
   isGenerating,
 }: GenerationGalleryProps) {
   const layout = resolveGalleryLayout(generation);
+  const deletedSet = useMemo(() => new Set(generation.deletedImages ?? []), [generation.deletedImages]);
 
   debugLog("gallery:render", {
     generationId: generation.id,
@@ -105,6 +114,8 @@ const GenerationGallery = memo(function GenerationGallery({
             className={layout.tileClass}
             prompt={generation.prompt}
             onExpand={() => onExpand(generation.id, index)}
+            onDelete={() => onDeleteImage(generation.id, index)}
+            isDeleted={deletedSet.has(index)}
             generationId={generation.id}
             imageIndex={index}
             size={generation.size}
@@ -122,6 +133,8 @@ type ImageTileProps = {
   className: string;
   prompt: string;
   onExpand: () => void;
+  onDelete: () => void;
+  isDeleted: boolean;
   generationId: string;
   imageIndex: number;
   size: { width: number; height: number };
@@ -134,6 +147,8 @@ const ImageTile = memo(function ImageTile({
   className,
   prompt,
   onExpand,
+  onDelete,
+  isDeleted,
   generationId,
   imageIndex,
   size,
@@ -153,6 +168,16 @@ const ImageTile = memo(function ImageTile({
   const shouldBypassOptimization = false;
 
   if (!src) {
+    if (isDeleted) {
+      return (
+        <div className={`${className} relative bg-[#0f1017] border border-[var(--border-subtle)] text-[var(--text-muted)]`}>
+          <div className="absolute inset-0 flex items-center justify-center text-[11px] font-semibold uppercase tracking-wide">
+            Deleted
+          </div>
+        </div>
+      );
+    }
+
     const interruptedStyles = isInterrupted
       ? "bg-[#1f1f1f] border border-red-700/60 text-red-300"
       : "animate-pulse bg-[#1f1f1f] border border-[#333]";
@@ -195,6 +220,32 @@ const ImageTile = memo(function ImageTile({
       className={`${className} bg-[#0f1017] transition-all duration-300 hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-[#6366f1]/50 cursor-pointer overflow-hidden group/tile`}
       aria-label="Expand image"
     >
+      {!isGenerating && !isDeleted ? (
+        <div
+          role="button"
+          tabIndex={-1}
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete();
+          }}
+          className="absolute right-2 top-2 z-10 rounded-full bg-black/70 p-1.5 text-white opacity-0 transition-opacity group-hover/tile:opacity-100 hover:bg-red-900/80"
+          aria-label="Delete image"
+          title="Delete image"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            className="h-3.5 w-3.5"
+          >
+            <path
+              fillRule="evenodd"
+              d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </div>
+      ) : null}
       <Image
         src={src}
         alt={prompt}

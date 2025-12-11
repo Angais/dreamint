@@ -100,7 +100,10 @@ export function GenerationDetailsCard({
       : getAspectDescription(generation.aspect).replace(/\s/g, "")
     : null;
 
-  const isInterrupted = !isGenerating && generation?.images.some(img => !img);
+  const deletedSet = new Set(generation?.deletedImages ?? []);
+  const isInterrupted =
+    !isGenerating &&
+    generation?.images.some((img, index) => !img && !deletedSet.has(index));
   const createdAtDate = useMemo(
     () => (generation?.createdAt ? new Date(generation.createdAt) : null),
     [generation?.createdAt],
