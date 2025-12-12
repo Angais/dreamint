@@ -11,7 +11,7 @@
   "dependencies": {
     "jszip": "^3.10.1",
     "localforage": "^1.10.0",
-    "next": "^15.5.7",
+    "next": "^15.5.8",
     "react": "^19.2.1",
     "react-dom": "^19.2.1"
   },
@@ -22,7 +22,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "^15.5.7",
+    "eslint-config-next": "^15.5.8",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
