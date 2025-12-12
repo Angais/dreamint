@@ -1,9 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import JSZip from "jszip";
-import { MagnifyingGlassIcon } from "./icons";
+import { CopyIcon, DownloadIcon, MagnifyingGlassIcon } from "./icons";
 import type { Generation } from "./types";
 import { useInfiniteScroll } from "./use-infinite-scroll";
 
@@ -11,13 +11,17 @@ type GalleryViewProps = {
   generations: Generation[];
   onExpand: (generationId: string, imageIndex: number) => void;
   onDeleteImages: (items: Array<{ generationId: string; imageIndex: number }>) => void;
+  onDeleteImage: (generationId: string, imageIndex: number) => void;
+  onDownloadImage: (generationId: string, imageIndex: number) => Promise<boolean>;
+  onCopyImage: (generationId: string, imageIndex: number) => Promise<boolean>;
 };
 
-export function GalleryView({ generations, onExpand, onDeleteImages }: GalleryViewProps) {
+export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteImage, onDownloadImage, onCopyImage }: GalleryViewProps) {
   const [search, setSearch] = useState("");
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [isZipping, setIsZipping] = useState(false);
+  const [flash, setFlash] = useState<{ key: string; action: "copy" | "download" } | null>(null);
   const { limit, loadMoreRef } = useInfiniteScroll({
     initialLimit: 20,
     increment: 20,
@@ -88,6 +92,15 @@ export function GalleryView({ generations, onExpand, onDeleteImages }: GalleryVi
   };
 
   const clearSelection = () => setSelectedKeys(new Set());
+
+  const triggerFlash = useCallback((key: string, action: "copy" | "download") => {
+    setFlash({ key, action });
+    window.setTimeout(() => {
+      setFlash((previous) =>
+        previous && previous.key === key && previous.action === action ? null : previous,
+      );
+    }, 260);
+  }, []);
 
   const handleDeleteSelected = () => {
     if (selectedItems.length === 0) return;
@@ -205,12 +218,14 @@ export function GalleryView({ generations, onExpand, onDeleteImages }: GalleryVi
       {visibleImages.length > 0 ? (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-1">
-            {visibleImages.map((item) => {
-              const selectionKey = `${item.id}:${item.index}`;
-              const isSelected = selectedKeys.has(selectionKey);
+	            {visibleImages.map((item) => {
+	              const selectionKey = `${item.id}:${item.index}`;
+	              const isSelected = selectedKeys.has(selectionKey);
+	              const flashCopy = flash?.key === selectionKey && flash.action === "copy";
+	              const flashDownload = flash?.key === selectionKey && flash.action === "download";
 
-              return (
-                <button
+	              return (
+	                <button
                   key={`${item.id}-${item.index}`}
                   type="button"
                   onClick={(event) => {
@@ -237,8 +252,8 @@ export function GalleryView({ generations, onExpand, onDeleteImages }: GalleryVi
                   />
                   <div className="pointer-events-none absolute inset-0 bg-black/0 transition-colors group-hover:bg-black/20" />
 
-                  {selectionMode ? (
-                    <div className="pointer-events-none absolute right-2 top-2 z-10">
+	                  {selectionMode ? (
+	                    <div className="pointer-events-none absolute right-2 top-2 z-10">
                       <div
                         className={`h-5 w-5 rounded border-2 flex items-center justify-center transition-colors ${
                           isSelected
@@ -260,9 +275,74 @@ export function GalleryView({ generations, onExpand, onDeleteImages }: GalleryVi
                           </svg>
                         ) : null}
                       </div>
-                    </div>
-                  ) : null}
-                </button>
+	                    </div>
+	                  ) : null}
+
+	                  {!selectionMode ? (
+	                    <div className="absolute right-2 top-2 z-10 hidden md:flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+	                      <div
+	                        role="button"
+	                        tabIndex={-1}
+	                        onClick={(event) => {
+	                          event.stopPropagation();
+	                          onDeleteImage(item.id, item.index);
+	                        }}
+	                        className="rounded-full bg-black/70 p-1.5 text-white hover:bg-red-900/80"
+	                        aria-label="Delete image"
+	                        title="Delete image"
+	                      >
+	                        <svg
+	                          xmlns="http://www.w3.org/2000/svg"
+	                          viewBox="0 0 20 20"
+	                          fill="currentColor"
+	                          className="h-3.5 w-3.5"
+	                        >
+	                          <path
+	                            fillRule="evenodd"
+	                            d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5z"
+	                            clipRule="evenodd"
+	                          />
+	                        </svg>
+	                      </div>
+	                      <div
+	                        role="button"
+	                        tabIndex={-1}
+	                        onClick={async (event) => {
+	                          event.stopPropagation();
+	                          const ok = await onCopyImage(item.id, item.index);
+	                          if (ok) triggerFlash(selectionKey, "copy");
+	                        }}
+	                        className={`rounded-full bg-black/70 p-1.5 text-white hover:bg-black/90 transition-transform duration-150 ${
+	                          flashCopy ? "scale-110 ring-2 ring-white/70" : ""
+	                        }`}
+	                        aria-label="Copy image"
+	                        title="Copy image"
+	                      >
+	                        <CopyIcon
+	                          className={`h-3.5 w-3.5 ${flashCopy ? "copy-wiggle" : ""}`}
+	                        />
+	                      </div>
+	                      <div
+	                        role="button"
+	                        tabIndex={-1}
+	                        onClick={async (event) => {
+	                          event.stopPropagation();
+	                          const ok = await onDownloadImage(item.id, item.index);
+	                          if (ok) triggerFlash(selectionKey, "download");
+	                        }}
+	                        className={`rounded-full bg-black/70 p-1.5 text-white hover:bg-black/90 transition-transform duration-150 ${
+	                          flashDownload ? "scale-110 ring-2 ring-white/70" : ""
+	                        }`}
+	                        aria-label="Download image"
+	                        title="Download image"
+	                      >
+	                        <DownloadIcon
+	                          className={`h-3.5 w-3.5 ${flashDownload ? "download-nudge" : ""}`}
+	                        />
+	                      </div>
+	                    </div>
+	                  ) : null}
+	                </button>
               );
             })}
           </div>

@@ -1,8 +1,9 @@
 import Image from "next/image";
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState } from "react";
 
 import { type AspectKey } from "../../lib/seedream-options";
 import { GenerationDetailsCard } from "./generation-details-card";
+import { CopyIcon, DownloadIcon } from "./icons";
 import { debugLog } from "./logger";
 import type { Generation } from "./types";
 
@@ -15,6 +16,8 @@ type GenerationGroupProps = {
   onPreviewInputImage?: (image: Generation["inputImages"][number]) => void;
   onDeleteGeneration: (generationId: string) => void;
   onDeleteImage: (generationId: string, imageIndex: number) => void;
+  onDownloadImage: (generationId: string, imageIndex: number) => Promise<boolean>;
+  onCopyImage: (generationId: string, imageIndex: number) => Promise<boolean>;
   onRetryGeneration?: (generationId: string) => void;
 };
 
@@ -27,6 +30,8 @@ export const GenerationGroup = memo(function GenerationGroup({
   onPreviewInputImage,
   onDeleteGeneration,
   onDeleteImage,
+  onDownloadImage,
+  onCopyImage,
   onRetryGeneration,
 }: GenerationGroupProps) {
   return (
@@ -52,6 +57,8 @@ export const GenerationGroup = memo(function GenerationGroup({
                   generation={generation}
                   onExpand={onExpand}
                   onDeleteImage={onDeleteImage}
+                  onDownloadImage={onDownloadImage}
+                  onCopyImage={onCopyImage}
                   isInterrupted={isInterrupted}
                   isGenerating={isGenerating}
                 />
@@ -79,6 +86,8 @@ type GenerationGalleryProps = {
   generation: Generation;
   onExpand: (generationId: string, imageIndex: number) => void;
   onDeleteImage: (generationId: string, imageIndex: number) => void;
+  onDownloadImage: (generationId: string, imageIndex: number) => Promise<boolean>;
+  onCopyImage: (generationId: string, imageIndex: number) => Promise<boolean>;
   isInterrupted: boolean;
   isGenerating: boolean;
 };
@@ -87,6 +96,8 @@ const GenerationGallery = memo(function GenerationGallery({
   generation,
   onExpand,
   onDeleteImage,
+  onDownloadImage,
+  onCopyImage,
   isInterrupted,
   isGenerating,
 }: GenerationGalleryProps) {
@@ -115,6 +126,8 @@ const GenerationGallery = memo(function GenerationGallery({
             prompt={generation.prompt}
             onExpand={() => onExpand(generation.id, index)}
             onDelete={() => onDeleteImage(generation.id, index)}
+            onDownload={() => onDownloadImage(generation.id, index)}
+            onCopy={() => onCopyImage(generation.id, index)}
             isDeleted={deletedSet.has(index)}
             generationId={generation.id}
             imageIndex={index}
@@ -134,6 +147,8 @@ type ImageTileProps = {
   prompt: string;
   onExpand: () => void;
   onDelete: () => void;
+  onDownload: () => Promise<boolean>;
+  onCopy: () => Promise<boolean>;
   isDeleted: boolean;
   generationId: string;
   imageIndex: number;
@@ -148,6 +163,8 @@ const ImageTile = memo(function ImageTile({
   prompt,
   onExpand,
   onDelete,
+  onDownload,
+  onCopy,
   isDeleted,
   generationId,
   imageIndex,
@@ -155,6 +172,12 @@ const ImageTile = memo(function ImageTile({
   isInterrupted,
   isGenerating,
 }: ImageTileProps) {
+  const [flashAction, setFlashAction] = useState<"copy" | "download" | null>(null);
+  const triggerFlash = (action: "copy" | "download") => {
+    setFlashAction(action);
+    window.setTimeout(() => setFlashAction((prev) => (prev === action ? null : prev)), 260);
+  };
+
   const width = Math.max(size?.width ?? 1024, 256);
   const height = Math.max(size?.height ?? 1024, 256);
   const maxDimension = Math.max(width, height);
@@ -221,29 +244,67 @@ const ImageTile = memo(function ImageTile({
       aria-label="Expand image"
     >
       {!isGenerating && !isDeleted ? (
-        <div
-          role="button"
-          tabIndex={-1}
-          onClick={(event) => {
-            event.stopPropagation();
-            onDelete();
-          }}
-          className="absolute right-2 top-2 z-10 rounded-full bg-black/70 p-1.5 text-white opacity-0 transition-opacity group-hover/tile:opacity-100 hover:bg-red-900/80"
-          aria-label="Delete image"
-          title="Delete image"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            className="h-3.5 w-3.5"
+        <div className="absolute right-2 top-2 z-10 hidden md:flex items-center gap-1 opacity-0 transition-opacity group-hover/tile:opacity-100">
+          <div
+            role="button"
+            tabIndex={-1}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDelete();
+            }}
+            className="rounded-full bg-black/70 p-1.5 text-white hover:bg-red-900/80"
+            aria-label="Delete image"
+            title="Delete image"
           >
-            <path
-              fillRule="evenodd"
-              d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5z"
-              clipRule="evenodd"
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className="h-3.5 w-3.5"
+            >
+              <path
+                fillRule="evenodd"
+                d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </div>
+          <div
+            role="button"
+            tabIndex={-1}
+            onClick={async (event) => {
+              event.stopPropagation();
+              const ok = await onCopy();
+              if (ok) triggerFlash("copy");
+            }}
+            className={`rounded-full bg-black/70 p-1.5 text-white hover:bg-black/90 transition-transform duration-150 ${
+              flashAction === "copy" ? "scale-110 ring-2 ring-white/70" : ""
+            }`}
+            aria-label="Copy image"
+            title="Copy image"
+          >
+            <CopyIcon
+              className={`h-3.5 w-3.5 ${flashAction === "copy" ? "copy-wiggle" : ""}`}
             />
-          </svg>
+          </div>
+          <div
+            role="button"
+            tabIndex={-1}
+            onClick={async (event) => {
+              event.stopPropagation();
+              const ok = await onDownload();
+              if (ok) triggerFlash("download");
+            }}
+            className={`rounded-full bg-black/70 p-1.5 text-white hover:bg-black/90 transition-transform duration-150 ${
+              flashAction === "download" ? "scale-110 ring-2 ring-white/70" : ""
+            }`}
+            aria-label="Download image"
+            title="Download image"
+          >
+            <DownloadIcon
+              className={`h-3.5 w-3.5 ${flashAction === "download" ? "download-nudge" : ""}`}
+            />
+          </div>
         </div>
       ) : null}
       <Image

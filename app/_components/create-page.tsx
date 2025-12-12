@@ -805,7 +805,7 @@ export function CreatePage() {
     setIsDownloading(false);
   }, [setLightboxSelection, setIsSettingsOpen, setIsDownloading]);
 
-  const handleDownload = async (entry: GalleryEntry) => {
+  const handleDownload = useCallback(async (entry: GalleryEntry): Promise<boolean> => {
     setIsDownloading(true);
     try {
       const response = await fetch(entry.src, { cache: "no-store" });
@@ -824,14 +824,152 @@ export function CreatePage() {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
+      return true;
     } catch (downloadError) {
       const message =
         downloadError instanceof Error ? downloadError.message : "Unable to download image.";
       setError(message);
+      return false;
     } finally {
       setIsDownloading(false);
     }
-  };
+  }, [setIsDownloading, setError]);
+
+  const getEntryForImage = useCallback((generationId: string, imageIndex: number): GalleryEntry | null => {
+    const generation =
+      generations.find((gen) => gen.id === generationId) ??
+      pendingGenerations.find((gen) => gen.id === generationId);
+
+    if (!generation) return null;
+    const src = generation.images[imageIndex];
+    if (!src) return null;
+
+    return {
+      generationId,
+      imageIndex,
+      src,
+      prompt: generation.prompt,
+      aspect: generation.aspect,
+      quality: generation.quality,
+      provider: generation.provider,
+      outputFormat: generation.outputFormat,
+      size: generation.size,
+      inputImages: generation.inputImages ?? [],
+    };
+  }, [generations, pendingGenerations]);
+
+  const handleDownloadImage = useCallback(async (generationId: string, imageIndex: number): Promise<boolean> => {
+    const entry = getEntryForImage(generationId, imageIndex);
+    if (!entry) return false;
+    return await handleDownload(entry);
+  }, [getEntryForImage, handleDownload]);
+
+  const handleCopyImage = useCallback(async (generationId: string, imageIndex: number): Promise<boolean> => {
+    const entry = getEntryForImage(generationId, imageIndex);
+    if (!entry) return false;
+
+    try {
+      if (typeof navigator === "undefined" || !navigator.clipboard || typeof ClipboardItem === "undefined") {
+        throw new Error("Clipboard is not supported in this browser.");
+      }
+
+      const response = await fetch(entry.src, { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`Copy failed (${response.status})`);
+      }
+
+      const blob = await response.blob();
+      const writeToClipboard = async (clipboardBlob: Blob) => {
+        const type = clipboardBlob.type || "image/png";
+        await navigator.clipboard.write([new ClipboardItem({ [type]: clipboardBlob })]);
+      };
+
+      // First try to write the original blob. If the browser supports its mime type,
+      // this is fastest and preserves full resolution.
+      try {
+        await writeToClipboard(blob);
+        return true;
+      } catch {
+        // Fall through to PNG conversion.
+      }
+
+      const MAX_CLIPBOARD_DIMENSION = 2048;
+      const toPngBlob = async (input: Blob): Promise<Blob> => {
+        if (typeof window === "undefined") {
+          return input;
+        }
+
+        try {
+          let srcWidth = 0;
+          let srcHeight = 0;
+          let source: CanvasImageSource | null = null;
+          let bitmapToClose: ImageBitmap | null = null;
+
+          if ("createImageBitmap" in window) {
+            const bitmap = await createImageBitmap(input);
+            bitmapToClose = bitmap;
+            srcWidth = bitmap.width;
+            srcHeight = bitmap.height;
+            source = bitmap;
+          } else {
+            const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+              const img = new Image();
+              const objectUrl = URL.createObjectURL(input);
+              img.decoding = "async";
+              img.onload = () => {
+                URL.revokeObjectURL(objectUrl);
+                resolve(img);
+              };
+              img.onerror = () => {
+                URL.revokeObjectURL(objectUrl);
+                reject(new Error("Failed to decode image"));
+              };
+              img.src = objectUrl;
+            });
+            srcWidth = image.naturalWidth;
+            srcHeight = image.naturalHeight;
+            source = image;
+          }
+
+          if (!source || !srcWidth || !srcHeight) {
+            bitmapToClose?.close();
+            return input;
+          }
+
+          const scale = Math.min(1, MAX_CLIPBOARD_DIMENSION / Math.max(srcWidth, srcHeight));
+          const targetWidth = Math.max(1, Math.round(srcWidth * scale));
+          const targetHeight = Math.max(1, Math.round(srcHeight * scale));
+
+          const canvas = document.createElement("canvas");
+          canvas.width = targetWidth;
+          canvas.height = targetHeight;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            bitmapToClose?.close();
+            return input;
+          }
+          ctx.drawImage(source, 0, 0, targetWidth, targetHeight);
+          bitmapToClose?.close();
+
+          const pngBlob = await new Promise<Blob | null>((resolve) =>
+            canvas.toBlob(resolve, "image/png"),
+          );
+          return pngBlob ?? input;
+        } catch {
+          return input;
+        }
+      };
+
+      const pngBlob = await toPngBlob(blob);
+      await writeToClipboard(new Blob([pngBlob], { type: "image/png" }));
+      return true;
+    } catch (copyError) {
+      const message =
+        copyError instanceof Error ? copyError.message : "Unable to copy image.";
+      setError(message);
+      return false;
+    }
+  }, [getEntryForImage, setError]);
 
   const handleCloseLightbox = () => {
     setLightboxSelection(null);
@@ -1190,6 +1328,8 @@ export function CreatePage() {
                       onPreviewInputImage={handlePreviewInputImage}
                       onDeleteGeneration={handleDeleteGeneration}
                       onDeleteImage={handleDeleteImage}
+                      onDownloadImage={handleDownloadImage}
+                      onCopyImage={handleCopyImage}
                       onRetryGeneration={handleRetryGeneration}
                     />
                   ))}
@@ -1200,7 +1340,14 @@ export function CreatePage() {
             )}
             </main>
           ) : (
-            <GalleryView generations={generations} onExpand={handleExpand} onDeleteImages={handleDeleteImages} />
+            <GalleryView
+              generations={generations}
+              onExpand={handleExpand}
+              onDeleteImages={handleDeleteImages}
+              onDeleteImage={handleDeleteImage}
+              onDownloadImage={handleDownloadImage}
+              onCopyImage={handleCopyImage}
+            />
           )}
         </div>
       </div>

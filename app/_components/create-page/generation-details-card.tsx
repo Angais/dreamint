@@ -8,7 +8,7 @@ import {
 } from "../../lib/seedream-options";
 import { formatDisplayDate } from "./utils";
 import type { Generation } from "./types";
-import { SpinnerIcon } from "./icons";
+import { ReuseIcon, SpinnerIcon } from "./icons";
 
 // Simple Trash Icon for the delete button
 function TrashIcon({ className }: { className?: string }) {
@@ -241,12 +241,9 @@ export function GenerationDetailsCard({
                     type="button"
                     onClick={() => onUsePrompt(generation.prompt, validInputImages)}
                     className="flex items-center justify-center h-6 w-6 rounded hover:bg-[var(--bg-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-                    title="Reuse Prompt"
+                    title="Reuse prompt in editor"
                 >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-                        <polyline points="9 9 9 20 20 9" />
-                    </svg>
+                    <ReuseIcon className="h-3.5 w-3.5" />
                 </button>
                 
                 {canDelete && onDeleteGeneration && (

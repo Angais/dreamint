@@ -102,3 +102,24 @@ button,
 button:disabled {
   cursor: not-allowed;
 }
+
+@keyframes download-nudge {
+  0% { transform: translateY(0); }
+  45% { transform: translateY(3px); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes copy-wiggle {
+  0% { transform: scale(1) rotate(0deg); }
+  35% { transform: scale(1.1) rotate(-3deg); }
+  70% { transform: scale(0.98) rotate(3deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+.download-nudge {
+  animation: download-nudge 180ms ease-out;
+}
+
+.copy-wiggle {
+  animation: copy-wiggle 180ms ease-out;
+}
