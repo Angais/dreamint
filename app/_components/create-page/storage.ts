@@ -79,7 +79,43 @@ async function urlToBlob(url: string): Promise<Blob> {
   return res.blob();
 }
 
-async function createThumbnailBlob(blob: Blob, maxSize = 384): Promise<Blob | null> {
+const MIN_THUMB_DIMENSION = 1024;
+
+async function getBlobDimensions(blob: Blob): Promise<{ width: number; height: number } | null> {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    if ("createImageBitmap" in window) {
+      const bitmap = await createImageBitmap(blob);
+      const dims = { width: bitmap.width, height: bitmap.height };
+      bitmap.close();
+      return dims;
+    }
+
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      const objectUrl = URL.createObjectURL(blob);
+      image.decoding = "async";
+      image.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(image);
+      };
+      image.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error("Failed to decode image"));
+      };
+      image.src = objectUrl;
+    });
+
+    return { width: img.naturalWidth, height: img.naturalHeight };
+  } catch {
+    return null;
+  }
+}
+
+async function createThumbnailBlob(blob: Blob, maxSize = MIN_THUMB_DIMENSION): Promise<Blob | null> {
   if (typeof window === "undefined") {
     return null;
   }
@@ -361,7 +397,28 @@ export async function restoreGenerations(): Promise<Generation[] | null> {
             const key = getRefKey(thumbValue);
             try {
               const blob = await store!.getItem<Blob>(key);
-              thumbnails.push(blob ? URL.createObjectURL(blob) : "");
+              if (blob) {
+                const dims = await getBlobDimensions(blob);
+                if (dims && Math.max(dims.width, dims.height) < MIN_THUMB_DIMENSION) {
+                  const outputKey = isRef(img)
+                    ? getRefKey(img)
+                    : getImageKey(gen.id, index, "output");
+                  const outputBlob = await store!.getItem<Blob>(outputKey);
+                  const upgraded = outputBlob
+                    ? await createThumbnailBlob(outputBlob, MIN_THUMB_DIMENSION)
+                    : null;
+                  if (upgraded) {
+                    await store!.setItem(thumbKey, upgraded);
+                    thumbnails.push(URL.createObjectURL(upgraded));
+                    await new Promise((resolve) => setTimeout(resolve, 0));
+                    continue;
+                  }
+                }
+
+                thumbnails.push(URL.createObjectURL(blob));
+              } else {
+                thumbnails.push("");
+              }
             } catch {
               thumbnails.push("");
             }
