@@ -211,6 +211,32 @@ export function CreatePage() {
     return () => window.visualViewport?.removeEventListener("resize", handleResize);
   }, []);
 
+  useEffect(() => {
+    if (typeof navigator === "undefined") {
+      return;
+    }
+
+    const storageManager = navigator.storage;
+    if (!storageManager?.persisted || !storageManager.persist) {
+      return;
+    }
+
+    void (async () => {
+      try {
+        const alreadyPersisted = await storageManager.persisted();
+        if (alreadyPersisted) {
+          debugLog("storage:persisted", { persisted: true });
+          return;
+        }
+
+        const granted = await storageManager.persist();
+        debugLog("storage:persist-request", { granted });
+      } catch (error) {
+        debugLog("storage:persist-error", { error });
+      }
+    })();
+  }, []);
+
   const clearAttachmentError = useCallback(() => {
     setError((previous) => (previous && ATTACHMENT_ERROR_MESSAGES.has(previous) ? null : previous));
   }, [setError]);
