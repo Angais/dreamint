@@ -337,6 +337,20 @@ export async function restoreGenerations(): Promise<Generation[] | null> {
                 console.error(`Failed to load blob ${key}`, e);
                 return "";
             }
+          } else if (img.startsWith("blob:")) {
+            // Legacy bug: blob: URLs may have been persisted, but blob URLs are not stable across sessions.
+            // Try to recover from the expected storage key.
+            const key = getImageKey(gen.id, index, "output");
+            try {
+              const blob = await store!.getItem<Blob>(key);
+              if (blob) {
+                return URL.createObjectURL(blob);
+              }
+              return "";
+            } catch (e) {
+              console.error(`Failed to recover blob URL for ${key}`, e);
+              return "";
+            }
           } else {
             // It's NOT a reference (Old format migration)
             // Save it as blob immediately
@@ -355,7 +369,7 @@ export async function restoreGenerations(): Promise<Generation[] | null> {
       );
 
       // Hydrate Input Images
-      const inputImages = await Promise.all(
+  const inputImages = await Promise.all(
         (gen.inputImages || []).map(async (inputImg) => {
             if (!inputImg.url) return inputImg;
 
@@ -370,6 +384,14 @@ export async function restoreGenerations(): Promise<Generation[] | null> {
                 } catch {
                     return inputImg;
                 }
+            } else if (inputImg.url.startsWith("blob:")) {
+                 const key = getImageKey(gen.id, 0, "input", inputImg.id);
+                 try {
+                     const blob = await store!.getItem<Blob>(key);
+                     return blob ? { ...inputImg, url: URL.createObjectURL(blob) } : { ...inputImg, url: "" };
+                 } catch {
+                     return { ...inputImg, url: "" };
+                 }
             } else {
                  // Migration
                  const key = getImageKey(gen.id, 0, "input", inputImg.id);
@@ -426,7 +448,13 @@ export async function restoreGenerations(): Promise<Generation[] | null> {
           }
 
           if (thumbValue.startsWith("blob:")) {
-            thumbnails.push(thumbValue);
+            // Same as output images: blob URLs are not stable across sessions.
+            try {
+              const blob = await store!.getItem<Blob>(thumbKey);
+              thumbnails.push(blob ? URL.createObjectURL(blob) : "");
+            } catch {
+              thumbnails.push("");
+            }
             continue;
           }
         }
