@@ -520,7 +520,7 @@ export function Header({
                                   placeholder="fal_sk_..."
                                   className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-secondary)] focus:border-white focus:text-white focus:outline-none transition-all"
                               />
-                              <p className="text-[9px] leading-snug text-orange-400/80">
+                              <p className="text-[9px] leading-snug text-orange-400/80 text-center">
                                 ⚠️ API calls may fail or incur charges; you are fully responsible for any usage.
                               </p>
                           </div>
@@ -536,7 +536,7 @@ export function Header({
                                   placeholder="AIzaSy... (Gemini API)"
                                   className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-secondary)] focus:border-white focus:text-white focus:outline-none transition-all"
                               />
-                              <p className="text-[9px] leading-snug text-orange-400/80">
+                              <p className="text-[9px] leading-snug text-orange-400/80 text-center">
                                 ⚠️ API calls may fail or incur charges; you are fully responsible for any usage.
                               </p>
                           </div>
