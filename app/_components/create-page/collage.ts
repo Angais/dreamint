@@ -10,7 +10,7 @@ function resolveLayout(count: number): CollageLayout {
   return { cols: 2, rows: 2 };
 }
 
-function drawCover(
+function drawContain(
   ctx: CanvasRenderingContext2D,
   source: CanvasImageSource,
   sourceWidth: number,
@@ -25,13 +25,13 @@ function drawCover(
   const safeDw = Math.max(1, Math.round(dw));
   const safeDh = Math.max(1, Math.round(dh));
 
-  const scale = Math.max(safeDw / safeSourceWidth, safeDh / safeSourceHeight);
-  const sw = safeDw / scale;
-  const sh = safeDh / scale;
-  const sx = (safeSourceWidth - sw) / 2;
-  const sy = (safeSourceHeight - sh) / 2;
+  const scale = Math.min(safeDw / safeSourceWidth, safeDh / safeSourceHeight);
+  const targetWidth = Math.max(1, Math.round(safeSourceWidth * scale));
+  const targetHeight = Math.max(1, Math.round(safeSourceHeight * scale));
+  const x = dx + Math.round((safeDw - targetWidth) / 2);
+  const y = dy + Math.round((safeDh - targetHeight) / 2);
 
-  ctx.drawImage(source, sx, sy, sw, sh, dx, dy, safeDw, safeDh);
+  ctx.drawImage(source, x, y, targetWidth, targetHeight);
 }
 
 async function decodeImage(url: string): Promise<{
@@ -83,9 +83,15 @@ export async function createCollageBlob(
   urls: string[],
   {
     tileSize = 1024,
+    tileDimensions,
     background = "#000000",
     mimeType = "image/png",
-  }: { tileSize?: number; background?: string; mimeType?: "image/png" | "image/jpeg" } = {},
+  }: {
+    tileSize?: number;
+    tileDimensions?: { width: number; height: number };
+    background?: string;
+    mimeType?: "image/png" | "image/jpeg";
+  } = {},
 ): Promise<Blob | null> {
   if (typeof window === "undefined") {
     return null;
@@ -98,14 +104,25 @@ export async function createCollageBlob(
 
   const layout = resolveLayout(uniqueUrls.length);
   const safeTileSize = Math.max(256, Math.round(tileSize));
+  const safeTileWidth = Math.max(
+    256,
+    Math.round(tileDimensions?.width ?? safeTileSize),
+  );
+  const safeTileHeight = Math.max(
+    256,
+    Math.round(tileDimensions?.height ?? safeTileSize),
+  );
 
   const canvas = document.createElement("canvas");
-  canvas.width = layout.cols * safeTileSize;
-  canvas.height = layout.rows * safeTileSize;
+  canvas.width = layout.cols * safeTileWidth;
+  canvas.height = layout.rows * safeTileHeight;
   const ctx = canvas.getContext("2d");
   if (!ctx) {
     return null;
   }
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
 
   ctx.fillStyle = background;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -120,10 +137,19 @@ export async function createCollageBlob(
 
     const col = index % layout.cols;
     const row = Math.floor(index / layout.cols);
-    const dx = col * safeTileSize;
-    const dy = row * safeTileSize;
+    const dx = col * safeTileWidth;
+    const dy = row * safeTileHeight;
 
-    drawCover(ctx, decodedImage.source, decodedImage.width, decodedImage.height, dx, dy, safeTileSize, safeTileSize);
+    drawContain(
+      ctx,
+      decodedImage.source,
+      decodedImage.width,
+      decodedImage.height,
+      dx,
+      dy,
+      safeTileWidth,
+      safeTileHeight,
+    );
     decodedImage.cleanup?.();
   }
 
@@ -132,4 +158,3 @@ export async function createCollageBlob(
     canvas.toBlob(resolve, mimeType, quality);
   });
 }
-
