@@ -32,6 +32,8 @@ type HeaderProps = {
   imageCount: number;
   apiKey: string;
   geminiApiKey: string;
+  appVersion: string;
+  totalImages: number;
   isBudgetLocked: boolean;
   isSettingsOpen: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -62,6 +64,8 @@ export function Header({
   imageCount,
   apiKey,
   geminiApiKey,
+  appVersion,
+  totalImages,
   isBudgetLocked,
   isSettingsOpen,
   onSubmit,
@@ -433,7 +437,7 @@ export function Header({
              {/* Settings Panel */}
              {isSettingsOpen ? (
                 <div ref={panelRef} className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-20 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 shadow-2xl animate-in fade-in slide-in-from-bottom-1 duration-200">
-                     <div className="flex flex-col gap-4">
+                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                         <div className="space-y-2">
                            <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Provider</span>
                            <div className="flex gap-2">
@@ -454,8 +458,28 @@ export function Header({
                            </div>
                         </div>
 
-                        {/* Google Search Toggle (In Settings) */}
                         <div className="space-y-2">
+                           <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Output Format</span>
+                           <div className="flex gap-2">
+                              {OUTPUT_FORMAT_OPTIONS.map((opt) => (
+                                <button
+                                  key={opt.value}
+                                  type="button"
+                                  onClick={() => onOutputFormatChange(opt.value)}
+                                  className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-all ${
+                                    outputFormat === opt.value
+                                      ? "border-[var(--text-primary)] bg-[var(--text-primary)] text-black"
+                                      : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]"
+                                  }`}
+                                >
+                                  {opt.label}
+                                </button>
+                              ))}
+                           </div>
+                        </div>
+
+                        {/* Google Search Toggle (In Settings) */}
+                        <div className="space-y-2 md:col-span-2">
                            <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Grounding</span>
                              <div
                                 className={`flex items-center gap-2 rounded-lg border bg-[var(--bg-input)] px-2.5 py-2 transition-all ${
@@ -486,28 +510,8 @@ export function Header({
                             </div>
                         </div>
 
-                        <div className="space-y-2">
-                           <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Output Format</span>
-                           <div className="flex gap-2">
-                              {OUTPUT_FORMAT_OPTIONS.map((opt) => (
-                                <button
-                                  key={opt.value}
-                                  type="button"
-                                  onClick={() => onOutputFormatChange(opt.value)}
-                                  className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-all ${
-                                    outputFormat === opt.value
-                                      ? "border-[var(--text-primary)] bg-[var(--text-primary)] text-black"
-                                      : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]"
-                                  }`}
-                                >
-                                  {opt.label}
-                                </button>
-                              ))}
-                           </div>
-                        </div>
-
                         {provider === "fal" ? (
-                          <div className="space-y-2">
+                          <div className="space-y-2 md:col-span-2">
                               <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">FAL API Key</span>
                               <input
                                   value={apiKey}
@@ -520,7 +524,7 @@ export function Header({
                         ) : null}
 
                         {provider === "gemini" ? (
-                          <div className="space-y-2">
+                          <div className="space-y-2 md:col-span-2">
                               <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Gemini API Key</span>
                               <input
                                   value={geminiApiKey}
@@ -535,11 +539,20 @@ export function Header({
                           </div>
                         ) : null}
 
-                        <p className="text-[10px] font-bold text-orange-400 mt-1 text-center">
+                        <div className="md:col-span-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2">
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                            Version <span className="text-[var(--text-primary)]">{appVersion}</span>
+                          </span>
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                            Images <span className="text-[var(--text-primary)]">{totalImages}</span>
+                          </span>
+                        </div>
+
+                        <p className="md:col-span-2 text-[10px] font-bold text-orange-400 mt-1 text-center">
                           ⚠️ API calls may fail or incur charges; you are fully responsible for any usage.
                         </p>
                         
-                        <p className="text-[10px] text-[var(--text-muted)] text-center">Keys are stored locally on your device.</p>
+                        <p className="md:col-span-2 text-[10px] text-[var(--text-muted)] text-center">Keys are stored locally on your device.</p>
                      </div>
                 </div>
             ) : null}
