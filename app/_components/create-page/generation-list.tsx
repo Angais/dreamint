@@ -18,6 +18,7 @@ type GenerationGroupProps = {
   onDeleteImage: (generationId: string, imageIndex: number) => void;
   onDownloadImage: (generationId: string, imageIndex: number) => Promise<boolean>;
   onCopyImage: (generationId: string, imageIndex: number) => Promise<boolean>;
+  onShareCollage: (generationId: string) => Promise<boolean>;
   onRetryGeneration?: (generationId: string) => void;
 };
 
@@ -32,6 +33,7 @@ export const GenerationGroup = memo(function GenerationGroup({
   onDeleteImage,
   onDownloadImage,
   onCopyImage,
+  onShareCollage,
   onRetryGeneration,
 }: GenerationGroupProps) {
   return (
@@ -70,6 +72,7 @@ export const GenerationGroup = memo(function GenerationGroup({
                   onUsePrompt={onUsePrompt}
                   onPreviewInputImage={onPreviewInputImage}
                   onDeleteGeneration={onDeleteGeneration}
+                  onShareCollage={onShareCollage}
                   canDelete={!isGenerating}
                   onRetry={onRetryGeneration ? () => onRetryGeneration(generation.id) : undefined}
                 />

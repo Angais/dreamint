@@ -8,7 +8,7 @@ import {
 } from "../../lib/seedream-options";
 import { formatDisplayDate } from "./utils";
 import type { Generation } from "./types";
-import { ReuseIcon, SpinnerIcon } from "./icons";
+import { ReuseIcon, ShareIcon, SpinnerIcon } from "./icons";
 
 // Simple Trash Icon for the delete button
 function TrashIcon({ className }: { className?: string }) {
@@ -71,6 +71,7 @@ type GenerationDetailsCardProps = {
   onUsePrompt: (prompt: string, inputImages: Generation["inputImages"]) => void;
   onPreviewInputImage?: (image: Generation["inputImages"][number]) => void;
   onDeleteGeneration?: (generationId: string) => void;
+  onShareCollage?: (generationId: string) => Promise<boolean>;
   canDelete?: boolean;
   onRetry?: () => void;
 };
@@ -81,10 +82,12 @@ export function GenerationDetailsCard({
   onUsePrompt,
   onPreviewInputImage,
   onDeleteGeneration,
+  onShareCollage,
   canDelete = false,
   onRetry,
 }: GenerationDetailsCardProps) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [isSharing, setIsSharing] = useState(false);
   const validInputImages = useMemo(
     () =>
       generation?.inputImages?.filter(
@@ -104,6 +107,16 @@ export function GenerationDetailsCard({
   const isInterrupted =
     !isGenerating &&
     generation?.images.some((img, index) => !img && !deletedSet.has(index));
+  const hasShareTargets = generation
+    ? generation.images.some((img, index) => Boolean(img) && !deletedSet.has(index))
+    : false;
+  const canShare =
+    Boolean(onShareCollage) &&
+    Boolean(generation) &&
+    !isGenerating &&
+    !isInterrupted &&
+    hasShareTargets &&
+    !isSharing;
   const createdAtDate = useMemo(
     () => (generation?.createdAt ? new Date(generation.createdAt) : null),
     [generation?.createdAt],
@@ -245,6 +258,33 @@ export function GenerationDetailsCard({
                 >
                     <ReuseIcon className="h-3.5 w-3.5" />
                 </button>
+
+                {onShareCollage ? (
+                  <button
+                    type="button"
+                    disabled={!canShare}
+                    onClick={async () => {
+                      if (!generation || !onShareCollage || !canShare) {
+                        return;
+                      }
+                      setIsSharing(true);
+                      try {
+                        await onShareCollage(generation.id);
+                      } finally {
+                        setIsSharing(false);
+                      }
+                    }}
+                    className={`flex items-center justify-center h-6 w-6 rounded transition-colors ${
+                      canShare
+                        ? "hover:bg-[var(--bg-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                        : "opacity-40 cursor-not-allowed text-[var(--text-muted)]"
+                    }`}
+                    title={canShare ? "Share collage" : "Share is unavailable"}
+                    aria-label="Share collage"
+                  >
+                    <ShareIcon className={`h-3.5 w-3.5 ${isSharing ? "animate-pulse" : ""}`} />
+                  </button>
+                ) : null}
                 
                 {canDelete && onDeleteGeneration && (
                     <button

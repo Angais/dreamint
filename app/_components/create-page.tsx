@@ -12,6 +12,7 @@ import { GalleryView } from "./create-page/gallery-view";
 import { Header } from "./create-page/header";
 import { Lightbox } from "./create-page/lightbox";
 import { AttachmentLightbox } from "./create-page/attachment-lightbox";
+import { createCollageBlob } from "./create-page/collage";
 import { createId, groupByDate, normalizeImages } from "./create-page/utils";
 import type { GalleryEntry, Generation, PromptAttachment } from "./create-page/types";
 import { clearPending, loadPending, restoreGenerations, persistGenerations, savePending, deleteGenerationData, deleteOutputImageData, cleanOrphanedImages } from "./create-page/storage";
@@ -22,6 +23,7 @@ const defaultPrompt =
 const defaultAspect: AspectKey = "portrait-9-16";
 const defaultQuality: QualityKey = "2k";
 const defaultOutputFormat: OutputFormat = "png";
+const APP_VERSION = "0.7.0";
 
 const STORAGE_KEYS = {
   prompt: "seedream:prompt",
@@ -468,6 +470,23 @@ export function CreatePage() {
   const displayFeed = activeFeed;
   const visibleFeed = useMemo(() => displayFeed.slice(0, feedLimit), [displayFeed, feedLimit]);
   const hasGenerations = displayFeed.length > 0;
+  const totalImages = useMemo(() => {
+    return generations.reduce((acc, generation) => {
+      const deletedSet = new Set(generation.deletedImages ?? []);
+      return (
+        acc +
+        generation.images.reduce((count, src, index) => {
+          if (!src) {
+            return count;
+          }
+          if (deletedSet.has(index)) {
+            return count;
+          }
+          return count + 1;
+        }, 0)
+      );
+    }, 0);
+  }, [generations]);
 
   const attachmentInputImages = useMemo(
     () =>
@@ -997,6 +1016,83 @@ export function CreatePage() {
     }
   }, [getEntryForImage, setError]);
 
+  const handleShareCollage = useCallback(async (generationId: string): Promise<boolean> => {
+    const generation = generations.find((gen) => gen.id === generationId);
+    if (!generation) {
+      return false;
+    }
+
+    const deletedSet = new Set(generation.deletedImages ?? []);
+    const sources = generation.images
+      .map((src, index) => {
+        if (!src || deletedSet.has(index)) {
+          return null;
+        }
+        const thumb = generation.thumbnails?.[index];
+        return thumb && thumb.trim().length > 0 ? thumb : src;
+      })
+      .filter((src): src is string => typeof src === "string" && src.trim().length > 0)
+      .slice(0, 4);
+
+    if (sources.length === 0) {
+      setError("No images available to share.");
+      return false;
+    }
+
+    try {
+      const blob = await createCollageBlob(sources);
+      if (!blob) {
+        throw new Error("Unable to create collage.");
+      }
+
+      const filename = `dreamint-collage-${Date.now()}.png`;
+      const file = new File([blob], filename, { type: blob.type || "image/png" });
+
+      const canShareFiles = (() => {
+        if (typeof navigator === "undefined" || typeof navigator.share !== "function") {
+          return false;
+        }
+        if (typeof navigator.canShare !== "function") {
+          return true;
+        }
+        try {
+          return navigator.canShare({ files: [file] });
+        } catch {
+          return false;
+        }
+      })();
+
+      if (canShareFiles) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: "Dreamint collage",
+          });
+          return true;
+        } catch (shareError) {
+          if (shareError instanceof DOMException && shareError.name === "AbortError") {
+            return false;
+          }
+        }
+      }
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      return true;
+    } catch (shareError) {
+      const message =
+        shareError instanceof Error ? shareError.message : "Unable to share collage.";
+      setError(message);
+      return false;
+    }
+  }, [generations, setError]);
+
   const handleCloseLightbox = () => {
     setLightboxSelection(null);
     setIsDownloading(false);
@@ -1356,6 +1452,7 @@ export function CreatePage() {
                       onDeleteImage={handleDeleteImage}
                       onDownloadImage={handleDownloadImage}
                       onCopyImage={handleCopyImage}
+                      onShareCollage={handleShareCollage}
                       onRetryGeneration={handleRetryGeneration}
                     />
                   ))}
@@ -1392,6 +1489,8 @@ export function CreatePage() {
                 imageCount={imageCount}
                 apiKey={apiKey}
                 geminiApiKey={geminiApiKey}
+                appVersion={APP_VERSION}
+                totalImages={totalImages}
                 isBudgetLocked={false}
                 isSettingsOpen={isSettingsOpen}
                 onSubmit={handleSubmit}
