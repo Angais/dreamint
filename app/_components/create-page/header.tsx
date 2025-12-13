@@ -520,6 +520,9 @@ export function Header({
                                   placeholder="fal_sk_..."
                                   className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-secondary)] focus:border-white focus:text-white focus:outline-none transition-all"
                               />
+                              <p className="text-[9px] leading-snug text-orange-400/80">
+                                ⚠️ API calls may fail or incur charges; you are fully responsible for any usage.
+                              </p>
                           </div>
                         ) : null}
 
@@ -533,8 +536,8 @@ export function Header({
                                   placeholder="AIzaSy... (Gemini API)"
                                   className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-secondary)] focus:border-white focus:text-white focus:outline-none transition-all"
                               />
-                              <p className="text-[9px] text-[var(--text-muted)]">
-                                Gemini API runs on the Generative Language endpoint.
+                              <p className="text-[9px] leading-snug text-orange-400/80">
+                                ⚠️ API calls may fail or incur charges; you are fully responsible for any usage.
                               </p>
                           </div>
                         ) : null}
@@ -548,10 +551,6 @@ export function Header({
                           </span>
                         </div>
 
-                        <p className="md:col-span-2 text-[10px] font-bold text-orange-400 mt-1 text-center">
-                          ⚠️ API calls may fail or incur charges; you are fully responsible for any usage.
-                        </p>
-                        
                         <p className="md:col-span-2 text-[10px] text-[var(--text-muted)] text-center">Keys are stored locally on your device.</p>
                      </div>
                 </div>

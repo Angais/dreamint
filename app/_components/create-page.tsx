@@ -1040,7 +1040,17 @@ export function CreatePage() {
     }
 
     try {
-      const blob = await createCollageBlob(sources);
+      const baseWidth = Math.max(1, Math.round(generation.size?.width ?? 1024));
+      const baseHeight = Math.max(1, Math.round(generation.size?.height ?? 1024));
+      const maxDim = Math.max(baseWidth, baseHeight, 1);
+      const maxTileDim = 1024;
+      const scale = maxTileDim / maxDim;
+      const tileWidth = Math.max(256, Math.round(baseWidth * scale));
+      const tileHeight = Math.max(256, Math.round(baseHeight * scale));
+
+      const blob = await createCollageBlob(sources, {
+        tileDimensions: { width: tileWidth, height: tileHeight },
+      });
       if (!blob) {
         throw new Error("Unable to create collage.");
       }
