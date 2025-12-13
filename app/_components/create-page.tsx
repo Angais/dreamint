@@ -23,7 +23,7 @@ const defaultPrompt =
 const defaultAspect: AspectKey = "portrait-9-16";
 const defaultQuality: QualityKey = "2k";
 const defaultOutputFormat: OutputFormat = "png";
-const APP_VERSION = "0.7.0";
+const APP_VERSION = "0.7.1";
 
 const STORAGE_KEYS = {
   prompt: "seedream:prompt",
