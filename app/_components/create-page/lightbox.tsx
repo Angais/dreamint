@@ -19,7 +19,7 @@ type LightboxProps = {
   onEdit?: () => void;
   onDelete?: () => void;
   canDelete?: boolean;
-  onUsePrompt?: (prompt: string, inputImages: Generation["inputImages"]) => void;
+  onUsePrompt?: (prompt: string, inputImages: Generation["inputImages"], useGoogleSearch?: boolean) => void;
 };
 
 export function Lightbox({
@@ -116,12 +116,31 @@ export function Lightbox({
   const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
     event.stopPropagation();
     const scaleAmount = -event.deltaY * 0.001;
-    const newScale = Math.min(Math.max(0.1, transform.scale * (1 + scaleAmount)), 8);
+    const newScale = Math.min(Math.max(0.5, transform.scale * (1 + scaleAmount)), 8);
 
-    setTransform((prev) => ({
-      ...prev,
-      scale: newScale,
-    }));
+    if (imageContainerRef.current) {
+      const { width: viewportWidth, height: viewportHeight } = imageContainerRef.current.getBoundingClientRect();
+      const effectiveImageWidth = viewportWidth * newScale;
+      const effectiveImageHeight = viewportHeight * newScale;
+
+      const limitX = Math.max(0, (effectiveImageWidth - viewportWidth) / 2);
+      const limitY = Math.max(0, (effectiveImageHeight - viewportHeight) / 2);
+
+      // Clamp current position to new limits
+      const newX = Math.max(-limitX, Math.min(limitX, transform.x));
+      const newY = Math.max(-limitY, Math.min(limitY, transform.y));
+
+      setTransform({
+        x: newX,
+        y: newY,
+        scale: newScale,
+      });
+    } else {
+      setTransform((prev) => ({
+        ...prev,
+        scale: newScale,
+      }));
+    }
   };
 
   const handleMouseDown = (event: React.MouseEvent) => {
@@ -210,25 +229,36 @@ export function Lightbox({
       const scaleChange = dist / touchRef.current.lastDist;
       const newScale = Math.min(Math.max(0.5, transform.scale * scaleChange), 8); // Limits: 0.5x to 8x
 
-      setTransform((prev) => ({
-        ...prev,
-        scale: newScale,
-      }));
+      if (imageContainerRef.current) {
+        const { width: viewportWidth, height: viewportHeight } = imageContainerRef.current.getBoundingClientRect();
+        const effectiveImageWidth = viewportWidth * newScale;
+        const effectiveImageHeight = viewportHeight * newScale;
+
+        const limitX = Math.max(0, (effectiveImageWidth - viewportWidth) / 2);
+        const limitY = Math.max(0, (effectiveImageHeight - viewportHeight) / 2);
+
+        // Clamp current position to new limits
+        const newX = Math.max(-limitX, Math.min(limitX, transform.x));
+        const newY = Math.max(-limitY, Math.min(limitY, transform.y));
+
+        setTransform((prev) => ({
+          ...prev,
+          scale: newScale,
+          x: newX,
+          y: newY
+        }));
+      } else {
+        setTransform((prev) => ({
+          ...prev,
+          scale: newScale,
+        }));
+      }
 
       touchRef.current.lastDist = dist;
     } else if (touchRef.current.isPanning && event.touches.length === 1) {
-      // Only allow panning if not in compare mode (slider needs touch) or handle appropriately
-      // Actually, compare slider usually handles its own touch if we don't preventDefault.
-      // But we called preventDefault above.
-      // If compare mode is active, the slider component needs the touch events.
-      // So we should maybe not preventDefault if target is slider? 
-      // For now, let's assume panning image is desired unless strictly on the slider knob.
-
-      // NOTE: If isCompareMode is true, we might want to disable image panning 
-      // to let the user use the slider? 
-      // Or we treat single touch as pan, and require slider interaction to be specific?
-      // The slider component likely uses mouse/touch listeners.
-      // Let's allow panning if isCompareMode is false.
+      // Only allow panning if not in compare mode (slider needs touch)
+      // or handle appropriately. 
+      // For now, allow pan unless slider logic interferes (which it might not if purely visual).
 
       const nextX = event.touches[0].clientX - touchRef.current.startPan.x;
       const nextY = event.touches[0].clientY - touchRef.current.startPan.y;
@@ -474,7 +504,7 @@ export function Lightbox({
               {entry.prompt}
             </p>
 
-            <div className="grid grid-cols-2 gap-3 text-xs text-[var(--text-secondary)] mb-3 md:mb-6">
+            <div className={`grid gap-3 text-xs text-[var(--text-secondary)] mb-3 md:mb-6 ${entry.useGoogleSearch ? "grid-cols-3" : "grid-cols-2"}`}>
               <div className="p-2 rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)]">
                 <span className="block text-[10px] uppercase tracking-wide opacity-60 mb-1">Aspect</span>
                 {getAspectDescription(entry.aspect)}
@@ -483,6 +513,12 @@ export function Lightbox({
                 <span className="block text-[10px] uppercase tracking-wide opacity-60 mb-1">Quality</span>
                 {getQualityLabel(entry.quality)}
               </div>
+              {entry.useGoogleSearch ? (
+                <div className="p-2 rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)]">
+                  <span className="block text-[10px] uppercase tracking-wide opacity-60 mb-1">Search</span>
+                  Google
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -576,7 +612,7 @@ export function Lightbox({
               {onUsePrompt ? (
                 <button
                   type="button"
-                  onClick={() => onUsePrompt(entry.prompt, entry.inputImages)}
+                  onClick={() => onUsePrompt(entry.prompt, entry.inputImages, entry.useGoogleSearch)}
                   className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-subtle)] hover:text-white hover:border-[var(--text-muted)]"
                 >
                   <ReuseIcon className="h-3.5 w-3.5" />

@@ -12,7 +12,7 @@ type GenerationGroupProps = {
   generations: Generation[];
   pendingIdSet: Set<string>;
   onExpand: (generationId: string, imageIndex: number) => void;
-  onUsePrompt: (prompt: string, inputImages: Generation["inputImages"]) => void;
+  onUsePrompt: (prompt: string, inputImages: Generation["inputImages"], useGoogleSearch?: boolean) => void;
   onPreviewInputImage?: (image: Generation["inputImages"][number]) => void;
   onDeleteGeneration: (generationId: string) => void;
   onDeleteImage: (generationId: string, imageIndex: number) => void;
@@ -280,9 +280,8 @@ const ImageTile = memo(function ImageTile({
               const ok = await onCopy();
               if (ok) triggerFlash("copy");
             }}
-            className={`rounded-full bg-black/70 p-1.5 text-white hover:bg-black/90 transition-transform duration-150 ${
-              flashAction === "copy" ? "scale-110 ring-2 ring-white/70" : ""
-            }`}
+            className={`rounded-full bg-black/70 p-1.5 text-white hover:bg-black/90 transition-transform duration-150 ${flashAction === "copy" ? "scale-110 ring-2 ring-white/70" : ""
+              }`}
             aria-label="Copy image"
             title="Copy image"
           >
@@ -298,9 +297,8 @@ const ImageTile = memo(function ImageTile({
               const ok = await onDownload();
               if (ok) triggerFlash("download");
             }}
-            className={`rounded-full bg-black/70 p-1.5 text-white hover:bg-black/90 transition-transform duration-150 ${
-              flashAction === "download" ? "scale-110 ring-2 ring-white/70" : ""
-            }`}
+            className={`rounded-full bg-black/70 p-1.5 text-white hover:bg-black/90 transition-transform duration-150 ${flashAction === "download" ? "scale-110 ring-2 ring-white/70" : ""
+              }`}
             aria-label="Download image"
             title="Download image"
           >
