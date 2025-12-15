@@ -4,8 +4,8 @@ import type { WheelEvent } from "react";
 
 import { getAspectDescription, getQualityLabel } from "../../lib/seedream-options";
 import { CompareSlider } from "./compare-slider";
-import { ArrowLeftIcon, ArrowRightIcon, DownloadIcon, InfoIcon, PlusIcon, SpinnerIcon, XIcon } from "./icons";
-import type { GalleryEntry } from "./types";
+import { ArrowLeftIcon, ArrowRightIcon, DownloadIcon, InfoIcon, PlusIcon, ReuseIcon, SpinnerIcon, XIcon } from "./icons";
+import type { GalleryEntry, Generation } from "./types";
 
 type LightboxProps = {
   entry: GalleryEntry;
@@ -19,6 +19,7 @@ type LightboxProps = {
   onEdit?: () => void;
   onDelete?: () => void;
   canDelete?: boolean;
+  onUsePrompt?: (prompt: string, inputImages: Generation["inputImages"]) => void;
 };
 
 export function Lightbox({
@@ -33,6 +34,7 @@ export function Lightbox({
   onEdit,
   onDelete,
   canDelete = true,
+  onUsePrompt,
 }: LightboxProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isCompareMode, setIsCompareMode] = useState(false);
@@ -46,7 +48,7 @@ export function Lightbox({
     return window.matchMedia("(min-width: 768px)").matches;
   };
   const [showDetails, setShowDetails] = useState(shouldShowDetailsOnOpen);
-  
+
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0 });
@@ -115,7 +117,7 @@ export function Lightbox({
     event.stopPropagation();
     const scaleAmount = -event.deltaY * 0.001;
     const newScale = Math.min(Math.max(0.1, transform.scale * (1 + scaleAmount)), 8);
-    
+
     setTransform((prev) => ({
       ...prev,
       scale: newScale,
@@ -148,16 +150,16 @@ export function Lightbox({
 
     if (imageContainerRef.current) {
       const { width: viewportWidth, height: viewportHeight } = imageContainerRef.current.getBoundingClientRect();
-      
+
       const effectiveImageWidth = viewportWidth * transform.scale;
       const effectiveImageHeight = viewportHeight * transform.scale;
 
       const limitX = Math.max(0, (effectiveImageWidth - viewportWidth) / 2);
       const limitY = Math.max(0, (effectiveImageHeight - viewportHeight) / 2);
-      
+
       const clampedX = Math.max(-limitX, Math.min(limitX, nextX));
       const clampedY = Math.max(-limitY, Math.min(limitY, nextY));
-      
+
       setTransform((prev) => ({
         ...prev,
         x: clampedX,
@@ -212,37 +214,37 @@ export function Lightbox({
         ...prev,
         scale: newScale,
       }));
-      
+
       touchRef.current.lastDist = dist;
     } else if (touchRef.current.isPanning && event.touches.length === 1) {
-       // Only allow panning if not in compare mode (slider needs touch) or handle appropriately
-       // Actually, compare slider usually handles its own touch if we don't preventDefault.
-       // But we called preventDefault above.
-       // If compare mode is active, the slider component needs the touch events.
-       // So we should maybe not preventDefault if target is slider? 
-       // For now, let's assume panning image is desired unless strictly on the slider knob.
-       
-       // NOTE: If isCompareMode is true, we might want to disable image panning 
-       // to let the user use the slider? 
-       // Or we treat single touch as pan, and require slider interaction to be specific?
-       // The slider component likely uses mouse/touch listeners.
-       // Let's allow panning if isCompareMode is false.
+      // Only allow panning if not in compare mode (slider needs touch) or handle appropriately
+      // Actually, compare slider usually handles its own touch if we don't preventDefault.
+      // But we called preventDefault above.
+      // If compare mode is active, the slider component needs the touch events.
+      // So we should maybe not preventDefault if target is slider? 
+      // For now, let's assume panning image is desired unless strictly on the slider knob.
 
-       const nextX = event.touches[0].clientX - touchRef.current.startPan.x;
-       const nextY = event.touches[0].clientY - touchRef.current.startPan.y;
-       
-       if (imageContainerRef.current) {
+      // NOTE: If isCompareMode is true, we might want to disable image panning 
+      // to let the user use the slider? 
+      // Or we treat single touch as pan, and require slider interaction to be specific?
+      // The slider component likely uses mouse/touch listeners.
+      // Let's allow panning if isCompareMode is false.
+
+      const nextX = event.touches[0].clientX - touchRef.current.startPan.x;
+      const nextY = event.touches[0].clientY - touchRef.current.startPan.y;
+
+      if (imageContainerRef.current) {
         const { width: viewportWidth, height: viewportHeight } = imageContainerRef.current.getBoundingClientRect();
-        
+
         const effectiveImageWidth = viewportWidth * transform.scale;
         const effectiveImageHeight = viewportHeight * transform.scale;
-  
+
         const limitX = Math.max(0, (effectiveImageWidth - viewportWidth) / 2);
         const limitY = Math.max(0, (effectiveImageHeight - viewportHeight) / 2);
-        
+
         const clampedX = Math.max(-limitX, Math.min(limitX, nextX));
         const clampedY = Math.max(-limitY, Math.min(limitY, nextY));
-        
+
         setTransform((prev) => ({
           ...prev,
           x: clampedX,
@@ -291,13 +293,13 @@ export function Lightbox({
 
       // 2. Draw Original (Foreground) - Clipped
       const splitX = (compareSliderPosition / 100) * width;
-      
+
       ctx.save();
       ctx.beginPath();
       // Clip left side to show Original
       ctx.rect(0, 0, splitX, height);
       ctx.clip();
-      
+
       ctx.drawImage(imgOriginal, 0, 0, width, height);
       ctx.restore();
 
@@ -306,17 +308,17 @@ export function Lightbox({
       ctx.moveTo(splitX, 0);
       ctx.lineTo(splitX, height);
       ctx.strokeStyle = 'white';
-      ctx.lineWidth = Math.max(2, width * 0.002); 
+      ctx.lineWidth = Math.max(2, width * 0.002);
       ctx.stroke();
-      
+
       // 4. Convert to Blob and Download
       const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
       if (!blob) throw new Error("Canvas to Blob failed");
-      
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `comparison-${entry.generationId.slice(0,8)}.png`;
+      a.download = `comparison-${entry.generationId.slice(0, 8)}.png`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -342,9 +344,9 @@ export function Lightbox({
         onClick={onClose}
       />
       <div className="relative z-10 w-full max-w-6xl h-full md:h-auto md:max-h-[90vh] rounded-none md:rounded-2xl border-0 md:border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-0 md:p-2 shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col md:flex-row overflow-hidden">
-        
+
         {/* Image Container */}
-        <div 
+        <div
           ref={imageContainerRef}
           className="relative flex-1 bg-black/50 md:rounded-xl overflow-hidden flex items-center justify-center min-h-0 md:min-h-[70vh]"
           style={{ touchAction: "none" }}
@@ -358,141 +360,143 @@ export function Lightbox({
           onTouchEnd={handleTouchEnd}
           onContextMenu={(e) => e.preventDefault()}
         >
-            {canGoPrev ? (
-              <button
-                type="button"
-                aria-label="Previous image"
-                className="group absolute left-4 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/70 p-3 text-white backdrop-blur transition hover:bg-white hover:text-black hover:shadow-lg focus:outline-none"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onPrev();
-                }}
-              >
-                <ArrowLeftIcon className="h-5 w-5" />
-              </button>
-            ) : null}
-            
-            <div 
-              style={{ 
-                transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
-                cursor: isCompareMode ? 'default' : 'grab'
+          {canGoPrev ? (
+            <button
+              type="button"
+              aria-label="Previous image"
+              className="group absolute left-4 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/70 p-3 text-white backdrop-blur transition hover:bg-white hover:text-black hover:shadow-lg focus:outline-none"
+              onClick={(event) => {
+                event.stopPropagation();
+                onPrev();
               }}
-              className="relative flex h-full w-full items-center justify-center transition-transform duration-75 ease-out"
             >
-              {isCompareMode && hasReferences ? (
-                <div className="relative h-full w-full">
-                  <CompareSlider
-                    original={entry.inputImages[selectedReferenceIndex].url}
-                    generated={entry.src}
-                    originalAlt="Reference image"
-                    generatedAlt={entry.prompt}
-                    position={compareSliderPosition}
-                    onPositionChange={setCompareSliderPosition}
-                    isPannable={transform.scale > 1}
-                  />
-                </div>
-              ) : (
-                <Image
-                  src={entry.src}
-                  alt={entry.prompt}
-                  width={entry.size.width}
-                  height={entry.size.height}
-                  className="max-h-full w-auto max-w-full select-none object-contain shadow-lg"
-                  draggable={false}
-                  priority
-                />
-              )}
-            </div>
-            
-            {canGoNext ? (
-              <button
-                type="button"
-                aria-label="Next image"
-                className="group absolute right-4 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/70 p-3 text-white backdrop-blur transition hover:bg-white hover:text-black hover:shadow-lg focus:outline-none"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onNext();
-                }}
-              >
-                <ArrowRightIcon className="h-5 w-5" />
-              </button>
-            ) : null}
+              <ArrowLeftIcon className="h-5 w-5" />
+            </button>
+          ) : null}
 
-	            {/* Mobile Close Preview Button (always visible) */}
-	            <button
-	              type="button"
-	              onClick={onClose}
-	              className="absolute top-4 right-4 z-30 rounded-full bg-black/70 p-3 text-white backdrop-blur-md shadow-lg border border-white/10 transition hover:bg-white hover:text-black md:hidden"
-	              aria-label="Close preview"
-	            >
-	              <XIcon className="h-5 w-5" />
-	            </button>
-	
-	            {/* Mobile Show Details Trigger (only when hidden) */}
-	            {!showDetails && (
-	              <button
-	                type="button"
-	                onClick={() => setShowDetails(true)}
-	                className="absolute bottom-4 right-4 z-30 rounded-full bg-black/70 p-3 text-white backdrop-blur-md shadow-lg border border-white/10 transition hover:bg-white hover:text-black md:hidden"
-	                aria-label="Show details"
-	              >
-	                <InfoIcon className="h-5 w-5" />
-	              </button>
-	            )}
+          <div
+            style={{
+              transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+              cursor: isCompareMode ? 'default' : 'grab'
+            }}
+            className="relative flex h-full w-full items-center justify-center transition-transform duration-75 ease-out"
+          >
+            {isCompareMode && hasReferences ? (
+              <div className="relative h-full w-full">
+                <CompareSlider
+                  original={entry.inputImages[selectedReferenceIndex].url}
+                  generated={entry.src}
+                  originalAlt="Reference image"
+                  generatedAlt={entry.prompt}
+                  position={compareSliderPosition}
+                  onPositionChange={setCompareSliderPosition}
+                  isPannable={transform.scale > 1}
+                />
+              </div>
+            ) : (
+              <Image
+                src={entry.src}
+                alt={entry.prompt}
+                width={entry.size.width}
+                height={entry.size.height}
+                className="max-h-full w-auto max-w-full select-none object-contain shadow-lg"
+                draggable={false}
+                priority
+              />
+            )}
+          </div>
+
+          {canGoNext ? (
+            <button
+              type="button"
+              aria-label="Next image"
+              className="group absolute right-4 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/70 p-3 text-white backdrop-blur transition hover:bg-white hover:text-black hover:shadow-lg focus:outline-none"
+              onClick={(event) => {
+                event.stopPropagation();
+                onNext();
+              }}
+            >
+              <ArrowRightIcon className="h-5 w-5" />
+            </button>
+          ) : null}
+
+          {/* Mobile Close Preview Button (always visible) */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute top-4 right-4 z-30 rounded-full bg-black/70 p-3 text-white backdrop-blur-md shadow-lg border border-white/10 transition hover:bg-white hover:text-black md:hidden"
+            aria-label="Close preview"
+          >
+            <XIcon className="h-5 w-5" />
+          </button>
+
+          {/* Mobile Show Details Trigger (only when hidden) */}
+          {!showDetails && (
+            <button
+              type="button"
+              onClick={() => setShowDetails(true)}
+              className="absolute bottom-4 right-4 z-30 rounded-full bg-black/70 p-3 text-white backdrop-blur-md shadow-lg border border-white/10 transition hover:bg-white hover:text-black md:hidden"
+              aria-label="Show details"
+            >
+              <InfoIcon className="h-5 w-5" />
+            </button>
+          )}
         </div>
 
         {/* Sidebar for Details */}
         <div className={`${showDetails ? "flex" : "hidden"} md:flex absolute bottom-0 left-0 right-0 z-20 md:static md:z-auto w-full md:w-[320px] bg-[var(--bg-panel)] p-4 md:p-6 flex-col border-t md:border-t-0 md:border-l border-[var(--border-subtle)] max-h-[50vh] md:max-h-full shadow-2xl md:shadow-none`}>
-	           <div className="flex justify-between items-center mb-3 md:mb-6">
-	             <div className="flex items-center gap-3">
-	                <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Details</h2>
-	             </div>
-	              {/* Mobile: close details panel */}
-	              <button
-	                type="button"
-	                className="md:hidden rounded-full p-2 -mr-2 text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-subtle)] transition-colors"
-	                onClick={() => setShowDetails(false)}
-	                aria-label="Hide details"
-	              >
-	                 <XIcon className="h-5 w-5" />
-	              </button>
-	              {/* Desktop: close preview */}
-	              <button
-	                type="button"
-	                className="hidden md:inline-flex rounded-full p-2 -mr-2 text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-subtle)] transition-colors"
-	                onClick={onClose}
-	                aria-label="Close preview"
-	              >
-	                 <XIcon className="h-5 w-5" />
-	              </button>
-	           </div>
+          <div className="flex justify-between items-center mb-3 md:mb-6">
+            <div className="flex items-center gap-3">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Details</h2>
+            </div>
+            {/* Mobile: close details panel */}
+            <button
+              type="button"
+              className="md:hidden rounded-full p-2 -mr-2 text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-subtle)] transition-colors"
+              onClick={() => setShowDetails(false)}
+              aria-label="Hide details"
+            >
+              <XIcon className="h-5 w-5" />
+            </button>
+            {/* Desktop: close preview */}
+            <button
+              type="button"
+              className="hidden md:inline-flex rounded-full p-2 -mr-2 text-[var(--text-muted)] hover:text-white hover:bg-[var(--bg-subtle)] transition-colors"
+              onClick={onClose}
+              aria-label="Close preview"
+            >
+              <XIcon className="h-5 w-5" />
+            </button>
+          </div>
 
-           <div className="flex-1 overflow-y-auto pr-2">
-             <p className="text-sm leading-relaxed text-[var(--text-primary)] font-medium mb-4 max-h-32 overflow-y-auto">
-               {entry.prompt}
-             </p>
-             
-             <div className="grid grid-cols-2 gap-3 text-xs text-[var(--text-secondary)] mb-3 md:mb-6">
-                <div className="p-2 rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)]">
-                  <span className="block text-[10px] uppercase tracking-wide opacity-60 mb-1">Aspect</span>
-                  {getAspectDescription(entry.aspect)}
-                </div>
-                <div className="p-2 rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)]">
-                  <span className="block text-[10px] uppercase tracking-wide opacity-60 mb-1">Quality</span>
-                  {getQualityLabel(entry.quality)}
-                </div>
-             </div>
-           </div>
+          <div className="flex-1 overflow-y-auto pr-2">
+            <p className="text-sm leading-relaxed text-[var(--text-primary)] font-medium mb-4 max-h-32 overflow-y-auto">
+              {entry.prompt}
+            </p>
 
-           <div className="mt-auto pt-3 md:pt-6 border-t border-[var(--border-subtle)] space-y-3 flex flex-col gap-2">
+            <div className="grid grid-cols-2 gap-3 text-xs text-[var(--text-secondary)] mb-3 md:mb-6">
+              <div className="p-2 rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)]">
+                <span className="block text-[10px] uppercase tracking-wide opacity-60 mb-1">Aspect</span>
+                {getAspectDescription(entry.aspect)}
+              </div>
+              <div className="p-2 rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)]">
+                <span className="block text-[10px] uppercase tracking-wide opacity-60 mb-1">Quality</span>
+                {getQualityLabel(entry.quality)}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-auto pt-3 md:pt-6 border-t border-[var(--border-subtle)]">
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={onDownload}
                 disabled={isDownloading}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--accent-primary)] px-4 py-3 text-sm font-bold text-black shadow-lg shadow-sky-900/20 transition-all hover:bg-gray-200 hover:shadow-sky-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex flex-1 min-w-[100px] items-center justify-center gap-2 rounded-lg bg-[var(--accent-primary)] px-3 py-2 text-xs font-bold text-black shadow-lg shadow-sky-900/20 transition-all hover:bg-gray-200 hover:shadow-sky-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Download Image"
               >
-                {isDownloading ? <SpinnerIcon className="h-4 w-4 animate-spin" /> : <DownloadIcon className="h-4 w-4" />}
-                {isDownloading ? "Saving..." : "Download Image"}
+                {isDownloading ? <SpinnerIcon className="h-3.5 w-3.5 animate-spin" /> : <DownloadIcon className="h-3.5 w-3.5" />}
+                {isDownloading ? "Saving..." : "Download"}
               </button>
 
               {onDelete ? (
@@ -500,13 +504,15 @@ export function Lightbox({
                   type="button"
                   onClick={onDelete}
                   disabled={!canDelete}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-950/40 border border-red-900/60 px-4 py-3 text-sm font-bold text-red-200 shadow-lg transition-all hover:bg-red-900/60 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center justify-center gap-2 rounded-lg bg-red-950/40 border border-red-900/60 px-3 py-2 text-xs font-bold text-red-200 shadow-lg transition-all hover:bg-red-900/60 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Delete Image"
+                  aria-label="Delete Image"
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     viewBox="0 0 20 20"
                     fill="currentColor"
-                    className="h-4 w-4"
+                    className="h-3.5 w-3.5"
                   >
                     <path
                       fillRule="evenodd"
@@ -514,70 +520,82 @@ export function Lightbox({
                       clipRule="evenodd"
                     />
                   </svg>
-                  Delete Image
                 </button>
               ) : null}
 
               {isCompareMode && hasReferences && (
-                  <button
-                    type="button"
-                    onClick={handleDownloadComparison}
-                    disabled={isDownloadingComparison}
-                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--bg-subtle)] border border-[var(--border-subtle)] px-4 py-3 text-sm font-bold text-white shadow-lg transition-all hover:bg-[var(--bg-input)] disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isDownloadingComparison ? <SpinnerIcon className="h-4 w-4 animate-spin" /> : <DownloadIcon className="h-4 w-4" />}
-                    {isDownloadingComparison ? "Saving..." : "Save Comparison"}
-                  </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadComparison}
+                  disabled={isDownloadingComparison}
+                  className="flex flex-1 min-w-[120px] items-center justify-center gap-2 rounded-lg bg-[var(--bg-subtle)] border border-[var(--border-subtle)] px-3 py-2 text-xs font-bold text-white shadow-lg transition-all hover:bg-[var(--bg-input)] disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Save Comparison"
+                >
+                  {isDownloadingComparison ? <SpinnerIcon className="h-3.5 w-3.5 animate-spin" /> : <DownloadIcon className="h-3.5 w-3.5" />}
+                  {isDownloadingComparison ? "Saving..." : "Save Comp."}
+                </button>
               )}
+            </div>
 
-              {hasReferences ? (
-                <div className="flex flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsCompareMode(!isCompareMode)}
-                    className={`flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] px-4 py-3 text-sm font-semibold transition-colors hover:text-white hover:border-[var(--text-muted)] ${
-                      isCompareMode
-                        ? "bg-[var(--bg-subtle)] text-white border-[var(--text-muted)]"
-                        : "bg-[var(--bg-input)] text-[var(--text-secondary)]"
+            {hasReferences ? (
+              <div className="flex flex-col gap-2 mt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsCompareMode(!isCompareMode)}
+                  className={`flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] px-3 py-2 text-xs font-semibold transition-colors hover:text-white hover:border-[var(--text-muted)] ${isCompareMode
+                    ? "bg-[var(--bg-subtle)] text-white border-[var(--text-muted)]"
+                    : "bg-[var(--bg-input)] text-[var(--text-secondary)]"
                     }`}
-                  >
-                    <span className="text-lg leading-none">⇄</span>
-                    {isCompareMode ? "Exit Compare" : "Compare"}
-                  </button>
+                >
+                  <span className="text-base leading-none">⇄</span>
+                  {isCompareMode ? "Exit Compare" : "Compare"}
+                </button>
 
-                  {isCompareMode && entry.inputImages.length > 1 ? (
-                    <div className="grid grid-cols-4 gap-2 rounded-lg bg-[var(--bg-subtle)] p-2">
-                      {entry.inputImages.map((img, idx) => (
-                        <button
-                          type="button"
-                          key={img.id || idx}
-                          onClick={() => setSelectedReferenceIndex(idx)}
-                          className={`relative aspect-square overflow-hidden rounded-md border-2 transition-all ${
-                            selectedReferenceIndex === idx
-                              ? "border-[var(--accent-primary)] opacity-100"
-                              : "border-transparent opacity-50 hover:opacity-100"
+                {isCompareMode && entry.inputImages.length > 1 ? (
+                  <div className="grid grid-cols-4 gap-2 rounded-lg bg-[var(--bg-subtle)] p-2">
+                    {entry.inputImages.map((img, idx) => (
+                      <button
+                        type="button"
+                        key={img.id || idx}
+                        onClick={() => setSelectedReferenceIndex(idx)}
+                        className={`relative aspect-square overflow-hidden rounded-md border-2 transition-all ${selectedReferenceIndex === idx
+                          ? "border-[var(--accent-primary)] opacity-100"
+                          : "border-transparent opacity-50 hover:opacity-100"
                           }`}
-                          title={img.name}
-                        >
-                          <Image src={img.url} alt={img.name} fill className="object-cover" sizes="60px" />
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
+                        title={img.name}
+                      >
+                        <Image src={img.url} alt={img.name} fill className="object-cover" sizes="60px" />
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="flex gap-2 mt-2">
+              {onUsePrompt ? (
+                <button
+                  type="button"
+                  onClick={() => onUsePrompt(entry.prompt, entry.inputImages)}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-subtle)] hover:text-white hover:border-[var(--text-muted)]"
+                >
+                  <ReuseIcon className="h-3.5 w-3.5" />
+                  Reuse Prompt
+                </button>
               ) : null}
-              
+
               {onEdit ? (
                 <button
                   type="button"
                   onClick={onEdit}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-4 py-3 text-sm font-semibold text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-subtle)] hover:text-white hover:border-[var(--text-muted)]"
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-subtle)] hover:text-white hover:border-[var(--text-muted)]"
                 >
-                  <PlusIcon className="h-4 w-4" />
-                  Use as Reference
+                  <PlusIcon className="h-3.5 w-3.5" />
+                  Use Reference
                 </button>
               ) : null}
-           </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

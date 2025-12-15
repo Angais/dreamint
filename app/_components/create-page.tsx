@@ -23,7 +23,7 @@ const defaultPrompt =
 const defaultAspect: AspectKey = "portrait-9-16";
 const defaultQuality: QualityKey = "2k";
 const defaultOutputFormat: OutputFormat = "png";
-const APP_VERSION = "0.7.1";
+const APP_VERSION = "0.7.2";
 
 const STORAGE_KEYS = {
   prompt: "seedream:prompt",
@@ -153,21 +153,21 @@ function findClosestAspect(width: number, height: number): AspectKey {
     const parts = key.split("-");
     // format: orientation-w-h
     if (parts.length < 3) continue;
-    
+
     const w = parseInt(parts[1], 10);
     const h = parseInt(parts[2], 10);
-    
+
     if (isNaN(w) || isNaN(h)) continue;
-    
+
     const targetRatio = w / h;
     const diff = Math.abs(ratio - targetRatio);
-    
+
     if (diff < minDiff) {
       minDiff = diff;
       closestAspect = key;
     }
   }
-  
+
   return closestAspect;
 }
 
@@ -343,15 +343,15 @@ export function CreatePage() {
         }
       } catch (error) {
         console.error("Unable to restore Seedream state", error);
-    } finally {
-      if (!cancelled) {
-        storageHydratedRef.current = true;
-        if (!pendingHydratedRef.current) {
-          pendingReconciledRef.current = true;
+      } finally {
+        if (!cancelled) {
+          storageHydratedRef.current = true;
+          if (!pendingHydratedRef.current) {
+            pendingReconciledRef.current = true;
+          }
         }
       }
-    }
-  };
+    };
 
     loadState();
 
@@ -639,8 +639,8 @@ export function CreatePage() {
           addedCount = nextItems.length;
           // Auto-set aspect based on first attachment if it's the first batch
           if (previous.length === 0 && nextItems[0].width && nextItems[0].height) {
-             const closest = findClosestAspect(nextItems[0].width, nextItems[0].height);
-             setAspect(closest);
+            const closest = findClosestAspect(nextItems[0].width, nextItems[0].height);
+            setAspect(closest);
           }
 
           return [...previous, ...nextItems];
@@ -699,12 +699,12 @@ export function CreatePage() {
           ...previous,
           { id: createId("attachment"), name, url: resolvedUrl, kind: "remote" as const, width, height },
         ];
-        
+
         if (previous.length === 0 && width && height) {
-             const closest = findClosestAspect(width, height);
-             setAspect(closest);
+          const closest = findClosestAspect(width, height);
+          setAspect(closest);
         }
-        
+
         return next;
       });
       clearAttachmentError();
@@ -733,7 +733,7 @@ export function CreatePage() {
     const pendingSize = calculateImageSize(aspect, quality);
     const inputImageSnapshot = attachmentInputImages.map((image) => ({ ...image }));
     const enableGoogleSearch = provider === "gemini" && useGoogleSearch;
-    
+
     const pendingGeneration: Generation = {
       id: pendingId,
       prompt,
@@ -767,7 +767,7 @@ export function CreatePage() {
 
     const trimmedApiKey = apiKey.trim();
     const trimmedGeminiApiKey = geminiApiKey.trim();
-    
+
     debugLog("submit:request", {
       pendingId,
       provider,
@@ -1160,9 +1160,10 @@ export function CreatePage() {
         setLightboxSelection(null);
         setIsSettingsOpen(false);
         setIsDownloading(false);
+        setView("create");
       }
     },
-    [handleAddAttachmentFromUrl, setIsDownloading, setIsSettingsOpen, setLightboxSelection],
+    [handleAddAttachmentFromUrl, setIsDownloading, setIsSettingsOpen, setLightboxSelection, setView],
   );
 
   const handleRetryGeneration = useCallback(
@@ -1311,8 +1312,8 @@ export function CreatePage() {
 
     setLightboxSelection((selection) =>
       selection &&
-      selection.generationId === generationId &&
-      selection.imageIndex === imageIndex
+        selection.generationId === generationId &&
+        selection.imageIndex === imageIndex
         ? null
         : selection,
     );
@@ -1343,11 +1344,11 @@ export function CreatePage() {
 
     setLightboxSelection((selection) =>
       selection &&
-      items.some(
-        (item) =>
-          item.generationId === selection.generationId &&
-          item.imageIndex === selection.imageIndex,
-      )
+        items.some(
+          (item) =>
+            item.generationId === selection.generationId &&
+            item.imageIndex === selection.imageIndex,
+        )
         ? null
         : selection,
     );
@@ -1381,6 +1382,15 @@ export function CreatePage() {
     [clearAttachmentError],
   );
 
+  const handleLightboxUsePrompt = useCallback(
+    (prompt: string, inputImages: Generation["inputImages"]) => {
+      void handleUsePrompt(prompt, inputImages);
+      setLightboxSelection(null);
+      setView("create");
+    },
+    [handleUsePrompt, setLightboxSelection, setView]
+  );
+
   return (
     <div
       style={{ height: viewportHeight }}
@@ -1403,27 +1413,25 @@ export function CreatePage() {
       {/* Main Scrollable Content */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
         <div className="mx-auto flex min-h-full w-full max-w-[1400px] flex-col gap-8 px-6 pb-40 pt-10 lg:px-10">
-          
+
           {/* Navigation Tabs */}
           <div className="pointer-events-none sticky top-4 z-30 flex justify-center">
             <div className="pointer-events-auto flex items-center gap-1 rounded-full bg-[var(--bg-subtle)] p-1 border border-[var(--border-subtle)] shadow-lg shadow-black/20">
               <button
                 onClick={() => setView("create")}
-                className={`rounded-full px-6 py-2 text-xs font-bold uppercase tracking-wide transition-all ${
-                  view === "create"
-                    ? "bg-[var(--text-primary)] text-black shadow-sm"
-                    : "text-[var(--text-secondary)] hover:text-white"
-                }`}
+                className={`rounded-full px-6 py-2 text-xs font-bold uppercase tracking-wide transition-all ${view === "create"
+                  ? "bg-[var(--text-primary)] text-black shadow-sm"
+                  : "text-[var(--text-secondary)] hover:text-white"
+                  }`}
               >
                 Create
               </button>
               <button
                 onClick={() => setView("gallery")}
-                className={`rounded-full px-6 py-2 text-xs font-bold uppercase tracking-wide transition-all ${
-                  view === "gallery"
-                    ? "bg-[var(--text-primary)] text-black shadow-sm"
-                    : "text-[var(--text-secondary)] hover:text-white"
-                }`}
+                className={`rounded-full px-6 py-2 text-xs font-bold uppercase tracking-wide transition-all ${view === "gallery"
+                  ? "bg-[var(--text-primary)] text-black shadow-sm"
+                  : "text-[var(--text-secondary)] hover:text-white"
+                  }`}
               >
                 Gallery
               </button>
@@ -1469,8 +1477,8 @@ export function CreatePage() {
                   <div ref={feedLoadMoreRef} className="h-4 w-full" />
                 </>
               ) : (
-              <EmptyState />
-            )}
+                <EmptyState />
+              )}
             </main>
           ) : (
             <GalleryView
@@ -1484,42 +1492,42 @@ export function CreatePage() {
           )}
         </div>
       </div>
-      
+
       {/* Header (Floating) */}
       {view === "create" && (
         <div className="absolute bottom-0 left-0 right-0 z-40 w-full px-6 pb-6 pt-2 pointer-events-none">
           <div className="mx-auto w-full max-w-3xl pointer-events-auto">
-              <Header
-                prompt={prompt}
-                aspect={aspect}
-                quality={quality}
-                outputFormat={outputFormat}
-                provider={provider}
-                useGoogleSearch={useGoogleSearch}
-                imageCount={imageCount}
-                apiKey={apiKey}
-                geminiApiKey={geminiApiKey}
-                appVersion={APP_VERSION}
-                totalImages={totalImages}
-                isBudgetLocked={false}
-                isSettingsOpen={isSettingsOpen}
-                onSubmit={handleSubmit}
-                onPromptChange={setPrompt}
-                onAspectSelect={handleAspectSelect}
-                onQualityChange={setQuality}
-                onOutputFormatChange={setOutputFormat}
-                onProviderChange={setProvider}
-                onToggleGoogleSearch={setUseGoogleSearch}
-                onImageCountChange={setImageCount}
-                onApiKeyChange={setApiKey}
-                onGeminiApiKeyChange={setGeminiApiKey}
-                onToggleSettings={setIsSettingsOpen}
-                attachments={attachments}
-                onAddAttachments={handleAddAttachments}
-                onRemoveAttachment={handleRemoveAttachment}
-                onPreviewAttachment={handlePreviewAttachment}
-                isAttachmentLimitReached={isAttachmentLimitReached}
-              />
+            <Header
+              prompt={prompt}
+              aspect={aspect}
+              quality={quality}
+              outputFormat={outputFormat}
+              provider={provider}
+              useGoogleSearch={useGoogleSearch}
+              imageCount={imageCount}
+              apiKey={apiKey}
+              geminiApiKey={geminiApiKey}
+              appVersion={APP_VERSION}
+              totalImages={totalImages}
+              isBudgetLocked={false}
+              isSettingsOpen={isSettingsOpen}
+              onSubmit={handleSubmit}
+              onPromptChange={setPrompt}
+              onAspectSelect={handleAspectSelect}
+              onQualityChange={setQuality}
+              onOutputFormatChange={setOutputFormat}
+              onProviderChange={setProvider}
+              onToggleGoogleSearch={setUseGoogleSearch}
+              onImageCountChange={setImageCount}
+              onApiKeyChange={setApiKey}
+              onGeminiApiKeyChange={setGeminiApiKey}
+              onToggleSettings={setIsSettingsOpen}
+              attachments={attachments}
+              onAddAttachments={handleAddAttachments}
+              onRemoveAttachment={handleRemoveAttachment}
+              onPreviewAttachment={handlePreviewAttachment}
+              isAttachmentLimitReached={isAttachmentLimitReached}
+            />
           </div>
         </div>
       )}
@@ -1544,6 +1552,7 @@ export function CreatePage() {
               .find((gen) => gen.id === lightboxEntry.generationId)
               ?.deletedImages?.includes(lightboxEntry.imageIndex)
           }
+          onUsePrompt={handleLightboxUsePrompt}
         />
       ) : null}
     </div>
