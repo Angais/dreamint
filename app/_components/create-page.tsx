@@ -23,7 +23,7 @@ const defaultPrompt =
 const defaultAspect: AspectKey = "portrait-9-16";
 const defaultQuality: QualityKey = "2k";
 const defaultOutputFormat: OutputFormat = "png";
-const APP_VERSION = "0.7.2";
+const APP_VERSION = "1.0";
 
 const STORAGE_KEYS = {
   prompt: "seedream:prompt",
@@ -532,6 +532,7 @@ export function CreatePage() {
           outputFormat: generation.outputFormat,
           size: generation.size,
           inputImages: generation.inputImages ?? [],
+          useGoogleSearch: generation.useGoogleSearch,
         });
       });
     });
@@ -900,6 +901,7 @@ export function CreatePage() {
       outputFormat: generation.outputFormat,
       size: generation.size,
       inputImages: generation.inputImages ?? [],
+      useGoogleSearch: generation.useGoogleSearch,
     };
   }, [generations, pendingGenerations]);
 
@@ -1355,9 +1357,14 @@ export function CreatePage() {
   }, []);
 
   const handleUsePrompt = useCallback(
-    async (value: string, inputImages: Generation["inputImages"]) => {
+    async (value: string, inputImages: Generation["inputImages"], googleSearchEnabled?: boolean) => {
       setPrompt(value);
       setIsSettingsOpen(false);
+
+      // Update Google Search toggle if provided (and provider allows it, essentially)
+      if (typeof googleSearchEnabled === "boolean") {
+        setUseGoogleSearch(googleSearchEnabled);
+      }
 
       if (inputImages.length > 0) {
         const normalized = await Promise.all(
@@ -1379,16 +1386,26 @@ export function CreatePage() {
         clearAttachmentError();
       }
     },
-    [clearAttachmentError],
+    [clearAttachmentError, setUseGoogleSearch],
   );
 
   const handleLightboxUsePrompt = useCallback(
     (prompt: string, inputImages: Generation["inputImages"]) => {
-      void handleUsePrompt(prompt, inputImages);
+      // Find the entry that corresponds to the current lightbox selection to get search setting
+      // Since lightboxEntry is available in scope (from render), we could use it, 
+      // but this callback is passed to Lightbox which passes arguments back.
+      // Ideally Lightbox should pass the entry or we access entry here.
+      // However, handleLightboxUsePrompt is called from Lightbox with specific args.
+      // Let's update the signature in Lightbox or just access the state here.
+
+      const currentEntry = lightboxEntry; // accessing state from closure
+      const googleSearchEnabled = currentEntry?.prompt === prompt ? currentEntry.useGoogleSearch : undefined;
+
+      void handleUsePrompt(prompt, inputImages, googleSearchEnabled);
       setLightboxSelection(null);
       setView("create");
     },
-    [handleUsePrompt, setLightboxSelection, setView]
+    [handleUsePrompt, setLightboxSelection, setView, lightboxEntry]
   );
 
   return (
@@ -1464,7 +1481,9 @@ export function CreatePage() {
                       generations={group.items}
                       pendingIdSet={pendingIdSet}
                       onExpand={handleExpand}
-                      onUsePrompt={handleUsePrompt}
+                      onUsePrompt={(prompt, inputImages, useGoogleSearch) => {
+                        void handleUsePrompt(prompt, inputImages, useGoogleSearch);
+                      }}
                       onPreviewInputImage={handlePreviewInputImage}
                       onDeleteGeneration={handleDeleteGeneration}
                       onDeleteImage={handleDeleteImage}

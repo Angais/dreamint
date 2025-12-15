@@ -27,4 +27,5 @@ export type GalleryEntry = {
   outputFormat?: OutputFormat;
   size: { width: number; height: number };
   inputImages: Generation["inputImages"];
+  useGoogleSearch?: boolean;
 };

@@ -68,7 +68,7 @@ function deriveAspectLabel(size: { width: number; height: number }): string {
 type GenerationDetailsCardProps = {
   generation: Generation | null;
   isGenerating: boolean;
-  onUsePrompt: (prompt: string, inputImages: Generation["inputImages"]) => void;
+  onUsePrompt: (prompt: string, inputImages: Generation["inputImages"], useGoogleSearch?: boolean) => void;
   onPreviewInputImage?: (image: Generation["inputImages"][number]) => void;
   onDeleteGeneration?: (generationId: string) => void;
   onShareCollage?: (generationId: string) => Promise<boolean>;
@@ -95,7 +95,7 @@ export function GenerationDetailsCard({
       ) ?? [],
     [generation?.inputImages],
   );
-  
+
   // Get simple aspect ratio e.g. "16:9" from description like "16 : 9"
   const aspectLabel = generation
     ? generation.aspect === "custom"
@@ -147,7 +147,7 @@ export function GenerationDetailsCard({
 
   return (
     <section className="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 flex flex-col gap-4 transition-colors hover:border-[var(--border-highlight)]">
-      
+
       {/* Header: Status or Date */}
       <div className="flex items-center justify-between text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)]">
         {isGenerating ? (
@@ -165,34 +165,34 @@ export function GenerationDetailsCard({
         ) : (
           <span>Ready</span>
         )}
-        
+
         {generation && !isGenerating && !isInterrupted && (
-           <span className="text-[var(--text-secondary)]">{getQualityLabel(generation.quality)}</span>
+          <span className="text-[var(--text-secondary)]">{getQualityLabel(generation.quality)}</span>
         )}
       </div>
 
       {/* Prompt Body or Error */}
       <div className="space-y-2">
         {isInterrupted ? (
-           <div className="rounded-lg border border-orange-900/50 bg-orange-950/20 px-3 py-2.5">
-             <p className="text-xs text-orange-400 font-medium leading-snug mb-2">
-               Request interrupted
-             </p>
-             <p className="text-[11px] text-orange-300/70 leading-relaxed">
-               The page was reloaded or closed before the image finished.
-             </p>
-             {onRetry && (
-               <button 
-                 onClick={onRetry}
-                 className="mt-3 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-orange-400 hover:text-orange-300 transition-colors"
-               >
-                 <RetryIcon className="h-3 w-3" />
-                 Retry Request
-               </button>
-             )}
-           </div>
+          <div className="rounded-lg border border-orange-900/50 bg-orange-950/20 px-3 py-2.5">
+            <p className="text-xs text-orange-400 font-medium leading-snug mb-2">
+              Request interrupted
+            </p>
+            <p className="text-[11px] text-orange-300/70 leading-relaxed">
+              The page was reloaded or closed before the image finished.
+            </p>
+            {onRetry && (
+              <button
+                onClick={onRetry}
+                className="mt-3 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-orange-400 hover:text-orange-300 transition-colors"
+              >
+                <RetryIcon className="h-3 w-3" />
+                Retry Request
+              </button>
+            )}
+          </div>
         ) : null}
-        
+
         {generation && !isInterrupted ? (
           <p className="text-xs leading-relaxed text-[var(--text-primary)] opacity-90 font-normal max-h-32 overflow-y-auto">
             {generation.prompt}
@@ -233,85 +233,84 @@ export function GenerationDetailsCard({
       {/* Tech Specs & Actions */}
       {generation && !isInterrupted && (
         <div className="mt-auto pt-3 border-t border-[var(--border-subtle)] flex flex-wrap items-center justify-between gap-2 gap-y-2">
-            {/* Tech Badges */}
-            <div className="flex items-center gap-1.5">
-                <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
-                    {getQualityLabel(generation.quality)}
-                </span>
-                <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
-                    {aspectLabel ?? "Custom"}
-                </span>
+          {/* Tech Badges */}
+          <div className="flex items-center gap-1.5">
+            <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
+              {getQualityLabel(generation.quality)}
+            </span>
+            <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
+              {aspectLabel ?? "Custom"}
+            </span>
             {generation.useGoogleSearch ? (
-                  <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
-                    Search
-                  </span>
-                ) : null}
-            </div>
+              <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
+                Search
+              </span>
+            ) : null}
+          </div>
 
-            {/* Compact Actions */}
-            <div className="flex items-center gap-1">
-                <button
-                    type="button"
-                    onClick={() => onUsePrompt(generation.prompt, validInputImages)}
-                    className="flex items-center justify-center h-6 w-6 rounded hover:bg-[var(--bg-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-                    title="Reuse prompt in editor"
-                >
-                    <ReuseIcon className="h-3.5 w-3.5" />
-                </button>
+          {/* Compact Actions */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onUsePrompt(generation.prompt, validInputImages, generation.useGoogleSearch)}
+              className="flex items-center justify-center h-6 w-6 rounded hover:bg-[var(--bg-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+              title="Reuse prompt in editor"
+            >
+              <ReuseIcon className="h-3.5 w-3.5" />
+            </button>
 
-                {onShareCollage ? (
-                  <button
-                    type="button"
-                    disabled={!canShare}
-                    onClick={async () => {
-                      if (!generation || !onShareCollage || !canShare) {
-                        return;
-                      }
-                      setIsSharing(true);
-                      try {
-                        await onShareCollage(generation.id);
-                      } finally {
-                        setIsSharing(false);
-                      }
-                    }}
-                    className={`flex items-center justify-center h-6 w-6 rounded transition-colors ${
-                      canShare
-                        ? "hover:bg-[var(--bg-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                        : "opacity-40 cursor-not-allowed text-[var(--text-muted)]"
-                    }`}
-                    title={canShare ? "Share collage" : "Share is unavailable"}
-                    aria-label="Share collage"
-                  >
-                    <ShareIcon className={`h-3.5 w-3.5 ${isSharing ? "animate-pulse" : ""}`} />
-                  </button>
-                ) : null}
-                
-                {canDelete && onDeleteGeneration && (
-                    <button
-                        type="button"
-                        onClick={() => onDeleteGeneration(generation.id)}
-                        className="flex items-center justify-center h-6 w-6 rounded hover:bg-red-950/30 text-[var(--text-muted)] hover:text-red-400 transition-colors"
-                        title="Delete Batch"
-                    >
-                        <TrashIcon className="h-3.5 w-3.5" />
-                    </button>
-                )}
-            </div>
+            {onShareCollage ? (
+              <button
+                type="button"
+                disabled={!canShare}
+                onClick={async () => {
+                  if (!generation || !onShareCollage || !canShare) {
+                    return;
+                  }
+                  setIsSharing(true);
+                  try {
+                    await onShareCollage(generation.id);
+                  } finally {
+                    setIsSharing(false);
+                  }
+                }}
+                className={`flex items-center justify-center h-6 w-6 rounded transition-colors ${canShare
+                  ? "hover:bg-[var(--bg-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                  : "opacity-40 cursor-not-allowed text-[var(--text-muted)]"
+                  }`}
+                title={canShare ? "Share collage" : "Share is unavailable"}
+                aria-label="Share collage"
+              >
+                <ShareIcon className={`h-3.5 w-3.5 ${isSharing ? "animate-pulse" : ""}`} />
+              </button>
+            ) : null}
+
+            {canDelete && onDeleteGeneration && (
+              <button
+                type="button"
+                onClick={() => onDeleteGeneration(generation.id)}
+                className="flex items-center justify-center h-6 w-6 rounded hover:bg-red-950/30 text-[var(--text-muted)] hover:text-red-400 transition-colors"
+                title="Delete Batch"
+              >
+                <TrashIcon className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
       )}
-      
+
       {/* Delete Action for Interrupted State */}
       {isInterrupted && canDelete && onDeleteGeneration && (
-         <div className="mt-auto pt-2 border-t border-[var(--border-subtle)] flex justify-end">
-            <button
-                type="button"
-                onClick={() => onDeleteGeneration(generation!.id)}
-                className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-red-950/30 text-[10px] font-semibold text-red-400/80 hover:text-red-400 transition-colors"
-            >
-                <TrashIcon className="h-3 w-3" />
-                Discard
-            </button>
-         </div>
+        <div className="mt-auto pt-2 border-t border-[var(--border-subtle)] flex justify-end">
+          <button
+            type="button"
+            onClick={() => onDeleteGeneration(generation!.id)}
+            className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-red-950/30 text-[10px] font-semibold text-red-400/80 hover:text-red-400 transition-colors"
+          >
+            <TrashIcon className="h-3 w-3" />
+            Discard
+          </button>
+        </div>
       )}
     </section>
   );
