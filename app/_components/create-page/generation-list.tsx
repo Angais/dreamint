@@ -3,14 +3,16 @@ import { memo, useMemo, useState } from "react";
 
 import { type AspectKey } from "../../lib/seedream-options";
 import { GenerationDetailsCard } from "./generation-details-card";
-import { CopyIcon, DownloadIcon } from "./icons";
+import { CopyIcon, DownloadIcon, InfoIcon } from "./icons";
 import { debugLog } from "./logger";
-import type { Generation } from "./types";
+import type { Generation, ImageThoughts } from "./types";
+import { renderMarkdownBold } from "./utils";
 
 type GenerationGroupProps = {
   label: string;
   generations: Generation[];
   pendingIdSet: Set<string>;
+  streamingThoughts?: Map<string, (ImageThoughts | null)[]>;
   onExpand: (generationId: string, imageIndex: number) => void;
   onUsePrompt: (prompt: string, inputImages: Generation["inputImages"], useGoogleSearch?: boolean) => void;
   onPreviewInputImage?: (image: Generation["inputImages"][number]) => void;
@@ -20,12 +22,14 @@ type GenerationGroupProps = {
   onCopyImage: (generationId: string, imageIndex: number) => Promise<boolean>;
   onShareCollage: (generationId: string) => Promise<boolean>;
   onRetryGeneration?: (generationId: string) => void;
+  onShowThoughts?: (thoughts: ImageThoughts) => void;
 };
 
 export const GenerationGroup = memo(function GenerationGroup({
   label,
   generations,
   pendingIdSet,
+  streamingThoughts,
   onExpand,
   onUsePrompt,
   onPreviewInputImage,
@@ -35,6 +39,7 @@ export const GenerationGroup = memo(function GenerationGroup({
   onCopyImage,
   onShareCollage,
   onRetryGeneration,
+  onShowThoughts,
 }: GenerationGroupProps) {
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -57,10 +62,12 @@ export const GenerationGroup = memo(function GenerationGroup({
               <div className="w-full lg:flex-1 lg:min-w-0">
                 <GenerationGallery
                   generation={generation}
+                  streamingThoughts={streamingThoughts?.get(generation.id)}
                   onExpand={onExpand}
                   onDeleteImage={onDeleteImage}
                   onDownloadImage={onDownloadImage}
                   onCopyImage={onCopyImage}
+                  onShowThoughts={onShowThoughts}
                   isInterrupted={isInterrupted}
                   isGenerating={isGenerating}
                 />
@@ -87,20 +94,24 @@ export const GenerationGroup = memo(function GenerationGroup({
 
 type GenerationGalleryProps = {
   generation: Generation;
+  streamingThoughts?: (ImageThoughts | null)[];
   onExpand: (generationId: string, imageIndex: number) => void;
   onDeleteImage: (generationId: string, imageIndex: number) => void;
   onDownloadImage: (generationId: string, imageIndex: number) => Promise<boolean>;
   onCopyImage: (generationId: string, imageIndex: number) => Promise<boolean>;
+  onShowThoughts?: (thoughts: ImageThoughts) => void;
   isInterrupted: boolean;
   isGenerating: boolean;
 };
 
 const GenerationGallery = memo(function GenerationGallery({
   generation,
+  streamingThoughts,
   onExpand,
   onDeleteImage,
   onDownloadImage,
   onCopyImage,
+  onShowThoughts,
   isInterrupted,
   isGenerating,
 }: GenerationGalleryProps) {
@@ -121,24 +132,31 @@ const GenerationGallery = memo(function GenerationGallery({
   return (
     <article className="glass-panel w-full rounded-3xl p-1 shadow-2xl transition-all duration-300 hover:shadow-[0_0_30px_-10px_rgba(99,102,241,0.15)]">
       <div className={`${layout.gridClass} overflow-hidden rounded-[20px] bg-[rgba(0,0,0,0.3)]`}>
-        {generation.images.map((src, index) => (
-          <ImageTile
-            key={`${generation.id}-${index}`}
-            src={src}
-            className={layout.tileClass}
-            prompt={generation.prompt}
-            onExpand={() => onExpand(generation.id, index)}
-            onDelete={() => onDeleteImage(generation.id, index)}
-            onDownload={() => onDownloadImage(generation.id, index)}
-            onCopy={() => onCopyImage(generation.id, index)}
-            isDeleted={deletedSet.has(index)}
-            generationId={generation.id}
-            imageIndex={index}
-            size={generation.size}
-            isInterrupted={isInterrupted}
-            isGenerating={isGenerating}
-          />
-        ))}
+        {generation.images.map((src, index) => {
+          // Use streaming thoughts if available (during generation), otherwise use static thoughts
+          const thoughts = streamingThoughts?.[index] ?? generation.thoughts?.[index] ?? null;
+          return (
+            <ImageTile
+              key={`${generation.id}-${index}`}
+              src={src}
+              className={layout.tileClass}
+              prompt={generation.prompt}
+              onExpand={() => onExpand(generation.id, index)}
+              onDelete={() => onDeleteImage(generation.id, index)}
+              onDownload={() => onDownloadImage(generation.id, index)}
+              onCopy={() => onCopyImage(generation.id, index)}
+              onShowThoughts={thoughts && onShowThoughts ? () => onShowThoughts(thoughts) : undefined}
+              thoughts={thoughts}
+              isDeleted={deletedSet.has(index)}
+              generationId={generation.id}
+              imageIndex={index}
+              size={generation.size}
+              isInterrupted={isInterrupted}
+              isGenerating={isGenerating}
+              provider={generation.provider}
+            />
+          );
+        })}
       </div>
     </article>
   );
@@ -152,12 +170,15 @@ type ImageTileProps = {
   onDelete: () => void;
   onDownload: () => Promise<boolean>;
   onCopy: () => Promise<boolean>;
+  onShowThoughts?: () => void;
+  thoughts: ImageThoughts | null;
   isDeleted: boolean;
   generationId: string;
   imageIndex: number;
   size: { width: number; height: number };
   isInterrupted: boolean;
   isGenerating: boolean;
+  provider?: string;
 };
 
 const ImageTile = memo(function ImageTile({
@@ -168,12 +189,15 @@ const ImageTile = memo(function ImageTile({
   onDelete,
   onDownload,
   onCopy,
+  onShowThoughts,
+  thoughts,
   isDeleted,
   generationId,
   imageIndex,
   size,
   isInterrupted,
   isGenerating,
+  provider,
 }: ImageTileProps) {
   const [flashAction, setFlashAction] = useState<"copy" | "download" | null>(null);
   const triggerFlash = (action: "copy" | "download") => {
@@ -206,10 +230,12 @@ const ImageTile = memo(function ImageTile({
 
     const interruptedStyles = isInterrupted
       ? "bg-[#1f1f1f] border border-red-700/60 text-red-300"
-      : "animate-pulse bg-[#1f1f1f] border border-[#333]";
+      : "bg-[#1f1f1f] border border-[#333]";
+
+    const isGemini = provider === "gemini";
 
     return (
-      <div className={`${className} relative ${interruptedStyles}`}>
+      <div className={`${className} relative ${interruptedStyles} ${!isInterrupted ? "animate-pulse" : ""}`}>
         {isInterrupted ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide">
@@ -230,9 +256,65 @@ const ImageTile = memo(function ImageTile({
               <span>Interrupted</span>
             </span>
           </div>
+        ) : isGenerating ? (
+          <div className="absolute inset-0 flex flex-col overflow-hidden bg-[#141414]">
+            {isGemini ? (
+              <>
+                {/* Header with thinking indicator */}
+                <div className="flex items-center gap-2.5 px-4 py-3 border-b border-white/10">
+                  <div className="relative">
+                    <div className="absolute inset-0 bg-white/20 rounded-full blur-md animate-pulse" />
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="relative h-4 w-4 text-white/70 animate-spin"
+                      style={{ animationDuration: "1.5s" }}
+                    >
+                      <path d="M12 2v4" />
+                      <path d="M12 18v4" />
+                      <path d="M4.93 4.93l2.83 2.83" />
+                      <path d="M16.24 16.24l2.83 2.83" />
+                      <path d="M2 12h4" />
+                      <path d="M18 12h4" />
+                      <path d="M4.93 19.07l2.83-2.83" />
+                      <path d="M16.24 7.76l2.83-2.83" />
+                    </svg>
+                  </div>
+                  <span className="text-xs font-medium tracking-wide text-white/70">Chain of Thought</span>
+                </div>
+
+                {/* Scrollable thoughts content */}
+                {thoughts?.text && thoughts.text.length > 0 ? (
+                  <div className="flex-1 overflow-y-auto px-4 py-3">
+                    <div className="text-[13px] leading-[1.7] text-white/70 font-light">
+                      {renderMarkdownBold(thoughts.text[thoughts.text.length - 1], "font-medium text-white")}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center gap-3 text-white/30">
+                    <div className="flex gap-1.5">
+                      <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                      <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                      <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                    </div>
+                    <span className="text-xs text-white/40">Reasoning...</span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide">
+                Generating...
+              </div>
+            )}
+          </div>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide">
-            {isGenerating ? "Generating..." : "Loading"}
+            Loading
           </div>
         )}
       </div>
@@ -306,6 +388,21 @@ const ImageTile = memo(function ImageTile({
               className={`h-3.5 w-3.5 ${flashAction === "download" ? "download-nudge" : ""}`}
             />
           </div>
+          {onShowThoughts && thoughts && ((thoughts.text?.length ?? 0) > 0 || (thoughts.images?.length ?? 0) > 0) && (
+            <div
+              role="button"
+              tabIndex={-1}
+              onClick={(event) => {
+                event.stopPropagation();
+                onShowThoughts();
+              }}
+              className="rounded-full bg-black/70 p-1.5 text-white hover:bg-indigo-600/80 transition-colors duration-150"
+              aria-label="View chain of thought"
+              title="View chain of thought"
+            >
+              <InfoIcon className="h-3.5 w-3.5" />
+            </div>
+          )}
         </div>
       ) : null}
       <Image
