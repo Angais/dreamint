@@ -14,7 +14,8 @@ import { Lightbox } from "./create-page/lightbox";
 import { AttachmentLightbox } from "./create-page/attachment-lightbox";
 import { createCollageBlob } from "./create-page/collage";
 import { createId, groupByDate, normalizeImages } from "./create-page/utils";
-import type { GalleryEntry, Generation, PromptAttachment } from "./create-page/types";
+import type { GalleryEntry, Generation, ImageThoughts, PromptAttachment } from "./create-page/types";
+import { ThoughtsModal } from "./create-page/thoughts-modal";
 import { clearPending, loadPending, restoreGenerations, persistGenerations, savePending, deleteGenerationData, deleteOutputImageData, cleanOrphanedImages } from "./create-page/storage";
 import { useInfiniteScroll } from "./create-page/use-infinite-scroll";
 
@@ -193,6 +194,8 @@ export function CreatePage() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [lightboxSelection, setLightboxSelection] = useState<{ generationId: string; imageIndex: number } | null>(null);
+  const [thoughtsToShow, setThoughtsToShow] = useState<ImageThoughts | null>(null);
+  const [streamingThoughts, setStreamingThoughts] = useState<Map<string, (ImageThoughts | null)[]>>(new Map());
   const storageHydratedRef = useRef(false);
   const pendingHydratedRef = useRef(false);
   const pendingReconciledRef = useRef(false);
@@ -779,6 +782,13 @@ export function CreatePage() {
       googleSearch: enableGoogleSearch,
     });
 
+    // Initialize streaming thoughts for this generation
+    setStreamingThoughts((prev) => {
+      const next = new Map(prev);
+      next.set(pendingId, Array(imageCount).fill(null));
+      return next;
+    });
+
     const generationPromise = generateSeedream({
       prompt,
       aspect,
@@ -790,6 +800,16 @@ export function CreatePage() {
       geminiApiKey: trimmedGeminiApiKey.length > 0 ? trimmedGeminiApiKey : undefined,
       useGoogleSearch: enableGoogleSearch,
       inputImages: inputImageSnapshot,
+      onThoughtsUpdate: (imageIndex, thoughts) => {
+        setStreamingThoughts((prev) => {
+          const next = new Map(prev);
+          const currentThoughts = next.get(pendingId) ?? Array(imageCount).fill(null);
+          const updatedThoughts = [...currentThoughts];
+          updatedThoughts[imageIndex] = thoughts;
+          next.set(pendingId, updatedThoughts);
+          return next;
+        });
+      },
     });
 
     generationPromise
@@ -840,6 +860,12 @@ export function CreatePage() {
             before: previous.length,
             after: next.length,
           });
+          return next;
+        });
+        // Clean up streaming thoughts for this generation
+        setStreamingThoughts((prev) => {
+          const next = new Map(prev);
+          next.delete(pendingId);
           return next;
         });
       });
@@ -1480,6 +1506,7 @@ export function CreatePage() {
                       label={group.label}
                       generations={group.items}
                       pendingIdSet={pendingIdSet}
+                      streamingThoughts={streamingThoughts}
                       onExpand={handleExpand}
                       onUsePrompt={(prompt, inputImages, useGoogleSearch) => {
                         void handleUsePrompt(prompt, inputImages, useGoogleSearch);
@@ -1491,6 +1518,7 @@ export function CreatePage() {
                       onCopyImage={handleCopyImage}
                       onShareCollage={handleShareCollage}
                       onRetryGeneration={handleRetryGeneration}
+                      onShowThoughts={setThoughtsToShow}
                     />
                   ))}
                   <div ref={feedLoadMoreRef} className="h-4 w-full" />
@@ -1573,6 +1601,9 @@ export function CreatePage() {
           }
           onUsePrompt={handleLightboxUsePrompt}
         />
+      ) : null}
+      {thoughtsToShow ? (
+        <ThoughtsModal thoughts={thoughtsToShow} onClose={() => setThoughtsToShow(null)} />
       ) : null}
     </div>
   );

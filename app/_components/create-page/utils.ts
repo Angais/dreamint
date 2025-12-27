@@ -1,3 +1,6 @@
+import type { ReactNode } from "react";
+import { createElement } from "react";
+
 import type { Generation } from "./types";
 
 export function resizeTextarea(element: HTMLTextAreaElement | null) {
@@ -56,4 +59,31 @@ export function formatDisplayDate(iso: string): string {
     month: "short",
     year: "numeric",
   });
+}
+
+// Helper function to parse markdown bold (**text**) and render as JSX
+export function renderMarkdownBold(text: string, boldClassName = "font-semibold"): ReactNode[] {
+  const parts: ReactNode[] = [];
+  const regex = /\*\*(.+?)\*\*/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    // Add text before the match
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    // Add the bold text using createElement to avoid JSX in .ts file
+    parts.push(
+      createElement("strong", { key: match.index, className: boldClassName }, match[1])
+    );
+    lastIndex = regex.lastIndex;
+  }
+
+  // Add remaining text after last match
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : [text];
 }

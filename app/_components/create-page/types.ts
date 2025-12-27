@@ -10,10 +10,16 @@ export type PromptAttachment = {
   height?: number | null;
 };
 
+export type ImageThoughts = {
+  text?: string[];
+  images?: string[]; // Interim thought images (base64 data URLs)
+};
+
 export type Generation = SeedreamGeneration & {
   id: string;
   deletedImages?: number[];
   thumbnails?: string[];
+  thoughts?: (ImageThoughts | null)[]; // Chain of thought per image
 };
 
 export type GalleryEntry = {

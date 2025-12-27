@@ -39,6 +39,12 @@ export type GenerateSeedreamArgs = {
   sizeOverride?: { width: number; height: number };
   inputImages?: InputImage[];
   useGoogleSearch?: boolean;
+  onThoughtsUpdate?: (imageIndex: number, thoughts: ImageThoughts) => void;
+};
+
+export type ImageThoughts = {
+  text?: string[];
+  images?: string[]; // Interim thought images (base64 data URLs)
 };
 
 export type SeedreamGeneration = {
@@ -52,6 +58,7 @@ export type SeedreamGeneration = {
   size: { width: number; height: number };
   images: string[];
   inputImages: InputImage[];
+  thoughts?: (ImageThoughts | null)[]; // Chain of thought per image
 };
 
 async function fetchWithTimeout(
@@ -82,6 +89,7 @@ export async function generateSeedream({
   sizeOverride,
   inputImages = [],
   useGoogleSearch = false,
+  onThoughtsUpdate,
 }: GenerateSeedreamArgs): Promise<SeedreamGeneration> {
   const trimmedPrompt = prompt.trim();
 
@@ -210,15 +218,29 @@ export async function generateSeedream({
   ];
   const effectiveGoogleSearch = provider === "gemini" && Boolean(useGoogleSearch);
 
-  const extractImageFromParts = (
-    parts:
-      | Array<{
-          inlineData?: { mimeType: string; data: string };
-          inline_data?: { mime_type?: string; data?: string };
-        }>
-      | undefined,
-  ): string | null => {
+  type ResponsePart = {
+    text?: string;
+    thought?: boolean;
+    inlineData?: { mimeType: string; data: string };
+    inline_data?: { mime_type?: string; data?: string };
+  };
+
+  const extractImageAndThoughts = (
+    parts: ResponsePart[] | undefined,
+  ): { image: string | null; thoughts: ImageThoughts | null } => {
+    const thoughtTexts: string[] = [];
+    const thoughtImages: string[] = [];
+    let finalImage: string | null = null;
+
     for (const part of parts ?? []) {
+      const isThought = part?.thought === true;
+
+      // Extract text from thought parts
+      if (isThought && part?.text) {
+        thoughtTexts.push(part.text);
+      }
+
+      // Extract inline data (image)
       const inline =
         part?.inlineData ??
         (part?.inline_data
@@ -227,11 +249,27 @@ export async function generateSeedream({
               data: part.inline_data.data ?? "",
             }
           : undefined);
+
       if (inline?.data && inline.mimeType) {
-        return `data:${inline.mimeType};base64,${inline.data}`;
+        const dataUrl = `data:${inline.mimeType};base64,${inline.data}`;
+        if (isThought) {
+          thoughtImages.push(dataUrl);
+        } else {
+          // Non-thought image is the final output
+          finalImage = dataUrl;
+        }
       }
     }
-    return null;
+
+    const thoughts: ImageThoughts | null =
+      thoughtTexts.length > 0 || thoughtImages.length > 0
+        ? {
+            text: thoughtTexts.length > 0 ? thoughtTexts : undefined,
+            images: thoughtImages.length > 0 ? thoughtImages : undefined,
+          }
+        : null;
+
+    return { image: finalImage, thoughts };
   };
 
   // --- FAL PROVIDER LOGIC ---
@@ -325,17 +363,19 @@ export async function generateSeedream({
           aspectRatio: apiAspectRatio,
           imageSize: apiResolution,
         },
+        thinkingConfig: {
+          includeThoughts: true,
+        },
       },
       ...(effectiveGoogleSearch ? { tools: [{ google_search: {} }] } : {}),
     };
 
-    // Use the fast native image model to avoid very long turnaround (Pro Image Preview can be slower / gated).
-    // Default to Pro Image Preview. If you hit persistent 5xx errors, swap back to 2.5 flash.
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${encodeURIComponent(
+    // Use streaming endpoint to get real-time thought updates
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:streamGenerateContent?key=${encodeURIComponent(
       resolvedApiKey,
-    )}`;
+    )}&alt=sse`;
 
-    const requests = Array.from({ length: validNumImages }).map(async () => {
+    const requests = Array.from({ length: validNumImages }).map(async (_, imageIndex) => {
       const payload = {
         ...basePayload,
         contents: basePayload.contents.map((content) => ({
@@ -344,9 +384,11 @@ export async function generateSeedream({
         })),
       };
 
-      const response = await fetchWithTimeout(
-        endpoint,
-        {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), DEFAULT_REQUEST_TIMEOUT_MS);
+
+      try {
+        const response = await fetch(endpoint, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -354,41 +396,81 @@ export async function generateSeedream({
           },
           body: JSON.stringify(payload),
           cache: "no-store",
-        },
-        DEFAULT_REQUEST_TIMEOUT_MS,
-      );
+          signal: controller.signal,
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        try {
-          const errJson = JSON.parse(errorText) as { error?: { message?: string } };
-          if (errJson.error?.message) {
-            const isUnavailable = response.status === 503;
-            const suffix = isUnavailable ? " (service unavailable)" : "";
+        if (!response.ok) {
+          const errorText = await response.text();
+          try {
+            const errJson = JSON.parse(errorText) as { error?: { message?: string } };
+            if (errJson.error?.message) {
+              const isUnavailable = response.status === 503;
+              const suffix = isUnavailable ? " (service unavailable)" : "";
+              throw new Error(
+                `Gemini API Error${suffix}: ${errJson.error.message || "Request failed"}. Try again or switch provider.`,
+              );
+            }
+          } catch (error) {
+            if (error instanceof Error && error.message.startsWith("Gemini API Error")) {
+              throw error;
+            }
+          }
+          if (response.status === 503) {
             throw new Error(
-              `Gemini API Error${suffix}: ${errJson.error.message || "Request failed"}. Try again or switch provider.`,
+              "Gemini API is temporarily unavailable (503). Please retry shortly or switch to FAL.",
             );
           }
-        } catch (error) {
-          if (error instanceof Error && error.message.startsWith("Gemini API Error")) {
-            throw error;
+          throw new Error(`Gemini API Error (${response.status}): ${errorText}`);
+        }
+
+        // Parse SSE stream
+        const allParts: ResponsePart[] = [];
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error("No response body");
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const jsonStr = line.slice(6);
+              if (jsonStr.trim() === "[DONE]") continue;
+
+              try {
+                const chunk = JSON.parse(jsonStr) as {
+                  candidates?: { content?: { parts?: ResponsePart[] } }[];
+                };
+                const parts = chunk.candidates?.[0]?.content?.parts ?? [];
+                allParts.push(...parts);
+
+                // Call the callback with accumulated thoughts so far
+                if (onThoughtsUpdate) {
+                  const currentResult = extractImageAndThoughts(allParts);
+                  if (currentResult.thoughts) {
+                    onThoughtsUpdate(imageIndex, currentResult.thoughts);
+                  }
+                }
+              } catch {
+                // Skip malformed JSON chunks
+              }
+            }
           }
         }
-        if (response.status === 503) {
-          throw new Error(
-            "Gemini API is temporarily unavailable (503). Please retry shortly or switch to FAL.",
-          );
-        }
-        throw new Error(`Gemini API Error (${response.status}): ${errorText}`);
+
+        return extractImageAndThoughts(allParts);
+      } finally {
+        clearTimeout(timeoutId);
       }
-
-      const json = (await response.json()) as {
-        candidates?: { content?: { parts?: Array<{ inlineData?: { mimeType: string; data: string }; inline_data?: { mime_type?: string; data?: string } }> } }[];
-      };
-
-      const candidateParts = json.candidates?.[0]?.content?.parts;
-      const image = extractImageFromParts(candidateParts);
-      return image;
     });
 
     const results = await Promise.all(
@@ -404,11 +486,18 @@ export async function generateSeedream({
         }),
       ),
     );
-    const images = results.filter((img): img is string => typeof img === "string" && img.length > 0);
 
-    if (images.length === 0) {
+    type ImageResult = { image: string | null; thoughts: ImageThoughts | null };
+    const validResults = results.filter(
+      (r): r is ImageResult => r !== null && typeof r === "object" && typeof r.image === "string" && r.image.length > 0,
+    );
+
+    if (validResults.length === 0) {
       throw new Error("No images returned from Gemini API.");
     }
+
+    const images = validResults.map((r) => r.image as string);
+    const thoughts = validResults.map((r) => r.thoughts);
 
     return {
       prompt: trimmedPrompt,
@@ -421,6 +510,7 @@ export async function generateSeedream({
       size,
       images,
       inputImages: effectiveInputImages,
+      thoughts,
     };
   }
 
