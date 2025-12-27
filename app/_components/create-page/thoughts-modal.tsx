@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 
 import { XIcon } from "./icons";
 import type { ImageThoughts } from "./types";
-import { renderMarkdownBold } from "./utils";
+import { parseThoughtText, renderMarkdownBold } from "./utils";
 
 type ThoughtsModalProps = {
   thoughts: ImageThoughts;
@@ -102,16 +102,26 @@ export function ThoughtsModal({ thoughts, onClose }: ThoughtsModalProps) {
                 Reasoning
               </h3>
               <div className="space-y-3">
-                {thoughts.text?.map((text, index) => (
-                  <div
-                    key={index}
-                    className="p-4 rounded-xl bg-[var(--bg-subtle)] border border-[var(--border-subtle)]"
-                  >
-                    <p className="text-sm leading-relaxed text-[var(--text-secondary)] whitespace-pre-wrap">
-                      {renderMarkdownBold(text, "font-semibold text-[var(--text-primary)]")}
-                    </p>
-                  </div>
-                ))}
+                {thoughts.text?.map((text, index) => {
+                  const { title, body } = parseThoughtText(text);
+                  return (
+                    <div
+                      key={index}
+                      className="p-4 rounded-xl bg-[var(--bg-subtle)] border border-[var(--border-subtle)]"
+                    >
+                      {title && (
+                        <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-primary)] mb-2">
+                          {title}
+                        </h4>
+                      )}
+                      {body && (
+                        <p className="text-sm leading-relaxed text-[var(--text-secondary)] whitespace-pre-wrap">
+                          {renderMarkdownBold(body, "font-semibold text-[var(--text-primary)]")}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

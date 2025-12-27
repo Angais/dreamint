@@ -6,7 +6,7 @@ import { GenerationDetailsCard } from "./generation-details-card";
 import { CopyIcon, DownloadIcon, InfoIcon } from "./icons";
 import { debugLog } from "./logger";
 import type { Generation, ImageThoughts } from "./types";
-import { renderMarkdownBold } from "./utils";
+import { parseThoughtText, renderMarkdownBold } from "./utils";
 
 type GenerationGroupProps = {
   label: string;
@@ -291,9 +291,24 @@ const ImageTile = memo(function ImageTile({
                 {/* Scrollable thoughts content */}
                 {thoughts?.text && thoughts.text.length > 0 ? (
                   <div className="flex-1 overflow-y-auto px-4 py-3">
-                    <div className="text-[13px] leading-[1.7] text-white/70 font-light">
-                      {renderMarkdownBold(thoughts.text[thoughts.text.length - 1], "font-medium text-white")}
-                    </div>
+                    {(() => {
+                      const latestThought = thoughts.text[thoughts.text.length - 1];
+                      const { title, body } = parseThoughtText(latestThought);
+                      return (
+                        <div className="space-y-2">
+                          {title && (
+                            <h4 className="text-xs font-semibold uppercase tracking-wider text-white/90">
+                              {title}
+                            </h4>
+                          )}
+                          {body && (
+                            <p className="text-[13px] leading-[1.7] text-white/60 font-light">
+                              {renderMarkdownBold(body, "font-medium text-white/80")}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 ) : (
                   <div className="flex-1 flex flex-col items-center justify-center gap-3 text-white/30">

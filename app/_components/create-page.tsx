@@ -624,11 +624,10 @@ export function CreatePage() {
         const uniquePrepared = prepared.filter((attachment) => !existingUrls.has(attachment.url));
 
         if (uniquePrepared.length === 0) {
-          setError(ATTACHMENT_LIMIT_MESSAGE);
+          // All images were duplicates, silently ignore
           return;
         }
 
-        let addedCount = 0;
         setAttachments((previous) => {
           const stillAvailable = MAX_ATTACHMENTS - previous.length;
           if (stillAvailable <= 0) {
@@ -640,7 +639,6 @@ export function CreatePage() {
             return previous;
           }
 
-          addedCount = nextItems.length;
           // Auto-set aspect based on first attachment if it's the first batch
           if (previous.length === 0 && nextItems[0].width && nextItems[0].height) {
             const closest = findClosestAspect(nextItems[0].width, nextItems[0].height);
@@ -650,11 +648,7 @@ export function CreatePage() {
           return [...previous, ...nextItems];
         });
 
-        if (addedCount > 0) {
-          clearAttachmentError();
-        } else {
-          setError(ATTACHMENT_LIMIT_MESSAGE);
-        }
+        clearAttachmentError();
       } catch (attachmentError) {
         console.error("Failed to read attachment", attachmentError);
         setError(ATTACHMENT_READ_MESSAGE);
