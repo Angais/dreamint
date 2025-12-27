@@ -87,3 +87,14 @@ export function renderMarkdownBold(text: string, boldClassName = "font-semibold"
 
   return parts.length > 0 ? parts : [text];
 }
+
+// Parse thought text to extract title (first bold text) and body
+export function parseThoughtText(text: string): { title: string | null; body: string } {
+  const titleMatch = text.match(/^\*\*(.+?)\*\*/);
+  if (titleMatch) {
+    const title = titleMatch[1];
+    const body = text.slice(titleMatch[0].length).trim();
+    return { title, body };
+  }
+  return { title: null, body: text };
+}
