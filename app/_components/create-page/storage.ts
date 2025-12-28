@@ -1,10 +1,12 @@
 import localforage from "localforage";
-import type { Generation } from "./types";
+import type { Generation, Style } from "./types";
 
 const DB_NAME = "nano-banana-pro";
 const STORE_NAME = "state";
 const GENERATIONS_KEY = "seedream:generations";
 const PENDING_KEY = "seedream:pending_generations";
+const STYLES_KEY = "seedream:styles";
+const SELECTED_STYLE_KEY = "seedream:selected_style";
 
 // Initialize localforage
 const store = typeof window !== "undefined" 
@@ -657,4 +659,131 @@ export async function cleanOrphanedImages(
 
   if (removals.length === 0) return;
   await Promise.allSettled(removals);
+}
+
+// ============= Style Storage Functions =============
+
+function getStyleImageKey(styleId: string, index: number): string {
+  return `style-img:${styleId}:${index}`;
+}
+
+export async function persistStyles(styles: Style[]): Promise<void> {
+  if (!store) return;
+
+  const persistedStyles = await Promise.all(
+    styles.map(async (style) => {
+      const images = await Promise.all(
+        style.images.map(async (img, index) => {
+          if (!img.url) return img;
+          if (isRef(img.url)) return img;
+
+          const key = getStyleImageKey(style.id, index);
+
+          try {
+            const blob = await urlToBlob(img.url);
+            await store!.setItem(key, blob);
+            return { ...img, url: makeRef(key) };
+          } catch (e) {
+            console.error(`Failed to save style image ${key}`, e);
+            return img;
+          }
+        })
+      );
+
+      return { ...style, images };
+    })
+  );
+
+  await store.setItem(STYLES_KEY, persistedStyles);
+}
+
+export async function restoreStyles(): Promise<Style[] | null> {
+  if (!store) return null;
+
+  const storedData = await store.getItem<Style[]>(STYLES_KEY);
+  if (!Array.isArray(storedData)) return null;
+
+  const hydratedStyles = await Promise.all(
+    storedData.map(async (style) => {
+      const images = await Promise.all(
+        style.images.map(async (img, index) => {
+          if (!img.url) return img;
+
+          if (isRef(img.url)) {
+            const key = getRefKey(img.url);
+            try {
+              const blob = await store!.getItem<Blob>(key);
+              if (blob) {
+                return { ...img, url: URL.createObjectURL(blob) };
+              }
+              return { ...img, url: "" };
+            } catch {
+              return { ...img, url: "" };
+            }
+          }
+
+          if (img.url.startsWith("blob:")) {
+            const key = getStyleImageKey(style.id, index);
+            try {
+              const blob = await store!.getItem<Blob>(key);
+              return blob ? { ...img, url: URL.createObjectURL(blob) } : { ...img, url: "" };
+            } catch {
+              return { ...img, url: "" };
+            }
+          }
+
+          // Migration: data URL or external URL
+          const key = getStyleImageKey(style.id, index);
+          try {
+            const blob = await urlToBlob(img.url);
+            await store!.setItem(key, blob);
+            return { ...img, url: URL.createObjectURL(blob) };
+          } catch {
+            return img;
+          }
+        })
+      );
+
+      return { ...style, images };
+    })
+  );
+
+  return hydratedStyles;
+}
+
+export async function deleteStyleData(styleId: string): Promise<void> {
+  if (!store) return;
+
+  const storedStyles = await store.getItem<Style[]>(STYLES_KEY);
+  const style = storedStyles?.find((s) => s.id === styleId);
+
+  if (style) {
+    const removals = style.images.map((img, index) => {
+      const key = isRef(img.url) ? getRefKey(img.url) : getStyleImageKey(styleId, index);
+      return store!.removeItem(key);
+    });
+    await Promise.allSettled(removals);
+  }
+
+  const nextStyles = Array.isArray(storedStyles)
+    ? storedStyles.filter((s) => s.id !== styleId)
+    : storedStyles;
+
+  if (Array.isArray(nextStyles)) {
+    await store.setItem(STYLES_KEY, nextStyles);
+  }
+}
+
+export async function getSelectedStyleId(): Promise<string | null> {
+  if (!store) return null;
+  return store.getItem<string>(SELECTED_STYLE_KEY);
+}
+
+export async function saveSelectedStyleId(styleId: string | null): Promise<void> {
+  if (!store) return;
+  if (styleId === null) {
+    await store.removeItem(SELECTED_STYLE_KEY);
+  } else {
+    await store.setItem(SELECTED_STYLE_KEY, styleId);
+  }
 }

@@ -14,9 +14,10 @@ import { Lightbox } from "./create-page/lightbox";
 import { AttachmentLightbox } from "./create-page/attachment-lightbox";
 import { createCollageBlob } from "./create-page/collage";
 import { createId, groupByDate, normalizeImages } from "./create-page/utils";
-import type { GalleryEntry, Generation, ImageThoughts, PromptAttachment } from "./create-page/types";
+import type { GalleryEntry, Generation, ImageThoughts, PromptAttachment, Style } from "./create-page/types";
 import { ThoughtsModal } from "./create-page/thoughts-modal";
-import { clearPending, loadPending, restoreGenerations, persistGenerations, savePending, deleteGenerationData, deleteOutputImageData, cleanOrphanedImages } from "./create-page/storage";
+import { StyleSyncView } from "./create-page/style-sync-view";
+import { clearPending, loadPending, restoreGenerations, persistGenerations, savePending, deleteGenerationData, deleteOutputImageData, cleanOrphanedImages, restoreStyles, persistStyles, deleteStyleData, getSelectedStyleId, saveSelectedStyleId } from "./create-page/storage";
 import { useInfiniteScroll } from "./create-page/use-infinite-scroll";
 
 const defaultPrompt =
@@ -145,6 +146,17 @@ async function ensureSerializableUrl(url: string): Promise<string> {
   }
 }
 
+async function resolveInputImages(
+  images: Generation["inputImages"],
+): Promise<Generation["inputImages"]> {
+  return Promise.all(
+    images.map(async (image) => ({
+      ...image,
+      url: await ensureSerializableUrl(image.url),
+    })),
+  );
+}
+
 function findClosestAspect(width: number, height: number): AspectKey {
   const ratio = width / height;
   let closestAspect: AspectKey = defaultAspect;
@@ -175,7 +187,7 @@ function findClosestAspect(width: number, height: number): AspectKey {
 
 
 export function CreatePage() {
-  const [view, setView] = useState<"create" | "gallery">("create");
+  const [view, setView] = useState<"create" | "styles" | "gallery">("create");
   const [viewportHeight, setViewportHeight] = useState("100dvh");
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [aspect, setAspect] = useState<AspectKey>(defaultAspect);
@@ -190,6 +202,8 @@ export function CreatePage() {
   const [attachmentPreview, setAttachmentPreview] = useState<PromptAttachment | null>(null);
   const [generations, setGenerations] = useState<Generation[]>([]);
   const [pendingGenerations, setPendingGenerations] = useState<Generation[]>([]);
+  const [styles, setStyles] = useState<Style[]>([]);
+  const [selectedStyleId, setSelectedStyleId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -200,6 +214,7 @@ export function CreatePage() {
   const pendingHydratedRef = useRef(false);
   const pendingReconciledRef = useRef(false);
   const cleanupRanRef = useRef(false);
+  const stylesHydratedRef = useRef(false);
 
   useEffect(() => {
     if (!window.visualViewport) return;
@@ -307,11 +322,15 @@ export function CreatePage() {
 
         let generationData: Generation[] | null = null;
         let pendingData: Generation[] | null = null;
+        let stylesData: Style[] | null = null;
+        let selectedStyleData: string | null = null;
 
         try {
-          const [restoredGenerations, restoredPending] = await Promise.all([
+          const [restoredGenerations, restoredPending, restoredStyles, restoredSelectedStyle] = await Promise.all([
             restoreGenerations(),
             loadPending(),
+            restoreStyles(),
+            getSelectedStyleId(),
           ]);
 
           if (Array.isArray(restoredGenerations)) {
@@ -322,6 +341,12 @@ export function CreatePage() {
             pendingData = restoredPending;
             pendingHydratedRef.current = restoredPending.length > 0;
           }
+
+          if (Array.isArray(restoredStyles)) {
+            stylesData = restoredStyles;
+          }
+
+          selectedStyleData = restoredSelectedStyle;
         } catch (storageError) {
           console.error("Storage restoration failed", storageError);
         }
@@ -342,6 +367,14 @@ export function CreatePage() {
                 outputFormat: pending.outputFormat ?? defaultOutputFormat,
               })),
             );
+          }
+          if (stylesData) {
+            setStyles(stylesData);
+          }
+          // Always mark styles as hydrated so new styles get persisted
+          stylesHydratedRef.current = true;
+          if (selectedStyleData) {
+            setSelectedStyleId(selectedStyleData);
           }
         }
       } catch (error) {
@@ -469,6 +502,27 @@ export function CreatePage() {
 
     void savePending(pendingGenerations);
   }, [pendingGenerations]);
+
+  useEffect(() => {
+    if (!stylesHydratedRef.current || typeof window === "undefined") {
+      return;
+    }
+
+    void persistStyles(styles);
+  }, [styles]);
+
+  useEffect(() => {
+    if (!storageHydratedRef.current || typeof window === "undefined") {
+      return;
+    }
+
+    void saveSelectedStyleId(selectedStyleId);
+  }, [selectedStyleId]);
+
+  const selectedStyle = useMemo(
+    () => styles.find((s) => s.id === selectedStyleId) ?? null,
+    [styles, selectedStyleId]
+  );
 
   const displayFeed = activeFeed;
   const visibleFeed = useMemo(() => displayFeed.slice(0, feedLimit), [displayFeed, feedLimit]);
@@ -711,7 +765,7 @@ export function CreatePage() {
     [attachments, clearAttachmentError, setError],
   );
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     debugLog("submit:start", {
@@ -729,27 +783,57 @@ export function CreatePage() {
 
     const pendingId = createId("pending");
     const pendingSize = calculateImageSize(aspect, quality);
-    const inputImageSnapshot = attachmentInputImages.map((image) => ({ ...image }));
     const enableGoogleSearch = provider === "gemini" && useGoogleSearch;
+
+    // User's attachments (for display in generation card)
+    const userInputImages = attachmentInputImages.map((image) => ({ ...image }));
+
+    // Build input images for API - include style reference image as last image if style selected
+    const activeStyle = selectedStyle;
+    const styleReferenceImage = activeStyle?.images?.[0];
+    const apiInputImages = styleReferenceImage
+      ? [
+          ...userInputImages,
+          {
+            id: `style-ref-${activeStyle.id}`,
+            name: `Style: ${activeStyle.name}`,
+            url: styleReferenceImage.url,
+            width: styleReferenceImage.width ?? null,
+            height: styleReferenceImage.height ?? null,
+          },
+        ]
+      : userInputImages;
+
+    // Build effective prompt - mention style reference if present
+    let effectivePrompt = prompt;
+    if (activeStyle && styleReferenceImage) {
+      const styleInstruction = activeStyle.description
+        ? `The last image is a style reference. Apply this visual style to generate the image:\n${activeStyle.description}`
+        : `The last image is a style reference. Generate the image in the same visual style as that reference.`;
+      effectivePrompt = `${prompt}\n\n${styleInstruction}`;
+    }
 
     const pendingGeneration: Generation = {
       id: pendingId,
-      prompt,
+      prompt, // Store the original prompt for display
       aspect,
       quality,
       outputFormat,
-      provider, // Added provider here
+      provider,
       useGoogleSearch: enableGoogleSearch,
       size: pendingSize,
       createdAt: new Date().toISOString(),
-      inputImages: inputImageSnapshot,
+      inputImages: userInputImages, // User's attachments only (not style ref)
       images: Array(imageCount).fill(""),
+      styleId: activeStyle?.id ?? null,
+      styleName: activeStyle?.name ?? null,
     };
 
     debugLog("pending:prepare", {
       pendingId,
       size: pendingSize,
-      inputImages: inputImageSnapshot.length,
+      inputImages: userInputImages.length,
+      apiInputImages: apiInputImages.length,
     });
 
     setIsSettingsOpen(false);
@@ -771,9 +855,11 @@ export function CreatePage() {
       provider,
       apiKeyProvided: trimmedApiKey.length > 0,
       geminiApiKeyProvided: trimmedGeminiApiKey.length > 0,
-      inputImages: inputImageSnapshot.length,
+      userInputImages: userInputImages.length,
+      apiInputImages: apiInputImages.length,
       imageCount,
       googleSearch: enableGoogleSearch,
+      hasStyleRef: Boolean(styleReferenceImage),
     });
 
     // Initialize streaming thoughts for this generation
@@ -783,8 +869,10 @@ export function CreatePage() {
       return next;
     });
 
+    const resolvedApiInputImages = await resolveInputImages(apiInputImages);
+
     const generationPromise = generateSeedream({
-      prompt,
+      prompt: effectivePrompt, // Use effective prompt with style appended
       aspect,
       quality,
       numImages: imageCount,
@@ -793,7 +881,7 @@ export function CreatePage() {
       apiKey: trimmedApiKey.length > 0 ? trimmedApiKey : undefined,
       geminiApiKey: trimmedGeminiApiKey.length > 0 ? trimmedGeminiApiKey : undefined,
       useGoogleSearch: enableGoogleSearch,
-      inputImages: inputImageSnapshot,
+      inputImages: resolvedApiInputImages, // Includes style reference as last image if selected
       onThoughtsUpdate: (imageIndex, thoughts) => {
         setStreamingThoughts((prev) => {
           const next = new Map(prev);
@@ -824,7 +912,11 @@ export function CreatePage() {
         const generation: Generation = {
           ...result,
           id: createId("generation"),
+          prompt, // Store original prompt, not the effective prompt with style
           images: normalizedImages,
+          inputImages: userInputImages, // Only user's attachments, not style reference
+          styleId: activeStyle?.id ?? null,
+          styleName: activeStyle?.name ?? null,
         };
 
         setGenerations((previous) => {
@@ -1205,15 +1297,44 @@ export function CreatePage() {
       const enableGoogleSearch =
         generation.provider === "gemini" && Boolean(generation.useGoogleSearch);
 
+      const styleForRetry = generation.styleId
+        ? styles.find((style) => style.id === generation.styleId) ?? null
+        : null;
+      const styleReferenceImage = styleForRetry?.images?.[0];
+      const userInputImages = inputImageSnapshot.map((image) => ({ ...image }));
+
+      const apiInputImages = styleForRetry && styleReferenceImage
+        ? [
+            ...userInputImages,
+            {
+              id: `style-ref-${styleForRetry.id}`,
+              name: `Style: ${styleForRetry.name}`,
+              url: styleReferenceImage.url,
+              width: styleReferenceImage.width ?? null,
+              height: styleReferenceImage.height ?? null,
+            },
+          ]
+        : userInputImages;
+
+      let effectivePrompt = generation.prompt;
+      if (styleForRetry && styleReferenceImage) {
+        const styleInstruction = styleForRetry.description
+          ? `The last image is a style reference. Apply this visual style to generate the image:\n${styleForRetry.description}`
+          : `The last image is a style reference. Generate the image in the same visual style as that reference.`;
+        effectivePrompt = `${generation.prompt}\n\n${styleInstruction}`;
+      }
+
       const pendingGeneration: Generation = {
         ...generation,
         id: pendingId,
         images: Array(numImages).fill(""),
         createdAt: new Date().toISOString(),
-        inputImages: inputImageSnapshot,
+        inputImages: userInputImages,
         size: pendingSize,
         outputFormat: generation.outputFormat ?? defaultOutputFormat,
         useGoogleSearch: enableGoogleSearch,
+        styleId: styleForRetry?.id ?? generation.styleId ?? null,
+        styleName: styleForRetry?.name ?? generation.styleName ?? null,
       };
 
       debugLog("pending:retry", {
@@ -1223,7 +1344,7 @@ export function CreatePage() {
         aspect: generation.aspect,
         quality: generation.quality,
         provider: generation.provider,
-        inputImages: inputImageSnapshot.length,
+        inputImages: userInputImages.length,
       });
 
       setGenerations((previous) => previous.filter((gen) => gen.id !== generationId));
@@ -1231,21 +1352,22 @@ export function CreatePage() {
       setError(null);
       setIsSettingsOpen(false);
 
-      const generationPromise = generateSeedream({
-        prompt: generation.prompt,
-        aspect: generation.aspect,
-        quality: generation.quality,
-        numImages,
-        provider: generation.provider,
-        outputFormat: generation.outputFormat ?? defaultOutputFormat,
-        apiKey: apiKey.trim() || undefined,
-        geminiApiKey: geminiApiKey.trim() || undefined,
-        useGoogleSearch: enableGoogleSearch,
-        inputImages: inputImageSnapshot,
-      });
+      const runRetry = async () => {
+        try {
+          const resolvedApiInputImages = await resolveInputImages(apiInputImages);
+          const result = await generateSeedream({
+            prompt: effectivePrompt,
+            aspect: generation.aspect,
+            quality: generation.quality,
+            numImages,
+            provider: generation.provider,
+            outputFormat: generation.outputFormat ?? defaultOutputFormat,
+            apiKey: apiKey.trim() || undefined,
+            geminiApiKey: geminiApiKey.trim() || undefined,
+            useGoogleSearch: enableGoogleSearch,
+            inputImages: resolvedApiInputImages,
+          });
 
-      generationPromise
-        .then((result) => {
           debugLog("generation:success", {
             pendingId,
             rawImageCount: result.images.length,
@@ -1262,7 +1384,11 @@ export function CreatePage() {
           const nextGeneration: Generation = {
             ...result,
             id: createId("generation"),
+            prompt: generation.prompt,
             images: normalizedImages,
+            inputImages: userInputImages,
+            styleId: styleForRetry?.id ?? generation.styleId ?? null,
+            styleName: styleForRetry?.name ?? generation.styleName ?? null,
           };
 
           setGenerations((previous) => {
@@ -1273,16 +1399,14 @@ export function CreatePage() {
             });
             return next;
           });
-        })
-        .catch((generationError: unknown) => {
+        } catch (generationError: unknown) {
           const message =
             generationError instanceof Error
               ? generationError.message
               : "Generation failed.";
           debugLog("generation:error", { pendingId, message, error: generationError });
           setError(message);
-        })
-        .finally(() => {
+        } finally {
           setPendingGenerations((previous) => {
             const next = previous.filter((gen) => gen.id !== pendingId);
             debugLog("pending:cleared", {
@@ -1292,9 +1416,12 @@ export function CreatePage() {
             });
             return next;
           });
-        });
+        }
+      };
+
+      void runRetry();
     },
-    [apiKey, geminiApiKey, generations],
+    [apiKey, geminiApiKey, generations, styles],
   );
 
   const handleDeleteGeneration = useCallback(
@@ -1464,6 +1591,15 @@ export function CreatePage() {
                 Create
               </button>
               <button
+                onClick={() => setView("styles")}
+                className={`rounded-full px-6 py-2 text-xs font-bold uppercase tracking-wide transition-all ${view === "styles"
+                  ? "bg-[var(--text-primary)] text-black shadow-sm"
+                  : "text-[var(--text-secondary)] hover:text-white"
+                  }`}
+              >
+                Styles
+              </button>
+              <button
                 onClick={() => setView("gallery")}
                 className={`rounded-full px-6 py-2 text-xs font-bold uppercase tracking-wide transition-all ${view === "gallery"
                   ? "bg-[var(--text-primary)] text-black shadow-sm"
@@ -1521,6 +1657,26 @@ export function CreatePage() {
                 <EmptyState />
               )}
             </main>
+          ) : view === "styles" ? (
+            <StyleSyncView
+              styles={styles}
+              selectedStyleId={selectedStyleId}
+              geminiApiKey={geminiApiKey}
+              onCreateStyle={(style) => setStyles((prev) => [...prev, style])}
+              onUpdateStyle={(styleId, updates) =>
+                setStyles((prev) =>
+                  prev.map((s) => (s.id === styleId ? { ...s, ...updates } : s))
+                )
+              }
+              onDeleteStyle={(styleId) => {
+                setStyles((prev) => prev.filter((s) => s.id !== styleId));
+                if (selectedStyleId === styleId) {
+                  setSelectedStyleId(null);
+                }
+                void deleteStyleData(styleId);
+              }}
+              onSelectStyle={setSelectedStyleId}
+            />
           ) : (
             <GalleryView
               generations={generations}
@@ -1568,6 +1724,9 @@ export function CreatePage() {
               onRemoveAttachment={handleRemoveAttachment}
               onPreviewAttachment={handlePreviewAttachment}
               isAttachmentLimitReached={isAttachmentLimitReached}
+              styles={styles}
+              selectedStyleId={selectedStyleId}
+              onSelectStyle={setSelectedStyleId}
             />
           </div>
         </div>

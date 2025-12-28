@@ -19,7 +19,8 @@ import {
 } from "../../lib/seedream-options";
 import { LightningIcon, MagnifyingGlassIcon, PlusIcon, SettingsIcon } from "./icons";
 import { AttachmentPreviewList } from "./attachment-preview";
-import type { PromptAttachment } from "./types";
+import { StyleSelector } from "./style-selector";
+import type { PromptAttachment, Style } from "./types";
 import { resizeTextarea } from "./utils";
 
 type HeaderProps = {
@@ -52,6 +53,9 @@ type HeaderProps = {
   onRemoveAttachment: (attachmentId: string) => void;
   onPreviewAttachment: (attachment: PromptAttachment) => void;
   isAttachmentLimitReached: boolean;
+  styles: Style[];
+  selectedStyleId: string | null;
+  onSelectStyle: (styleId: string | null) => void;
 };
 
 export function Header({
@@ -84,6 +88,9 @@ export function Header({
   onRemoveAttachment,
   onPreviewAttachment,
   isAttachmentLimitReached,
+  styles,
+  selectedStyleId,
+  onSelectStyle,
 }: HeaderProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const toggleButtonRef = useRef<HTMLButtonElement>(null);
@@ -410,6 +417,13 @@ export function Header({
                   </svg>
                 </div>
               </div>
+
+              {/* Style Selector */}
+              <StyleSelector
+                styles={styles}
+                selectedStyleId={selectedStyleId}
+                onSelectStyle={onSelectStyle}
+              />
 
               {/* Google Search Toggle Button */}
               <button

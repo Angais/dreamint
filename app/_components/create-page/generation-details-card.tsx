@@ -91,7 +91,10 @@ export function GenerationDetailsCard({
   const validInputImages = useMemo(
     () =>
       generation?.inputImages?.filter(
-        (img) => typeof img?.url === "string" && img.url.trim().length > 0,
+        (img) =>
+          typeof img?.url === "string" &&
+          img.url.trim().length > 0 &&
+          !img.id?.startsWith("style-ref-"), // Exclude style reference images
       ) ?? [],
     [generation?.inputImages],
   );
@@ -244,6 +247,11 @@ export function GenerationDetailsCard({
             {generation.useGoogleSearch ? (
               <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
                 Search
+              </span>
+            ) : null}
+            {generation.styleName ? (
+              <span className="inline-flex items-center rounded bg-indigo-950/50 border border-indigo-800/50 px-1.5 py-0.5 text-[9px] font-medium text-indigo-300">
+                {generation.styleName}
               </span>
             ) : null}
           </div>
