@@ -5,6 +5,7 @@ import type {
   Dispatch,
   FormEvent,
   DragEvent,
+  KeyboardEvent as ReactKeyboardEvent,
   SetStateAction,
 } from "react";
 
@@ -24,6 +25,7 @@ import { resizeTextarea } from "./utils";
 
 type HeaderProps = {
   prompt: string;
+  promptHistory: string[];
   aspect: string;
   quality: QualityKey;
   outputFormat: OutputFormat;
@@ -56,6 +58,7 @@ type HeaderProps = {
 
 export function Header({
   prompt,
+  promptHistory,
   aspect,
   quality,
   outputFormat,
@@ -92,6 +95,9 @@ export function Header({
   const formRef = useRef<HTMLFormElement>(null);
   const dragCounterRef = useRef(0);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [historyIndex, setHistoryIndex] = useState<number | null>(null);
+  const historyDraftRef = useRef("");
+  const historyNavigationRef = useRef(false);
   // Disabled state logic: only allow enabling search if Gemini is selected
   // However, the button should be visible but disabled if provider != gemini?
   // Or just disable interaction.
@@ -134,6 +140,91 @@ export function Header({
 
     event.preventDefault();
     void onAddAttachments(clipboardFiles);
+  };
+
+  const movePromptCaretToEnd = () => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      const textarea = promptTextareaRef.current;
+      if (!textarea) {
+        return;
+      }
+      const end = textarea.value.length;
+      textarea.setSelectionRange(end, end);
+    });
+  };
+
+  const handlePromptKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.isComposing) {
+      return;
+    }
+
+    const isArrowKey = event.key === "ArrowUp" || event.key === "ArrowDown";
+    if (isArrowKey && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
+      const value = event.currentTarget.value;
+      const selectionStart = event.currentTarget.selectionStart ?? 0;
+      const selectionEnd = event.currentTarget.selectionEnd ?? selectionStart;
+      const isOnFirstLine = !value.slice(0, selectionStart).includes("\n");
+      const isOnLastLine = !value.slice(selectionEnd).includes("\n");
+
+      if (event.key === "ArrowUp" && isOnFirstLine) {
+        if (promptHistory.length === 0) {
+          return;
+        }
+        event.preventDefault();
+        let nextIndex: number | null = null;
+        let nextValue: string | null = null;
+
+        if (historyIndex === null) {
+          historyDraftRef.current = prompt;
+          nextIndex = 0;
+          nextValue = promptHistory[0];
+        } else if (historyIndex < promptHistory.length - 1) {
+          nextIndex = historyIndex + 1;
+          nextValue = promptHistory[nextIndex];
+        }
+
+        if (nextValue !== null && nextIndex !== null) {
+          historyNavigationRef.current = true;
+          setHistoryIndex(nextIndex);
+          onPromptChange(nextValue);
+          movePromptCaretToEnd();
+        }
+        return;
+      }
+
+      if (event.key === "ArrowDown" && isOnLastLine) {
+        if (historyIndex === null) {
+          return;
+        }
+        event.preventDefault();
+        if (historyIndex <= 0) {
+          historyNavigationRef.current = true;
+          setHistoryIndex(null);
+          onPromptChange(historyDraftRef.current);
+        } else {
+          const nextIndex = historyIndex - 1;
+          historyNavigationRef.current = true;
+          setHistoryIndex(nextIndex);
+          onPromptChange(promptHistory[nextIndex]);
+        }
+        movePromptCaretToEnd();
+        return;
+      }
+    }
+
+    if (event.key === "Enter" && !event.shiftKey) {
+      if (generateDisabled) {
+        event.preventDefault();
+        return;
+      }
+
+      event.preventDefault();
+      formRef.current?.requestSubmit();
+    }
   };
 
   const hasImageItems = (items: DataTransferItemList | null | undefined) =>
@@ -208,6 +299,15 @@ export function Header({
   }, [prompt]);
 
   useEffect(() => {
+    if (historyNavigationRef.current) {
+      historyNavigationRef.current = false;
+      return;
+    }
+    setHistoryIndex(null);
+    historyDraftRef.current = prompt;
+  }, [prompt]);
+
+  useEffect(() => {
     const handleResize = () => {
       resizeTextarea(promptTextareaRef.current);
     };
@@ -275,17 +375,7 @@ export function Header({
               value={prompt}
               onChange={(event) => onPromptChange(event.target.value)}
               onPaste={handlePromptPaste}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  if (generateDisabled) {
-                    event.preventDefault();
-                    return;
-                  }
-
-                  event.preventDefault();
-                  formRef.current?.requestSubmit();
-                }
-              }}
+              onKeyDown={handlePromptKeyDown}
               rows={1}
               className="flex-1 resize-none overflow-y-auto max-h-40 bg-transparent text-base md:text-lg leading-[1.6] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none font-medium"
               placeholder="What are you imagining?"

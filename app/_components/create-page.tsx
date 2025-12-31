@@ -24,7 +24,7 @@ const defaultPrompt =
 const defaultAspect: AspectKey = "portrait-9-16";
 const defaultQuality: QualityKey = "2k";
 const defaultOutputFormat: OutputFormat = "png";
-const APP_VERSION = "1.0";
+const APP_VERSION = "1.0.1";
 
 const STORAGE_KEYS = {
   prompt: "seedream:prompt",
@@ -41,6 +41,7 @@ const STORAGE_KEYS = {
 } as const;
 
 const MAX_ATTACHMENTS = 8;
+const MAX_PROMPT_HISTORY = 5;
 const ATTACHMENT_LIMIT_MESSAGE = `Maximum of ${MAX_ATTACHMENTS} images allowed.`;
 const ATTACHMENT_TYPE_MESSAGE = "Only image files can be used for editing.";
 const ATTACHMENT_READ_MESSAGE = "Unable to load one of the images you pasted or uploaded.";
@@ -178,6 +179,7 @@ export function CreatePage() {
   const [view, setView] = useState<"create" | "gallery">("create");
   const [viewportHeight, setViewportHeight] = useState("100dvh");
   const [prompt, setPrompt] = useState(defaultPrompt);
+  const [promptHistory, setPromptHistory] = useState<string[]>([]);
   const [aspect, setAspect] = useState<AspectKey>(defaultAspect);
   const [quality, setQuality] = useState<QualityKey>(defaultQuality);
   const [outputFormat, setOutputFormat] = useState<OutputFormat>(defaultOutputFormat);
@@ -713,6 +715,12 @@ export function CreatePage() {
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const trimmedPrompt = prompt.trim();
+    if (trimmedPrompt.length > 0) {
+      setPromptHistory((previous) =>
+        [trimmedPrompt, ...previous].slice(0, MAX_PROMPT_HISTORY),
+      );
+    }
 
     debugLog("submit:start", {
       aspect,
@@ -1540,6 +1548,7 @@ export function CreatePage() {
           <div className="mx-auto w-full max-w-3xl pointer-events-auto">
             <Header
               prompt={prompt}
+              promptHistory={promptHistory}
               aspect={aspect}
               quality={quality}
               outputFormat={outputFormat}

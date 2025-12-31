@@ -210,7 +210,7 @@ export function GenerationDetailsCard({
         <div className="flex flex-wrap gap-1.5 pt-1 border-t border-[var(--border-subtle)]">
           {validInputImages.map((image, index) => (
             <button
-              key={image.id ?? `${generation.id}-input-${index}`}
+              key={`${generation.id}-input-${image.id ? image.id : "ref"}-${index}`}
               type="button"
               onClick={() => onPreviewInputImage?.(image)}
               className="relative block h-8 w-8 overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] transition-transform hover:scale-110 hover:border-[var(--text-muted)] focus:outline-none"

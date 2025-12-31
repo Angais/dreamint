@@ -592,7 +592,7 @@ export function Lightbox({
                     {entry.inputImages.map((img, idx) => (
                       <button
                         type="button"
-                        key={img.id || idx}
+                        key={`${entry.generationId}-input-${img.id ? img.id : "ref"}-${idx}`}
                         onClick={() => setSelectedReferenceIndex(idx)}
                         className={`relative aspect-square overflow-hidden rounded-md border-2 transition-all ${selectedReferenceIndex === idx
                           ? "border-[var(--accent-primary)] opacity-100"
