@@ -167,7 +167,8 @@ export function Header({
   };
 
   const handlePromptKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.isComposing) {
+    const nativeEvent = event.nativeEvent as { isComposing?: boolean };
+    if (nativeEvent.isComposing) {
       return;
     }
 
