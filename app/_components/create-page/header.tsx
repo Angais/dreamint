@@ -104,6 +104,15 @@ export function Header({
   const searchToggleDisabled = provider !== "gemini";
   const trimmedPrompt = prompt.trim();
   const generateDisabled = trimmedPrompt.length === 0 || isBudgetLocked;
+  const shouldSubmitOnEnter = () => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return true;
+    }
+
+    const hasCoarsePointer = window.matchMedia("(pointer: coarse)").matches;
+    const hasNoHover = window.matchMedia("(hover: none)").matches;
+    return !(hasCoarsePointer && hasNoHover);
+  };
   const handleGoogleSearchToggle = () => {
     if (searchToggleDisabled) {
       return;
@@ -217,6 +226,10 @@ export function Header({
     }
 
     if (event.key === "Enter" && !event.shiftKey) {
+      if (!shouldSubmitOnEnter()) {
+        return;
+      }
+
       if (generateDisabled) {
         event.preventDefault();
         return;
