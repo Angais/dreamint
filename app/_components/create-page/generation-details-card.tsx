@@ -239,7 +239,7 @@ export function GenerationDetailsCard({
       {generation && !isInterrupted && (
         <div className="mt-auto pt-3 border-t border-[var(--border-subtle)] flex flex-wrap items-center justify-between gap-2 gap-y-2">
           {/* Tech Badges */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
               {getQualityLabel(generation.quality)}
             </span>
