@@ -236,9 +236,46 @@ export async function generateSeedream({
 
   type ResponsePart = {
     text?: string;
-    thought?: boolean;
-    inlineData?: { mimeType: string; data: string };
-    inline_data?: { mime_type?: string; data?: string };
+    thought?: boolean | string;
+    thought_signature?: string;
+    thoughtSignature?: string;
+    inlineData?: { mimeType?: string; data?: string };
+    inline_data?: { mime_type?: string; mimeType?: string; data?: string };
+  };
+
+  const isThoughtPart = (part: ResponsePart): boolean => {
+    if (typeof part?.thought === "string") {
+      return part.thought.trim().toLowerCase() === "true";
+    }
+    return part?.thought === true;
+  };
+
+  const collectPartsFromPayload = (payload: unknown): ResponsePart[] => {
+    if (!payload || typeof payload !== "object") {
+      return [];
+    }
+
+    const root = payload as {
+      parts?: ResponsePart[];
+      content?: { parts?: ResponsePart[] };
+      candidates?: Array<{ content?: { parts?: ResponsePart[] } }>;
+    };
+
+    const collected: ResponsePart[] = [];
+
+    const appendParts = (parts: ResponsePart[] | undefined) => {
+      if (Array.isArray(parts)) {
+        collected.push(...parts);
+      }
+    };
+
+    appendParts(root.parts);
+    appendParts(root.content?.parts);
+    for (const candidate of root.candidates ?? []) {
+      appendParts(candidate?.content?.parts);
+    }
+
+    return collected;
   };
 
   const extractImageAndThoughts = (
@@ -246,14 +283,21 @@ export async function generateSeedream({
   ): { image: string | null; thoughts: ImageThoughts | null } => {
     const thoughtTexts: string[] = [];
     const thoughtImages: string[] = [];
+    const fallbackTexts: string[] = [];
     let finalImage: string | null = null;
 
     for (const part of parts ?? []) {
-      const isThought = part?.thought === true;
+      const isThought = isThoughtPart(part);
 
       // Extract text from thought parts
-      if (isThought && part?.text) {
-        thoughtTexts.push(part.text);
+      if (part?.text) {
+        if (isThought) {
+          thoughtTexts.push(part.text);
+        } else {
+          // Flash can return visible thinking text without thought=true;
+          // keep it as a fallback so reasoning is not silently dropped.
+          fallbackTexts.push(part.text);
+        }
       }
 
       // Extract inline data (image)
@@ -261,13 +305,16 @@ export async function generateSeedream({
         part?.inlineData ??
         (part?.inline_data
           ? {
-              mimeType: part.inline_data.mime_type ?? "image/png",
+              mimeType: part.inline_data.mime_type ?? part.inline_data.mimeType ?? "image/png",
               data: part.inline_data.data ?? "",
             }
           : undefined);
 
-      if (inline?.data && inline.mimeType) {
-        const dataUrl = `data:${inline.mimeType};base64,${inline.data}`;
+      const inlineData = inline?.data;
+      const inlineMimeType = inline?.mimeType ?? "image/png";
+
+      if (inlineData && inlineMimeType) {
+        const dataUrl = `data:${inlineMimeType};base64,${inlineData}`;
         if (isThought) {
           thoughtImages.push(dataUrl);
         } else {
@@ -275,6 +322,10 @@ export async function generateSeedream({
           finalImage = dataUrl;
         }
       }
+    }
+
+    if (thoughtTexts.length === 0 && thoughtImages.length === 0 && fallbackTexts.length > 0) {
+      thoughtTexts.push(...fallbackTexts);
     }
 
     const thoughts: ImageThoughts | null =
@@ -373,6 +424,14 @@ export async function generateSeedream({
       throw new Error("Missing Gemini API key. Add one in settings.");
     }
 
+    const flashGroundedTools = [
+      {
+        google_search: {
+          // Docs for 3.1 Flash image-search grounding use searchTypes/webSearch/imageSearch.
+          searchTypes: { webSearch: {}, imageSearch: {} },
+        },
+      },
+    ];
     const basePayload = {
       contents: baseContents,
       generationConfig: {
@@ -381,21 +440,52 @@ export async function generateSeedream({
           aspectRatio: apiAspectRatio,
           imageSize: apiResolution,
         },
-        thinkingConfig: {
-          includeThoughts: true,
-        },
+        thinkingConfig: isFlashModel
+          ? {
+              thinkingLevel: "High",
+              includeThoughts: true,
+            }
+          : {
+              includeThoughts: true,
+            },
       },
-      ...(effectiveGoogleSearch ? { tools: [{ google_search: {} }] } : {}),
+      ...(effectiveGoogleSearch
+        ? { tools: isFlashModel ? flashGroundedTools : [{ google_search: {} }] }
+        : {}),
     };
 
     const geminiModelId = GEMINI_MODEL_ID_BY_VARIANT[effectiveModelVariant];
-    const endpoint = isFlashModel
-      ? `https://generativelanguage.googleapis.com/v1beta/models/${geminiModelId}:generateContent?key=${encodeURIComponent(
-          resolvedApiKey,
-        )}`
-      : `https://generativelanguage.googleapis.com/v1beta/models/${geminiModelId}:streamGenerateContent?key=${encodeURIComponent(
-          resolvedApiKey,
-        )}&alt=sse`;
+    const streamEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModelId}:streamGenerateContent?key=${encodeURIComponent(
+      resolvedApiKey,
+    )}&alt=sse`;
+    const generateEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModelId}:generateContent?key=${encodeURIComponent(
+      resolvedApiKey,
+    )}`;
+
+    const throwGeminiApiError = (status: number, errorText: string): never => {
+      try {
+        const errJson = JSON.parse(errorText) as { error?: { message?: string } };
+        if (errJson.error?.message) {
+          const isUnavailable = status === 503;
+          const suffix = isUnavailable ? " (service unavailable)" : "";
+          throw new Error(
+            `Gemini API Error${suffix}: ${errJson.error.message || "Request failed"}. Try again or switch provider.`,
+          );
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith("Gemini API Error")) {
+          throw error;
+        }
+      }
+
+      if (status === 503) {
+        throw new Error(
+          "Gemini API is temporarily unavailable (503). Please retry shortly or switch to FAL.",
+        );
+      }
+
+      throw new Error(`Gemini API Error (${status}): ${errorText}`);
+    };
 
     const requests = Array.from({ length: validNumImages }).map(async (_, imageIndex) => {
       const payload = {
@@ -410,7 +500,7 @@ export async function generateSeedream({
       const timeoutId = setTimeout(() => controller.abort(), DEFAULT_REQUEST_TIMEOUT_MS);
 
       try {
-        const response = await fetch(endpoint, {
+        const requestInit: RequestInit = {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -419,37 +509,41 @@ export async function generateSeedream({
           body: JSON.stringify(payload),
           cache: "no-store",
           signal: controller.signal,
-        });
+        };
+
+        let response = await fetch(streamEndpoint, requestInit);
+        let useStreaming = true;
+
+        // Flash can return thoughts via both endpoints. Prefer streaming for live CoT,
+        // but fall back to generateContent if stream endpoint isn't available.
+        if (isFlashModel && !response.ok) {
+          const streamErrorText = await response.text();
+          const streamErrorLower = streamErrorText.toLowerCase();
+          const shouldFallbackToGenerate =
+            response.status === 400 ||
+            response.status === 404 ||
+            response.status === 405 ||
+            streamErrorLower.includes("streamgeneratecontent") ||
+            streamErrorLower.includes("not found") ||
+            streamErrorLower.includes("unsupported");
+
+          if (shouldFallbackToGenerate) {
+            response = await fetch(generateEndpoint, requestInit);
+            useStreaming = false;
+          } else {
+            throwGeminiApiError(response.status, streamErrorText);
+          }
+        }
 
         if (!response.ok) {
           const errorText = await response.text();
-          try {
-            const errJson = JSON.parse(errorText) as { error?: { message?: string } };
-            if (errJson.error?.message) {
-              const isUnavailable = response.status === 503;
-              const suffix = isUnavailable ? " (service unavailable)" : "";
-              throw new Error(
-                `Gemini API Error${suffix}: ${errJson.error.message || "Request failed"}. Try again or switch provider.`,
-              );
-            }
-          } catch (error) {
-            if (error instanceof Error && error.message.startsWith("Gemini API Error")) {
-              throw error;
-            }
-          }
-          if (response.status === 503) {
-            throw new Error(
-              "Gemini API is temporarily unavailable (503). Please retry shortly or switch to FAL.",
-            );
-          }
-          throw new Error(`Gemini API Error (${response.status}): ${errorText}`);
+          throwGeminiApiError(response.status, errorText);
         }
 
-        if (isFlashModel) {
-          const json = (await response.json()) as {
-            candidates?: { content?: { parts?: ResponsePart[] } }[];
-          };
-          const parts = json.candidates?.[0]?.content?.parts ?? [];
+        const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+        if (!useStreaming || !contentType.includes("text/event-stream")) {
+          const json = (await response.json()) as unknown;
+          const parts = collectPartsFromPayload(json);
           const result = extractImageAndThoughts(parts);
           if (onThoughtsUpdate && result.thoughts) {
             onThoughtsUpdate(imageIndex, result.thoughts);
@@ -475,15 +569,13 @@ export async function generateSeedream({
           buffer = lines.pop() || "";
 
           for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              const jsonStr = line.slice(6);
+            if (line.startsWith("data:")) {
+              const jsonStr = line.slice(5).trimStart();
               if (jsonStr.trim() === "[DONE]") continue;
 
               try {
-                const chunk = JSON.parse(jsonStr) as {
-                  candidates?: { content?: { parts?: ResponsePart[] } }[];
-                };
-                const parts = chunk.candidates?.[0]?.content?.parts ?? [];
+                const chunk = JSON.parse(jsonStr) as unknown;
+                const parts = collectPartsFromPayload(chunk);
                 allParts.push(...parts);
 
                 // Call the callback with accumulated thoughts so far
