@@ -8,7 +8,7 @@ import {
 } from "../../lib/seedream-options";
 import { formatDisplayDate } from "./utils";
 import type { Generation } from "./types";
-import { ReuseIcon, ShareIcon, SpinnerIcon } from "./icons";
+import { LightningIcon, ReuseIcon, ShareIcon, SpinnerIcon } from "./icons";
 
 // Simple Trash Icon for the delete button
 function TrashIcon({ className }: { className?: string }) {
@@ -68,7 +68,12 @@ function deriveAspectLabel(size: { width: number; height: number }): string {
 type GenerationDetailsCardProps = {
   generation: Generation | null;
   isGenerating: boolean;
-  onUsePrompt: (prompt: string, inputImages: Generation["inputImages"], useGoogleSearch?: boolean) => void;
+  onUsePrompt: (
+    prompt: string,
+    inputImages: Generation["inputImages"],
+    useGoogleSearch?: boolean,
+    modelVariant?: Generation["modelVariant"],
+  ) => void;
   onPreviewInputImage?: (image: Generation["inputImages"][number]) => void;
   onDeleteGeneration?: (generationId: string) => void;
   onShareCollage?: (generationId: string) => Promise<boolean>;
@@ -241,6 +246,12 @@ export function GenerationDetailsCard({
             <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
               {aspectLabel ?? "Custom"}
             </span>
+            <span className="inline-flex items-center gap-1 rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
+              {generation.modelVariant === "flash" ? (
+                <LightningIcon className="h-2.5 w-2.5" />
+              ) : null}
+              {generation.modelVariant === "flash" ? "3.1 Flash" : "3 Pro"}
+            </span>
             {generation.useGoogleSearch ? (
               <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
                 Search
@@ -252,7 +263,14 @@ export function GenerationDetailsCard({
           <div className="flex items-center gap-1">
             <button
               type="button"
-              onClick={() => onUsePrompt(generation.prompt, validInputImages, generation.useGoogleSearch)}
+              onClick={() =>
+                onUsePrompt(
+                  generation.prompt,
+                  validInputImages,
+                  generation.useGoogleSearch,
+                  generation.modelVariant,
+                )
+              }
               className="flex items-center justify-center h-6 w-6 rounded hover:bg-[var(--bg-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
               title="Reuse prompt in editor"
             >

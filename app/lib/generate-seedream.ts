@@ -1,10 +1,12 @@
 "use client";
 
 import {
+  DEFAULT_GEMINI_MODEL_VARIANT,
   calculateImageSize,
   getAspectDefinition,
   getQualityDefinition,
   type AspectKey,
+  type GeminiModelVariant,
   type QualityKey,
   type Provider,
   type OutputFormat,
@@ -16,6 +18,14 @@ const MAX_IMAGE_DIMENSION = 4096;
 const MAX_MODEL_INPUT_IMAGES = 14;
 // Gemini image gen can take up to ~3-4 minutes in some regions; use a generous timeout.
 const DEFAULT_REQUEST_TIMEOUT_MS = 480_000;
+const GEMINI_MODEL_ID_BY_VARIANT: Record<GeminiModelVariant, string> = {
+  pro: "gemini-3-pro-image-preview",
+  flash: "gemini-3.1-flash-image-preview",
+};
+const FAL_MODEL_PATH_BY_VARIANT: Record<GeminiModelVariant, string> = {
+  pro: "fal-ai/gemini-3-pro-image-preview",
+  flash: "fal-ai/gemini-3.1-flash-image-preview",
+};
 
 export type InputImage = {
   id: string;
@@ -34,6 +44,7 @@ export type GenerateSeedreamArgs = {
   outputFormat?: OutputFormat;
   numImages?: number;
   provider: Provider;
+  modelVariant?: GeminiModelVariant;
   apiKey?: string; // FAL Key
   geminiApiKey?: string; // Gemini API key (Generative Language)
   sizeOverride?: { width: number; height: number };
@@ -53,6 +64,7 @@ export type SeedreamGeneration = {
   quality: QualityKey;
   outputFormat: OutputFormat;
   provider: Provider;
+  modelVariant: GeminiModelVariant;
   useGoogleSearch?: boolean;
   createdAt: string;
   size: { width: number; height: number };
@@ -84,6 +96,7 @@ export async function generateSeedream({
   outputFormat = "png",
   numImages = 4,
   provider,
+  modelVariant = DEFAULT_GEMINI_MODEL_VARIANT,
   apiKey,
   geminiApiKey,
   sizeOverride,
@@ -98,6 +111,9 @@ export async function generateSeedream({
   }
 
   const validNumImages = Math.max(1, Math.min(4, Math.round(numImages)));
+  const effectiveModelVariant =
+    provider === "gemini" ? modelVariant : DEFAULT_GEMINI_MODEL_VARIANT;
+  const isFlashModel = effectiveModelVariant === "flash";
 
   if (aspect !== "custom") {
     const aspectDefinition = getAspectDefinition(aspect);
@@ -298,9 +314,10 @@ export async function generateSeedream({
       payload.image_urls = effectiveInputImages.map((image) => image.url);
     }
 
+    const falModelPath = FAL_MODEL_PATH_BY_VARIANT[effectiveModelVariant];
     const endpoint = useEditEndpoint
-      ? "https://fal.run/fal-ai/gemini-3-pro-image-preview/edit"
-      : "https://fal.run/fal-ai/gemini-3-pro-image-preview";
+      ? `https://fal.run/${falModelPath}/edit`
+      : `https://fal.run/${falModelPath}`;
 
     const response = await fetchWithTimeout(
       endpoint,
@@ -339,6 +356,7 @@ export async function generateSeedream({
       quality,
       outputFormat,
       provider,
+      modelVariant: effectiveModelVariant,
       useGoogleSearch: effectiveGoogleSearch,
       createdAt: new Date().toISOString(),
       size,
@@ -370,10 +388,14 @@ export async function generateSeedream({
       ...(effectiveGoogleSearch ? { tools: [{ google_search: {} }] } : {}),
     };
 
-    // Use streaming endpoint to get real-time thought updates
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:streamGenerateContent?key=${encodeURIComponent(
-      resolvedApiKey,
-    )}&alt=sse`;
+    const geminiModelId = GEMINI_MODEL_ID_BY_VARIANT[effectiveModelVariant];
+    const endpoint = isFlashModel
+      ? `https://generativelanguage.googleapis.com/v1beta/models/${geminiModelId}:generateContent?key=${encodeURIComponent(
+          resolvedApiKey,
+        )}`
+      : `https://generativelanguage.googleapis.com/v1beta/models/${geminiModelId}:streamGenerateContent?key=${encodeURIComponent(
+          resolvedApiKey,
+        )}&alt=sse`;
 
     const requests = Array.from({ length: validNumImages }).map(async (_, imageIndex) => {
       const payload = {
@@ -423,13 +445,24 @@ export async function generateSeedream({
           throw new Error(`Gemini API Error (${response.status}): ${errorText}`);
         }
 
+        if (isFlashModel) {
+          const json = (await response.json()) as {
+            candidates?: { content?: { parts?: ResponsePart[] } }[];
+          };
+          const parts = json.candidates?.[0]?.content?.parts ?? [];
+          const result = extractImageAndThoughts(parts);
+          if (onThoughtsUpdate && result.thoughts) {
+            onThoughtsUpdate(imageIndex, result.thoughts);
+          }
+          return result;
+        }
+
         // Parse SSE stream
         const allParts: ResponsePart[] = [];
         const reader = response.body?.getReader();
         if (!reader) {
           throw new Error("No response body");
         }
-
         const decoder = new TextDecoder();
         let buffer = "";
 
@@ -505,6 +538,7 @@ export async function generateSeedream({
       quality,
       outputFormat,
       provider,
+      modelVariant: effectiveModelVariant,
       useGoogleSearch: effectiveGoogleSearch,
       createdAt: new Date().toISOString(),
       size,
