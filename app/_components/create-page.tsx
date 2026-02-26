@@ -7,8 +7,12 @@ import { debugLog } from "./create-page/logger";
 import { generateSeedream } from "../lib/generate-seedream";
 import {
   DEFAULT_GEMINI_MODEL_VARIANT,
+  DEFAULT_FLASH_REASONING_LEVEL,
   calculateImageSize,
+  getAspectOptionsForModel,
+  isFlashOnlyAspect,
   type AspectKey,
+  type FlashReasoningLevel,
   type GeminiModelVariant,
   type QualityKey,
   type Provider,
@@ -32,7 +36,7 @@ const defaultPrompt =
 const defaultAspect: AspectKey = "portrait-9-16";
 const defaultQuality: QualityKey = "2k";
 const defaultOutputFormat: OutputFormat = "png";
-const APP_VERSION = "1.0.1";
+const APP_VERSION = "1.2";
 
 const STORAGE_KEYS = {
   prompt: "seedream:prompt",
@@ -46,6 +50,7 @@ const STORAGE_KEYS = {
   spentCents: "seedream:spent_cents",
   geminiApiKey: "seedream:gemini_api_key",
   geminiModelVariant: "seedream:gemini_model_variant",
+  flashReasoningLevel: "seedream:flash_reasoning_level",
   googleSearchEnabled: "seedream:google_search_enabled",
 } as const;
 
@@ -62,10 +67,14 @@ const ATTACHMENT_ERROR_MESSAGES = new Set([
 
 const ASPECT_VALUES: AspectKey[] = [
   "square-1-1",
+  "portrait-1-4",
+  "portrait-1-8",
   "portrait-2-3",
   "portrait-3-4",
   "portrait-4-5",
   "portrait-9-16",
+  "landscape-4-1",
+  "landscape-8-1",
   "landscape-3-2",
   "landscape-4-3",
   "landscape-5-4",
@@ -195,6 +204,8 @@ export function CreatePage() {
   const [provider, setProvider] = useState<Provider>("fal");
   const [geminiModelVariant, setGeminiModelVariant] =
     useState<GeminiModelVariant>(DEFAULT_GEMINI_MODEL_VARIANT);
+  const [flashReasoningLevel, setFlashReasoningLevel] =
+    useState<FlashReasoningLevel>(DEFAULT_FLASH_REASONING_LEVEL);
   const [imageCount, setImageCount] = useState<number>(4);
   const [apiKey, setApiKey] = useState("");
   const [geminiApiKey, setGeminiApiKey] = useState("");
@@ -293,6 +304,10 @@ export function CreatePage() {
         const storedGeminiModelVariant = window.localStorage.getItem(STORAGE_KEYS.geminiModelVariant);
         if (storedGeminiModelVariant === "pro" || storedGeminiModelVariant === "flash") {
           setGeminiModelVariant(storedGeminiModelVariant);
+        }
+        const storedFlashReasoningLevel = window.localStorage.getItem(STORAGE_KEYS.flashReasoningLevel);
+        if (storedFlashReasoningLevel === "minimal" || storedFlashReasoningLevel === "high") {
+          setFlashReasoningLevel(storedFlashReasoningLevel);
         }
 
         const storedOutputFormat = window.localStorage.getItem(STORAGE_KEYS.outputFormat);
@@ -455,6 +470,7 @@ export function CreatePage() {
     safePersist(STORAGE_KEYS.outputFormat, outputFormat);
     safePersist(STORAGE_KEYS.provider, provider);
     safePersist(STORAGE_KEYS.geminiModelVariant, geminiModelVariant);
+    safePersist(STORAGE_KEYS.flashReasoningLevel, flashReasoningLevel);
     safePersist(STORAGE_KEYS.imageCount, String(imageCount));
     safePersist(STORAGE_KEYS.googleSearchEnabled, useGoogleSearch ? "true" : null);
 
@@ -470,11 +486,29 @@ export function CreatePage() {
     outputFormat,
     provider,
     geminiModelVariant,
+    flashReasoningLevel,
     imageCount,
     apiKey,
     geminiApiKey,
     useGoogleSearch,
   ]);
+
+  useEffect(() => {
+    const flashCompatible =
+      provider === "gemini" && geminiModelVariant === "flash";
+
+    if (flashCompatible) {
+      return;
+    }
+
+    if (!isFlashOnlyAspect(aspect)) {
+      return;
+    }
+
+    const fallbackAspect = getAspectOptionsForModel(provider, geminiModelVariant)
+      .find((option) => option.value === defaultAspect)?.value ?? defaultAspect;
+    setAspect(fallbackAspect);
+  }, [provider, geminiModelVariant, aspect]);
 
   useEffect(() => {
     if (!storageHydratedRef.current || typeof window === "undefined") {
@@ -823,6 +857,7 @@ export function CreatePage() {
       numImages: imageCount,
       provider,
       modelVariant: effectiveModelVariant,
+      flashReasoningLevel,
       outputFormat,
       apiKey: trimmedApiKey.length > 0 ? trimmedApiKey : undefined,
       geminiApiKey: trimmedGeminiApiKey.length > 0 ? trimmedGeminiApiKey : undefined,
@@ -1279,6 +1314,7 @@ export function CreatePage() {
         numImages,
         provider: generation.provider,
         modelVariant: retryModelVariant,
+        flashReasoningLevel,
         outputFormat: generation.outputFormat ?? defaultOutputFormat,
         apiKey: apiKey.trim() || undefined,
         geminiApiKey: geminiApiKey.trim() || undefined,
@@ -1336,7 +1372,7 @@ export function CreatePage() {
           });
         });
     },
-    [apiKey, geminiApiKey, generations],
+    [apiKey, flashReasoningLevel, geminiApiKey, generations],
   );
 
   const handleDeleteGeneration = useCallback(
@@ -1591,6 +1627,7 @@ export function CreatePage() {
               outputFormat={outputFormat}
               provider={provider}
               geminiModelVariant={geminiModelVariant}
+              flashReasoningLevel={flashReasoningLevel}
               useGoogleSearch={useGoogleSearch}
               imageCount={imageCount}
               apiKey={apiKey}
@@ -1606,6 +1643,7 @@ export function CreatePage() {
               onOutputFormatChange={setOutputFormat}
               onProviderChange={setProvider}
               onGeminiModelVariantChange={setGeminiModelVariant}
+              onFlashReasoningLevelChange={setFlashReasoningLevel}
               onToggleGoogleSearch={setUseGoogleSearch}
               onImageCountChange={setImageCount}
               onApiKeyChange={setApiKey}
