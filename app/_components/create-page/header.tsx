@@ -10,10 +10,11 @@ import type {
 } from "react";
 
 import {
-  ASPECT_OPTIONS,
+  getAspectOptionsForModel,
   QUALITY_OPTIONS,
   OUTPUT_FORMAT_OPTIONS,
   PROVIDER_OPTIONS,
+  type FlashReasoningLevel,
   type GeminiModelVariant,
   type QualityKey,
   type OutputFormat,
@@ -32,6 +33,7 @@ type HeaderProps = {
   outputFormat: OutputFormat;
   provider: Provider;
   geminiModelVariant: GeminiModelVariant;
+  flashReasoningLevel: FlashReasoningLevel;
   useGoogleSearch: boolean;
   imageCount: number;
   apiKey: string;
@@ -47,6 +49,7 @@ type HeaderProps = {
   onOutputFormatChange: (value: OutputFormat) => void;
   onProviderChange: (value: Provider) => void;
   onGeminiModelVariantChange: (value: GeminiModelVariant) => void;
+  onFlashReasoningLevelChange: (value: FlashReasoningLevel) => void;
   onToggleGoogleSearch: (value: boolean) => void;
   onImageCountChange: (value: number) => void;
   onApiKeyChange: (value: string) => void;
@@ -67,6 +70,7 @@ export function Header({
   outputFormat,
   provider,
   geminiModelVariant,
+  flashReasoningLevel,
   useGoogleSearch,
   imageCount,
   apiKey,
@@ -82,6 +86,7 @@ export function Header({
   onOutputFormatChange,
   onProviderChange,
   onGeminiModelVariantChange,
+  onFlashReasoningLevelChange,
   onToggleGoogleSearch,
   onImageCountChange,
   onApiKeyChange,
@@ -109,6 +114,7 @@ export function Header({
   const searchToggleDisabled = provider !== "gemini";
   const flashToggleDisabled = provider !== "gemini";
   const isFlashModel = geminiModelVariant === "flash";
+  const availableAspectOptions = getAspectOptionsForModel(provider, geminiModelVariant);
   const trimmedPrompt = prompt.trim();
   const generateDisabled = trimmedPrompt.length === 0 || isBudgetLocked;
   const shouldSubmitOnEnter = () => {
@@ -447,7 +453,7 @@ export function Header({
                   }}
                   className="appearance-none cursor-pointer rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] pl-3 pr-8 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:text-white hover:border-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-white/20 transition-colors"
                 >
-                  {ASPECT_OPTIONS.map((option) => (
+                  {availableAspectOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label} ({option.description})
                     </option>
@@ -470,7 +476,7 @@ export function Header({
                   }}
                   className="appearance-none cursor-pointer rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] pl-2 pr-6 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:text-white hover:border-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-white/20 transition-colors"
                 >
-                  {ASPECT_OPTIONS.map((option) => (
+                  {availableAspectOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.description.replace(/\s/g, "")}
                     </option>
@@ -659,6 +665,40 @@ export function Header({
                     <p className="text-[9px] leading-snug text-orange-400/80 text-center">
                       ⚠️ API calls may fail or incur charges; you are fully responsible for any usage.
                     </p>
+                  </div>
+                ) : null}
+
+                {provider === "gemini" && isFlashModel ? (
+                  <div className="space-y-2 md:col-span-2">
+                    <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                      Flash Reasoning
+                    </span>
+                    <div className="flex items-center rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => onFlashReasoningLevelChange("minimal")}
+                        className={`flex-1 rounded-md px-3 py-2 text-[10px] font-semibold uppercase tracking-wide transition-colors ${
+                          flashReasoningLevel === "minimal"
+                            ? "bg-[var(--text-primary)] text-black"
+                            : "text-[var(--text-secondary)] hover:text-white"
+                        }`}
+                        aria-pressed={flashReasoningLevel === "minimal"}
+                      >
+                        Minimal
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onFlashReasoningLevelChange("high")}
+                        className={`flex-1 rounded-md px-3 py-2 text-[10px] font-semibold uppercase tracking-wide transition-colors ${
+                          flashReasoningLevel === "high"
+                            ? "bg-[var(--text-primary)] text-black"
+                            : "text-[var(--text-secondary)] hover:text-white"
+                        }`}
+                        aria-pressed={flashReasoningLevel === "high"}
+                      >
+                        High
+                      </button>
+                    </div>
                   </div>
                 ) : null}
 

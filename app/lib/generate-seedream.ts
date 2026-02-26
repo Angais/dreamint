@@ -7,6 +7,7 @@ import {
   getQualityDefinition,
   type AspectKey,
   type GeminiModelVariant,
+  type FlashReasoningLevel,
   type QualityKey,
   type Provider,
   type OutputFormat,
@@ -45,6 +46,7 @@ export type GenerateSeedreamArgs = {
   numImages?: number;
   provider: Provider;
   modelVariant?: GeminiModelVariant;
+  flashReasoningLevel?: FlashReasoningLevel;
   apiKey?: string; // FAL Key
   geminiApiKey?: string; // Gemini API key (Generative Language)
   sizeOverride?: { width: number; height: number };
@@ -97,6 +99,7 @@ export async function generateSeedream({
   numImages = 4,
   provider,
   modelVariant = DEFAULT_GEMINI_MODEL_VARIANT,
+  flashReasoningLevel = "high",
   apiKey,
   geminiApiKey,
   sizeOverride,
@@ -172,10 +175,14 @@ export async function generateSeedream({
 
   const aspectRatioMap: Record<string, string> = {
     "square-1-1": "1:1",
+    "portrait-1-4": "1:4",
+    "portrait-1-8": "1:8",
     "portrait-2-3": "2:3",
     "portrait-3-4": "3:4",
     "portrait-4-5": "4:5",
     "portrait-9-16": "9:16",
+    "landscape-4-1": "4:1",
+    "landscape-8-1": "8:1",
     "landscape-3-2": "3:2",
     "landscape-4-3": "4:3",
     "landscape-5-4": "5:4",
@@ -442,7 +449,7 @@ export async function generateSeedream({
         },
         thinkingConfig: isFlashModel
           ? {
-              thinkingLevel: "High",
+              thinkingLevel: flashReasoningLevel === "minimal" ? "Minimal" : "High",
               includeThoughts: true,
             }
           : {

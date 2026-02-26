@@ -1,7 +1,9 @@
 export type Provider = "fal" | "gemini";
 export type OutputFormat = "png" | "jpeg" | "webp";
 export type GeminiModelVariant = "pro" | "flash";
+export type FlashReasoningLevel = "minimal" | "high";
 export const DEFAULT_GEMINI_MODEL_VARIANT: GeminiModelVariant = "pro";
+export const DEFAULT_FLASH_REASONING_LEVEL: FlashReasoningLevel = "high";
 
 export const PROVIDER_OPTIONS: { value: Provider; label: string }[] = [
   { value: "fal", label: "FAL.ai" },
@@ -10,10 +12,14 @@ export const PROVIDER_OPTIONS: { value: Provider; label: string }[] = [
 
 export type AspectKey =
   | "square-1-1"
+  | "portrait-1-4"
+  | "portrait-1-8"
   | "portrait-2-3"
   | "portrait-3-4"
   | "portrait-4-5"
   | "portrait-9-16"
+  | "landscape-4-1"
+  | "landscape-8-1"
   | "landscape-3-2"
   | "landscape-4-3"
   | "landscape-5-4"
@@ -53,6 +59,22 @@ export const ASPECT_OPTIONS: AspectDefinition[] = [
     orientation: "square",
   },
   {
+    value: "portrait-1-4",
+    label: "Banner",
+    description: "1 : 4",
+    widthRatio: 1,
+    heightRatio: 4,
+    orientation: "portrait",
+  },
+  {
+    value: "portrait-1-8",
+    label: "Ultra Tall",
+    description: "1 : 8",
+    widthRatio: 1,
+    heightRatio: 8,
+    orientation: "portrait",
+  },
+  {
     value: "portrait-2-3",
     label: "Classic",
     description: "2 : 3",
@@ -83,6 +105,22 @@ export const ASPECT_OPTIONS: AspectDefinition[] = [
     widthRatio: 9,
     heightRatio: 16,
     orientation: "portrait",
+  },
+  {
+    value: "landscape-4-1",
+    label: "Banner",
+    description: "4 : 1",
+    widthRatio: 4,
+    heightRatio: 1,
+    orientation: "ultrawide",
+  },
+  {
+    value: "landscape-8-1",
+    label: "Ultra Wide",
+    description: "8 : 1",
+    widthRatio: 8,
+    heightRatio: 1,
+    orientation: "ultrawide",
   },
   {
     value: "landscape-3-2",
@@ -126,6 +164,13 @@ export const ASPECT_OPTIONS: AspectDefinition[] = [
   },
 ];
 
+export const FLASH_ONLY_ASPECTS: AspectKey[] = [
+  "portrait-1-4",
+  "portrait-1-8",
+  "landscape-4-1",
+  "landscape-8-1",
+];
+
 export const QUALITY_OPTIONS: QualityDefinition[] = [
   {
     value: "1k",
@@ -155,6 +200,21 @@ export const OUTPUT_FORMAT_OPTIONS: OutputFormatDefinition[] = [
 
 export function getAspectDefinition(value: AspectKey): AspectDefinition | undefined {
   return ASPECT_OPTIONS.find((option) => option.value === value);
+}
+
+export function isFlashOnlyAspect(value: AspectKey): boolean {
+  return FLASH_ONLY_ASPECTS.includes(value);
+}
+
+export function getAspectOptionsForModel(
+  provider: Provider,
+  modelVariant: GeminiModelVariant,
+): AspectDefinition[] {
+  if (provider === "gemini" && modelVariant === "flash") {
+    return ASPECT_OPTIONS;
+  }
+
+  return ASPECT_OPTIONS.filter((option) => !isFlashOnlyAspect(option.value));
 }
 
 export function getQualityDefinition(value: QualityKey): QualityDefinition | undefined {

@@ -464,10 +464,14 @@ const ImageTile = memo(function ImageTile({
 
 const GRID_CLASS_MAP: Record<AspectKey, string> = {
   "square-1-1": "grid grid-cols-2 gap-0.5",
+  "portrait-1-4": "grid grid-cols-2 gap-0.5",
+  "portrait-1-8": "grid grid-cols-2 gap-0.5",
   "portrait-2-3": "grid grid-cols-2 gap-0.5",
   "portrait-3-4": "grid grid-cols-2 gap-0.5",
   "portrait-4-5": "grid grid-cols-2 gap-0.5",
   "portrait-9-16": "grid grid-cols-2 gap-0.5",
+  "landscape-4-1": "grid grid-cols-2 gap-0.5",
+  "landscape-8-1": "grid grid-cols-2 gap-0.5",
   "landscape-3-2": "grid grid-cols-2 gap-0.5",
   "landscape-4-3": "grid grid-cols-2 gap-0.5",
   "landscape-5-4": "grid grid-cols-2 gap-0.5",
@@ -477,10 +481,14 @@ const GRID_CLASS_MAP: Record<AspectKey, string> = {
 
 const TILE_CLASS_MAP: Record<AspectKey, string> = {
   "square-1-1": "relative aspect-square overflow-hidden",
+  "portrait-1-4": "relative aspect-[1/4] overflow-hidden",
+  "portrait-1-8": "relative aspect-[1/8] overflow-hidden",
   "portrait-2-3": "relative aspect-[2/3] overflow-hidden",
   "portrait-3-4": "relative aspect-[3/4] overflow-hidden",
   "portrait-4-5": "relative aspect-[4/5] overflow-hidden",
   "portrait-9-16": "relative aspect-[9/16] overflow-hidden",
+  "landscape-4-1": "relative aspect-[4/1] overflow-hidden",
+  "landscape-8-1": "relative aspect-[8/1] overflow-hidden",
   "landscape-3-2": "relative aspect-[3/2] overflow-hidden",
   "landscape-4-3": "relative aspect-[4/3] overflow-hidden",
   "landscape-5-4": "relative aspect-[5/4] overflow-hidden",
