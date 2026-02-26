@@ -5,7 +5,15 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 
 import { debugLog } from "./create-page/logger";
 import { generateSeedream } from "../lib/generate-seedream";
-import { calculateImageSize, type AspectKey, type QualityKey, type Provider, type OutputFormat } from "../lib/seedream-options";
+import {
+  DEFAULT_GEMINI_MODEL_VARIANT,
+  calculateImageSize,
+  type AspectKey,
+  type GeminiModelVariant,
+  type QualityKey,
+  type Provider,
+  type OutputFormat,
+} from "../lib/seedream-options";
 import { EmptyState } from "./create-page/empty-state";
 import { GenerationGroup } from "./create-page/generation-list";
 import { GalleryView } from "./create-page/gallery-view";
@@ -37,6 +45,7 @@ const STORAGE_KEYS = {
   budgetCents: "seedream:budget_cents",
   spentCents: "seedream:spent_cents",
   geminiApiKey: "seedream:gemini_api_key",
+  geminiModelVariant: "seedream:gemini_model_variant",
   googleSearchEnabled: "seedream:google_search_enabled",
 } as const;
 
@@ -184,6 +193,8 @@ export function CreatePage() {
   const [quality, setQuality] = useState<QualityKey>(defaultQuality);
   const [outputFormat, setOutputFormat] = useState<OutputFormat>(defaultOutputFormat);
   const [provider, setProvider] = useState<Provider>("fal");
+  const [geminiModelVariant, setGeminiModelVariant] =
+    useState<GeminiModelVariant>(DEFAULT_GEMINI_MODEL_VARIANT);
   const [imageCount, setImageCount] = useState<number>(4);
   const [apiKey, setApiKey] = useState("");
   const [geminiApiKey, setGeminiApiKey] = useState("");
@@ -279,6 +290,11 @@ export function CreatePage() {
           setProvider(storedProvider);
         }
 
+        const storedGeminiModelVariant = window.localStorage.getItem(STORAGE_KEYS.geminiModelVariant);
+        if (storedGeminiModelVariant === "pro" || storedGeminiModelVariant === "flash") {
+          setGeminiModelVariant(storedGeminiModelVariant);
+        }
+
         const storedOutputFormat = window.localStorage.getItem(STORAGE_KEYS.outputFormat);
         if (storedOutputFormat === "png" || storedOutputFormat === "jpeg" || storedOutputFormat === "webp") {
           setOutputFormat(storedOutputFormat);
@@ -334,6 +350,7 @@ export function CreatePage() {
               generationData.map((generation) => ({
                 ...generation,
                 outputFormat: generation.outputFormat ?? defaultOutputFormat,
+                modelVariant: generation.modelVariant ?? DEFAULT_GEMINI_MODEL_VARIANT,
               })),
             );
           }
@@ -342,6 +359,7 @@ export function CreatePage() {
               pendingData.map((pending) => ({
                 ...pending,
                 outputFormat: pending.outputFormat ?? defaultOutputFormat,
+                modelVariant: pending.modelVariant ?? DEFAULT_GEMINI_MODEL_VARIANT,
               })),
             );
           }
@@ -436,6 +454,7 @@ export function CreatePage() {
     safePersist(STORAGE_KEYS.quality, quality);
     safePersist(STORAGE_KEYS.outputFormat, outputFormat);
     safePersist(STORAGE_KEYS.provider, provider);
+    safePersist(STORAGE_KEYS.geminiModelVariant, geminiModelVariant);
     safePersist(STORAGE_KEYS.imageCount, String(imageCount));
     safePersist(STORAGE_KEYS.googleSearchEnabled, useGoogleSearch ? "true" : null);
 
@@ -450,6 +469,7 @@ export function CreatePage() {
     quality,
     outputFormat,
     provider,
+    geminiModelVariant,
     imageCount,
     apiKey,
     geminiApiKey,
@@ -534,6 +554,7 @@ export function CreatePage() {
           aspect: generation.aspect,
           quality: generation.quality,
           provider: generation.provider,
+          modelVariant: generation.modelVariant,
           outputFormat: generation.outputFormat,
           size: generation.size,
           inputImages: generation.inputImages ?? [],
@@ -739,6 +760,8 @@ export function CreatePage() {
     const pendingSize = calculateImageSize(aspect, quality);
     const inputImageSnapshot = attachmentInputImages.map((image) => ({ ...image }));
     const enableGoogleSearch = provider === "gemini" && useGoogleSearch;
+    const effectiveModelVariant =
+      provider === "gemini" ? geminiModelVariant : DEFAULT_GEMINI_MODEL_VARIANT;
 
     const pendingGeneration: Generation = {
       id: pendingId,
@@ -746,7 +769,8 @@ export function CreatePage() {
       aspect,
       quality,
       outputFormat,
-      provider, // Added provider here
+      provider,
+      modelVariant: effectiveModelVariant,
       useGoogleSearch: enableGoogleSearch,
       size: pendingSize,
       createdAt: new Date().toISOString(),
@@ -782,6 +806,7 @@ export function CreatePage() {
       inputImages: inputImageSnapshot.length,
       imageCount,
       googleSearch: enableGoogleSearch,
+      modelVariant: effectiveModelVariant,
     });
 
     // Initialize streaming thoughts for this generation
@@ -797,6 +822,7 @@ export function CreatePage() {
       quality,
       numImages: imageCount,
       provider,
+      modelVariant: effectiveModelVariant,
       outputFormat,
       apiKey: trimmedApiKey.length > 0 ? trimmedApiKey : undefined,
       geminiApiKey: trimmedGeminiApiKey.length > 0 ? trimmedGeminiApiKey : undefined,
@@ -926,6 +952,7 @@ export function CreatePage() {
       aspect: generation.aspect,
       quality: generation.quality,
       provider: generation.provider,
+      modelVariant: generation.modelVariant,
       outputFormat: generation.outputFormat,
       size: generation.size,
       inputImages: generation.inputImages ?? [],
@@ -1212,6 +1239,10 @@ export function CreatePage() {
       const inputImageSnapshot = generation.inputImages?.map((image) => ({ ...image })) ?? [];
       const enableGoogleSearch =
         generation.provider === "gemini" && Boolean(generation.useGoogleSearch);
+      const retryModelVariant =
+        generation.provider === "gemini"
+          ? generation.modelVariant ?? DEFAULT_GEMINI_MODEL_VARIANT
+          : DEFAULT_GEMINI_MODEL_VARIANT;
 
       const pendingGeneration: Generation = {
         ...generation,
@@ -1222,6 +1253,7 @@ export function CreatePage() {
         size: pendingSize,
         outputFormat: generation.outputFormat ?? defaultOutputFormat,
         useGoogleSearch: enableGoogleSearch,
+        modelVariant: retryModelVariant,
       };
 
       debugLog("pending:retry", {
@@ -1231,6 +1263,7 @@ export function CreatePage() {
         aspect: generation.aspect,
         quality: generation.quality,
         provider: generation.provider,
+        modelVariant: retryModelVariant,
         inputImages: inputImageSnapshot.length,
       });
 
@@ -1245,6 +1278,7 @@ export function CreatePage() {
         quality: generation.quality,
         numImages,
         provider: generation.provider,
+        modelVariant: retryModelVariant,
         outputFormat: generation.outputFormat ?? defaultOutputFormat,
         apiKey: apiKey.trim() || undefined,
         geminiApiKey: geminiApiKey.trim() || undefined,
@@ -1385,13 +1419,21 @@ export function CreatePage() {
   }, []);
 
   const handleUsePrompt = useCallback(
-    async (value: string, inputImages: Generation["inputImages"], googleSearchEnabled?: boolean) => {
+    async (
+      value: string,
+      inputImages: Generation["inputImages"],
+      googleSearchEnabled?: boolean,
+      modelVariant?: GeminiModelVariant,
+    ) => {
       setPrompt(value);
       setIsSettingsOpen(false);
 
       // Update Google Search toggle if provided (and provider allows it, essentially)
       if (typeof googleSearchEnabled === "boolean") {
         setUseGoogleSearch(googleSearchEnabled);
+      }
+      if (modelVariant === "pro" || modelVariant === "flash") {
+        setGeminiModelVariant(modelVariant);
       }
 
       if (inputImages.length > 0) {
@@ -1418,22 +1460,17 @@ export function CreatePage() {
   );
 
   const handleLightboxUsePrompt = useCallback(
-    (prompt: string, inputImages: Generation["inputImages"]) => {
-      // Find the entry that corresponds to the current lightbox selection to get search setting
-      // Since lightboxEntry is available in scope (from render), we could use it, 
-      // but this callback is passed to Lightbox which passes arguments back.
-      // Ideally Lightbox should pass the entry or we access entry here.
-      // However, handleLightboxUsePrompt is called from Lightbox with specific args.
-      // Let's update the signature in Lightbox or just access the state here.
-
-      const currentEntry = lightboxEntry; // accessing state from closure
-      const googleSearchEnabled = currentEntry?.prompt === prompt ? currentEntry.useGoogleSearch : undefined;
-
-      void handleUsePrompt(prompt, inputImages, googleSearchEnabled);
+    (
+      prompt: string,
+      inputImages: Generation["inputImages"],
+      googleSearchEnabled?: boolean,
+      modelVariant?: GeminiModelVariant,
+    ) => {
+      void handleUsePrompt(prompt, inputImages, googleSearchEnabled, modelVariant);
       setLightboxSelection(null);
       setView("create");
     },
-    [handleUsePrompt, setLightboxSelection, setView, lightboxEntry]
+    [handleUsePrompt, setLightboxSelection, setView]
   );
 
   return (
@@ -1510,8 +1547,8 @@ export function CreatePage() {
                       pendingIdSet={pendingIdSet}
                       streamingThoughts={streamingThoughts}
                       onExpand={handleExpand}
-                      onUsePrompt={(prompt, inputImages, useGoogleSearch) => {
-                        void handleUsePrompt(prompt, inputImages, useGoogleSearch);
+                      onUsePrompt={(prompt, inputImages, useGoogleSearch, modelVariant) => {
+                        void handleUsePrompt(prompt, inputImages, useGoogleSearch, modelVariant);
                       }}
                       onPreviewInputImage={handlePreviewInputImage}
                       onDeleteGeneration={handleDeleteGeneration}
@@ -1553,6 +1590,7 @@ export function CreatePage() {
               quality={quality}
               outputFormat={outputFormat}
               provider={provider}
+              geminiModelVariant={geminiModelVariant}
               useGoogleSearch={useGoogleSearch}
               imageCount={imageCount}
               apiKey={apiKey}
@@ -1567,6 +1605,7 @@ export function CreatePage() {
               onQualityChange={setQuality}
               onOutputFormatChange={setOutputFormat}
               onProviderChange={setProvider}
+              onGeminiModelVariantChange={setGeminiModelVariant}
               onToggleGoogleSearch={setUseGoogleSearch}
               onImageCountChange={setImageCount}
               onApiKeyChange={setApiKey}

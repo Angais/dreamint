@@ -1,5 +1,7 @@
 export type Provider = "fal" | "gemini";
 export type OutputFormat = "png" | "jpeg" | "webp";
+export type GeminiModelVariant = "pro" | "flash";
+export const DEFAULT_GEMINI_MODEL_VARIANT: GeminiModelVariant = "pro";
 
 export const PROVIDER_OPTIONS: { value: Provider; label: string }[] = [
   { value: "fal", label: "FAL.ai" },

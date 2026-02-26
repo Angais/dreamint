@@ -1,7 +1,7 @@
 import Image from "next/image";
 import { memo, useMemo, useState } from "react";
 
-import { type AspectKey } from "../../lib/seedream-options";
+import { type AspectKey, type GeminiModelVariant } from "../../lib/seedream-options";
 import { GenerationDetailsCard } from "./generation-details-card";
 import { CopyIcon, DownloadIcon, InfoIcon } from "./icons";
 import { debugLog } from "./logger";
@@ -14,7 +14,12 @@ type GenerationGroupProps = {
   pendingIdSet: Set<string>;
   streamingThoughts?: Map<string, (ImageThoughts | null)[]>;
   onExpand: (generationId: string, imageIndex: number) => void;
-  onUsePrompt: (prompt: string, inputImages: Generation["inputImages"], useGoogleSearch?: boolean) => void;
+  onUsePrompt: (
+    prompt: string,
+    inputImages: Generation["inputImages"],
+    useGoogleSearch?: boolean,
+    modelVariant?: GeminiModelVariant,
+  ) => void;
   onPreviewInputImage?: (image: Generation["inputImages"][number]) => void;
   onDeleteGeneration: (generationId: string) => void;
   onDeleteImage: (generationId: string, imageIndex: number) => void;

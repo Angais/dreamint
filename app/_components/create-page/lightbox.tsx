@@ -19,7 +19,12 @@ type LightboxProps = {
   onEdit?: () => void;
   onDelete?: () => void;
   canDelete?: boolean;
-  onUsePrompt?: (prompt: string, inputImages: Generation["inputImages"], useGoogleSearch?: boolean) => void;
+  onUsePrompt?: (
+    prompt: string,
+    inputImages: Generation["inputImages"],
+    useGoogleSearch?: boolean,
+    modelVariant?: GalleryEntry["modelVariant"],
+  ) => void;
 };
 
 export function Lightbox({
@@ -612,7 +617,14 @@ export function Lightbox({
               {onUsePrompt ? (
                 <button
                   type="button"
-                  onClick={() => onUsePrompt(entry.prompt, entry.inputImages, entry.useGoogleSearch)}
+                  onClick={() =>
+                    onUsePrompt(
+                      entry.prompt,
+                      entry.inputImages,
+                      entry.useGoogleSearch,
+                      entry.modelVariant,
+                    )
+                  }
                   className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-subtle)] hover:text-white hover:border-[var(--text-muted)]"
                 >
                   <ReuseIcon className="h-3.5 w-3.5" />

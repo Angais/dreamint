@@ -14,6 +14,7 @@ import {
   QUALITY_OPTIONS,
   OUTPUT_FORMAT_OPTIONS,
   PROVIDER_OPTIONS,
+  type GeminiModelVariant,
   type QualityKey,
   type OutputFormat,
   type Provider,
@@ -30,6 +31,7 @@ type HeaderProps = {
   quality: QualityKey;
   outputFormat: OutputFormat;
   provider: Provider;
+  geminiModelVariant: GeminiModelVariant;
   useGoogleSearch: boolean;
   imageCount: number;
   apiKey: string;
@@ -44,6 +46,7 @@ type HeaderProps = {
   onQualityChange: (value: QualityKey) => void;
   onOutputFormatChange: (value: OutputFormat) => void;
   onProviderChange: (value: Provider) => void;
+  onGeminiModelVariantChange: (value: GeminiModelVariant) => void;
   onToggleGoogleSearch: (value: boolean) => void;
   onImageCountChange: (value: number) => void;
   onApiKeyChange: (value: string) => void;
@@ -63,6 +66,7 @@ export function Header({
   quality,
   outputFormat,
   provider,
+  geminiModelVariant,
   useGoogleSearch,
   imageCount,
   apiKey,
@@ -77,6 +81,7 @@ export function Header({
   onQualityChange,
   onOutputFormatChange,
   onProviderChange,
+  onGeminiModelVariantChange,
   onToggleGoogleSearch,
   onImageCountChange,
   onApiKeyChange,
@@ -102,6 +107,8 @@ export function Header({
   // However, the button should be visible but disabled if provider != gemini?
   // Or just disable interaction.
   const searchToggleDisabled = provider !== "gemini";
+  const flashToggleDisabled = provider !== "gemini";
+  const isFlashModel = geminiModelVariant === "flash";
   const trimmedPrompt = prompt.trim();
   const generateDisabled = trimmedPrompt.length === 0 || isBudgetLocked;
   const shouldSubmitOnEnter = () => {
@@ -118,6 +125,12 @@ export function Header({
       return;
     }
     onToggleGoogleSearch(!useGoogleSearch);
+  };
+  const handleGeminiModelToggle = () => {
+    if (flashToggleDisabled) {
+      return;
+    }
+    onGeminiModelVariantChange(isFlashModel ? "pro" : "flash");
   };
 
   const handleAttachmentButtonClick = () => {
@@ -508,12 +521,34 @@ export function Header({
                       {count}x
                     </option>
                   ))}
-                </select>                        <div className="pointer-events-none absolute right-2 md:right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
+                </select>
+                <div className="pointer-events-none absolute right-2 md:right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
                   <svg width="8" height="5" viewBox="0 0 8 5" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M1 1L4 4L7 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </div>
               </div>
+
+              {/* Gemini Model Toggle */}
+              <button
+                type="button"
+                onClick={handleGeminiModelToggle}
+                disabled={flashToggleDisabled}
+                title={
+                  flashToggleDisabled
+                    ? "Flash model available with Gemini API"
+                    : isFlashModel
+                      ? "Using Gemini 3.1 Flash image model"
+                      : "Using Gemini 3 Pro image model"
+                }
+                className={`shrink-0 flex items-center justify-center rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors ${isFlashModel
+                  ? "bg-[var(--text-primary)] text-black border-[var(--text-primary)]"
+                  : "bg-[var(--bg-input)] text-[var(--text-secondary)] border-[var(--border-subtle)] hover:text-white hover:border-[var(--text-muted)]"
+                  } ${flashToggleDisabled ? "opacity-30 cursor-not-allowed" : "cursor-pointer"}`}
+                aria-label={isFlashModel ? "Switch to Gemini 3 Pro model" : "Switch to Gemini 3.1 Flash model"}
+              >
+                <LightningIcon className="h-4 w-4" />
+              </button>
 
               {/* Google Search Toggle Button */}
               <button
