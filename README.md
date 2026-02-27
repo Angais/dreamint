@@ -31,7 +31,7 @@ npm run dev
 
 ## Access protection (optional)
 - Set `ACCESS_PASSWORD` in your deploy environment to require a one-time password on first visit.
-- Successful unlock sets a signed, HttpOnly session cookie (12h TTL, auto-refresh) and enforces a 5-try lockout (10 minutes) on failures.
+- Successful unlock sets a signed, HttpOnly session cookie (30-day TTL, auto-refresh) and enforces a 5-try lockout (10 minutes) on failures.
 - If `ACCESS_PASSWORD` is unset, the gate is disabled.
 
 ## Using the app
