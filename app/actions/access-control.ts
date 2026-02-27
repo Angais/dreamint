@@ -4,7 +4,7 @@ import crypto from "crypto";
 import { cookies } from "next/headers";
 
 const ACCESS_PASSWORD = process.env.ACCESS_PASSWORD?.trim() ?? "";
-const TOKEN_TTL_MS = 1000 * 60 * 60 * 12; // 12 hours
+const TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
 const ACCESS_COOKIE = "dreamint-access";
 
 const ACCESS_DISABLED_RESPONSE = {
