@@ -25,6 +25,7 @@ import { Header } from "./create-page/header";
 import { Lightbox } from "./create-page/lightbox";
 import { AttachmentLightbox } from "./create-page/attachment-lightbox";
 import { createCollageBlob } from "./create-page/collage";
+import { convertBlobToOutputFormat, extensionFromMimeType } from "./create-page/download-utils";
 import { createId, groupByDate, normalizeImages } from "./create-page/utils";
 import type { GalleryEntry, Generation, ImageThoughts, PromptAttachment } from "./create-page/types";
 import { ThoughtsModal } from "./create-page/thoughts-modal";
@@ -190,8 +191,6 @@ function findClosestAspect(width: number, height: number): AspectKey {
 
   return closestAspect;
 }
-
-
 
 export function CreatePage() {
   const [view, setView] = useState<"create" | "gallery">("create");
@@ -949,10 +948,16 @@ export function CreatePage() {
       }
 
       const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
+      const requestedFormat = entry.outputFormat;
+      const downloadBlob = requestedFormat
+        ? await convertBlobToOutputFormat(blob, requestedFormat)
+        : blob;
+      const url = URL.createObjectURL(downloadBlob);
       const link = document.createElement("a");
-      const format = entry.outputFormat ?? "png";
-      const extension = format === "jpeg" ? "jpg" : format;
+      const mimeExtension = extensionFromMimeType(downloadBlob.type);
+      const format = requestedFormat ?? "png";
+      const fallbackExtension = format === "jpeg" ? "jpg" : format;
+      const extension = mimeExtension ?? fallbackExtension;
       link.href = url;
       link.download = `dreamint-${Date.now()}.${extension}`;
       document.body.appendChild(link);
