@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useCallback, useMemo, useState } from "react";
 import JSZip from "jszip";
+import { convertBlobToOutputFormat, extensionFromMimeType } from "./download-utils";
 import { CopyIcon, DownloadIcon, MagnifyingGlassIcon } from "./icons";
 import type { Generation } from "./types";
 import { useInfiniteScroll } from "./use-infinite-scroll";
@@ -41,6 +42,7 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
             index,
             src: thumbSrc,
             fullSrc,
+            outputFormat: gen.outputFormat,
             prompt: gen.prompt,
             aspect: gen.aspect,
             createdAt: gen.createdAt,
@@ -114,11 +116,6 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
 
     try {
       const zip = new JSZip();
-      const mimeToExt = (mime: string) => {
-        if (mime.includes("jpeg")) return "jpg";
-        if (mime.includes("webp")) return "webp";
-        return "png";
-      };
 
       await Promise.all(
         selectedItems.map(async (item, i) => {
@@ -126,10 +123,13 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
             const response = await fetch(item.fullSrc);
             if (!response.ok) return;
             const blob = await response.blob();
-            const ext = mimeToExt(blob.type);
+            const downloadBlob = item.outputFormat
+              ? await convertBlobToOutputFormat(blob, item.outputFormat)
+              : blob;
+            const ext = extensionFromMimeType(downloadBlob.type) ?? "png";
             const safeId = item.id.slice(0, 8);
             const filename = `dreamint-${safeId}-${item.index + 1}-${i + 1}.${ext}`;
-            zip.file(filename, blob);
+            zip.file(filename, downloadBlob);
           } catch (error) {
             console.error("Failed to add image to zip", error);
           }
