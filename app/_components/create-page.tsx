@@ -2081,13 +2081,13 @@ export function CreatePage() {
       >
         <NextImage
           src="/Dreaming.png"
-          alt="Dreamint logo"
+          alt="Dreamint (GPT) logo"
           width={28}
           height={28}
           className="h-7 w-7 rounded-md object-cover grayscale"
         />
         <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-white">
-          Dreamint
+          Dreamint (GPT)
         </span>
       </div>
 
