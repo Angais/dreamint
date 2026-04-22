@@ -143,7 +143,7 @@ export function AccessGuard({ protectionEnabled, children }: AccessGuardProps) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-neutral-950 px-4">
       <div className="w-full max-w-md rounded-xl border border-neutral-800 bg-neutral-900 px-6 py-7 shadow-xl">
-        <h1 className="text-xl font-semibold text-white">Private Access</h1>
+        <h1 className="text-xl font-semibold text-white">Access Required</h1>
         <p className="mt-2 text-sm text-neutral-300">
           Enter the access password to continue. This is stored locally so you will not be asked again
           on this browser.

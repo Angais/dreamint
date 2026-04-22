@@ -10,16 +10,23 @@ import type {
 } from "react";
 
 import {
+  OPENAI_MODEL_OPTIONS,
+  OPENAI_QUALITY_OPTIONS,
   getAspectOptionsForModel,
   QUALITY_OPTIONS,
   OUTPUT_FORMAT_OPTIONS,
   PROVIDER_OPTIONS,
+  type AspectSelection,
   type FlashReasoningLevel,
   type GeminiModelVariant,
-  type QualityKey,
+  type OpenAIModelSelection,
+  type OpenAIQuality,
+  type OpenAIResolutionMode,
+  type QualitySelection,
   type OutputFormat,
   type Provider,
 } from "../../lib/seedream-options";
+import type { OpenAIEstimatedCostBreakdown } from "../../lib/openai-image-costs";
 import { LightningIcon, MagnifyingGlassIcon, PlusIcon, SettingsIcon } from "./icons";
 import { AttachmentPreviewList } from "./attachment-preview";
 import type { PromptAttachment } from "./types";
@@ -28,11 +35,20 @@ import { resizeTextarea } from "./utils";
 type HeaderProps = {
   prompt: string;
   promptHistory: string[];
-  aspect: string;
-  quality: QualityKey;
+  aspect: AspectSelection;
+  quality: QualitySelection;
   outputFormat: OutputFormat;
   provider: Provider;
   geminiModelVariant: GeminiModelVariant;
+  openAIModel: OpenAIModelSelection;
+  openAIQuality: OpenAIQuality;
+  openAIApiKey: string;
+  openAIResolutionMode: OpenAIResolutionMode;
+  openAICustomWidth: string;
+  openAICustomHeight: string;
+  openAICustomSizeError: string | null;
+  openAIPresetSizeLabel: string;
+  estimatedOpenAICost: OpenAIEstimatedCostBreakdown | null;
   flashReasoningLevel: FlashReasoningLevel;
   useGoogleSearch: boolean;
   imageCount: number;
@@ -45,10 +61,16 @@ type HeaderProps = {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onPromptChange: (value: string) => void;
   onAspectSelect: (value: string) => void;
-  onQualityChange: (value: QualityKey) => void;
+  onQualityChange: (value: QualitySelection) => void;
   onOutputFormatChange: (value: OutputFormat) => void;
   onProviderChange: (value: Provider) => void;
   onGeminiModelVariantChange: (value: GeminiModelVariant) => void;
+  onOpenAIModelChange: (value: OpenAIModelSelection) => void;
+  onOpenAIQualityChange: (value: OpenAIQuality) => void;
+  onOpenAIApiKeyChange: (value: string) => void;
+  onOpenAIResolutionModeChange: (value: OpenAIResolutionMode) => void;
+  onOpenAICustomWidthChange: (value: string) => void;
+  onOpenAICustomHeightChange: (value: string) => void;
   onFlashReasoningLevelChange: (value: FlashReasoningLevel) => void;
   onToggleGoogleSearch: (value: boolean) => void;
   onImageCountChange: (value: number) => void;
@@ -60,6 +82,7 @@ type HeaderProps = {
   onRemoveAttachment: (attachmentId: string) => void;
   onPreviewAttachment: (attachment: PromptAttachment) => void;
   isAttachmentLimitReached: boolean;
+  canUseAutoQuality: boolean;
 };
 
 export function Header({
@@ -70,6 +93,15 @@ export function Header({
   outputFormat,
   provider,
   geminiModelVariant,
+  openAIModel,
+  openAIQuality,
+  openAIApiKey,
+  openAIResolutionMode,
+  openAICustomWidth,
+  openAICustomHeight,
+  openAICustomSizeError,
+  openAIPresetSizeLabel,
+  estimatedOpenAICost,
   flashReasoningLevel,
   useGoogleSearch,
   imageCount,
@@ -86,6 +118,12 @@ export function Header({
   onOutputFormatChange,
   onProviderChange,
   onGeminiModelVariantChange,
+  onOpenAIModelChange,
+  onOpenAIQualityChange,
+  onOpenAIApiKeyChange,
+  onOpenAIResolutionModeChange,
+  onOpenAICustomWidthChange,
+  onOpenAICustomHeightChange,
   onFlashReasoningLevelChange,
   onToggleGoogleSearch,
   onImageCountChange,
@@ -97,6 +135,7 @@ export function Header({
   onRemoveAttachment,
   onPreviewAttachment,
   isAttachmentLimitReached,
+  canUseAutoQuality,
 }: HeaderProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const toggleButtonRef = useRef<HTMLButtonElement>(null);
@@ -108,15 +147,48 @@ export function Header({
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
   const historyDraftRef = useRef("");
   const historyNavigationRef = useRef(false);
-  // Disabled state logic: only allow enabling search if Gemini is selected
-  // However, the button should be visible but disabled if provider != gemini?
-  // Or just disable interaction.
+  const isOpenAIProvider = provider === "openai";
   const searchToggleDisabled = provider !== "gemini";
-  const flashToggleDisabled = provider !== "gemini";
   const isFlashModel = geminiModelVariant === "flash";
   const availableAspectOptions = getAspectOptionsForModel(provider, geminiModelVariant);
+  const aspectSelectOptions = [
+    { value: "auto", label: "Auto", description: "Image" },
+    ...availableAspectOptions.map((option) => ({
+      value: option.value,
+      label: option.label,
+      description: option.description,
+    })),
+  ];
+  const providerModelValue = isOpenAIProvider ? openAIModel : geminiModelVariant;
+  const providerModelOptions = isOpenAIProvider
+    ? OPENAI_MODEL_OPTIONS
+    : [
+        { value: "pro", label: "3 Pro" },
+        { value: "flash", label: "3.1 Flash" },
+      ];
+  const qualitySelectValue = isOpenAIProvider ? openAIQuality : quality;
+  const qualitySelectOptions = isOpenAIProvider
+    ? OPENAI_QUALITY_OPTIONS
+    : QUALITY_OPTIONS.map((option) => ({
+        value: option.value,
+        label: option.label,
+      }));
+  const openAIResolutionOptions = [
+    ...(canUseAutoQuality ? [{ value: "auto", label: "Auto" }] : []),
+    ...QUALITY_OPTIONS.map((option) => ({
+      value: option.value,
+      label: option.label,
+    })),
+  ];
   const trimmedPrompt = prompt.trim();
   const generateDisabled = trimmedPrompt.length === 0 || isBudgetLocked;
+  const formatUsd = (value: number) =>
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: value < 0.01 ? 4 : 2,
+      maximumFractionDigits: value < 0.01 ? 4 : 2,
+    }).format(value);
   const shouldSubmitOnEnter = () => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
       return true;
@@ -132,11 +204,13 @@ export function Header({
     }
     onToggleGoogleSearch(!useGoogleSearch);
   };
-  const handleGeminiModelToggle = () => {
-    if (flashToggleDisabled) {
+  const handleModelChange = (value: string) => {
+    if (isOpenAIProvider) {
+      onOpenAIModelChange(value as OpenAIModelSelection);
       return;
     }
-    onGeminiModelVariantChange(isFlashModel ? "pro" : "flash");
+
+    onGeminiModelVariantChange(value as GeminiModelVariant);
   };
 
   const handleAttachmentButtonClick = () => {
@@ -387,7 +461,7 @@ export function Header({
   }, [isSettingsOpen, onToggleSettings]);
 
   return (
-    <header className="flex flex-col items-center justify-center gap-6 w-full max-w-3xl mx-auto transition-all duration-500 ease-out">
+    <header className="flex flex-col items-center justify-center gap-6 w-full max-w-4xl mx-auto transition-all duration-500 ease-out">
       <form ref={formRef} onSubmit={onSubmit} className="w-full flex flex-col gap-4">
 
         {/* Main Studio Input */}
@@ -453,7 +527,7 @@ export function Header({
                   }}
                   className="appearance-none cursor-pointer rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] pl-3 pr-8 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:text-white hover:border-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-white/20 transition-colors"
                 >
-                  {availableAspectOptions.map((option) => (
+                  {aspectSelectOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label} ({option.description})
                     </option>
@@ -476,9 +550,9 @@ export function Header({
                   }}
                   className="appearance-none cursor-pointer rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] pl-2 pr-6 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:text-white hover:border-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-white/20 transition-colors"
                 >
-                  {availableAspectOptions.map((option) => (
+                  {aspectSelectOptions.map((option) => (
                     <option key={option.value} value={option.value}>
-                      {option.description.replace(/\s/g, "")}
+                      {option.value === "auto" ? "Auto" : option.description.replace(/\s/g, "")}
                     </option>
                   ))}
                 </select>
@@ -489,17 +563,45 @@ export function Header({
                 </div>
               </div>
 
+              {isOpenAIProvider ? (
+                <div className="relative group/select shrink-0">
+                  <select
+                    value={quality}
+                    onChange={(event) => {
+                      onQualityChange(event.target.value as QualitySelection);
+                      promptTextareaRef.current?.focus();
+                    }}
+                    className="appearance-none cursor-pointer rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] pl-2 pr-6 md:pl-3 md:pr-8 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:text-white hover:border-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-white/20 transition-colors"
+                  >
+                    {openAIResolutionOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="pointer-events-none absolute right-2 md:right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
+                    <svg width="8" height="5" viewBox="0 0 8 5" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M1 1L4 4L7 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+                </div>
+              ) : null}
+
               {/* Quality Selector (Dropdown) */}
               <div className="relative group/select shrink-0">
                 <select
-                  value={quality}
+                  value={qualitySelectValue}
                   onChange={(event) => {
-                    onQualityChange(event.target.value as QualityKey);
+                    if (isOpenAIProvider) {
+                      onOpenAIQualityChange(event.target.value as OpenAIQuality);
+                    } else {
+                      onQualityChange(event.target.value as QualitySelection);
+                    }
                     promptTextareaRef.current?.focus();
                   }}
                   className="appearance-none cursor-pointer rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] pl-2 pr-6 md:pl-3 md:pr-8 py-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:text-white hover:border-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-white/20 transition-colors"
                 >
-                  {QUALITY_OPTIONS.map((option) => (
+                  {qualitySelectOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
@@ -535,40 +637,44 @@ export function Header({
                 </div>
               </div>
 
-              {/* Gemini Model Toggle */}
-              <button
-                type="button"
-                onClick={handleGeminiModelToggle}
-                disabled={flashToggleDisabled}
-                title={
-                  flashToggleDisabled
-                    ? "Flash model available with Gemini API"
-                    : isFlashModel
-                      ? "Using Gemini 3.1 Flash image model"
-                      : "Using Gemini 3 Pro image model"
-                }
-                className={`shrink-0 flex items-center justify-center rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors ${isFlashModel
-                  ? "bg-[var(--text-primary)] text-black border-[var(--text-primary)]"
-                  : "bg-[var(--bg-input)] text-[var(--text-secondary)] border-[var(--border-subtle)] hover:text-white hover:border-[var(--text-muted)]"
-                  } ${flashToggleDisabled ? "opacity-30 cursor-not-allowed" : "cursor-pointer"}`}
-                aria-label={isFlashModel ? "Switch to Gemini 3 Pro model" : "Switch to Gemini 3.1 Flash model"}
-              >
-                <LightningIcon className="h-4 w-4" />
-              </button>
+              {/* Model Selector */}
+              <div className="relative group/select shrink-0 max-w-[180px]">
+                <select
+                  value={providerModelValue}
+                  onChange={(event) => {
+                    handleModelChange(event.target.value);
+                    promptTextareaRef.current?.focus();
+                  }}
+                  className="w-full appearance-none cursor-pointer rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] pl-2 pr-6 md:pl-3 md:pr-8 py-1.5 text-xs font-semibold tracking-wide text-[var(--text-secondary)] hover:text-white hover:border-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-white/20 transition-colors"
+                >
+                  {providerModelOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute right-2 md:right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
+                  <svg width="8" height="5" viewBox="0 0 8 5" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M1 1L4 4L7 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </div>
+              </div>
 
               {/* Google Search Toggle Button */}
-              <button
-                type="button"
-                onClick={handleGoogleSearchToggle}
-                disabled={searchToggleDisabled}
-                title={searchToggleDisabled ? "Google Search using Gemini" : "Toggle Google Search"}
-                className={`shrink-0 flex items-center justify-center rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors ${useGoogleSearch
-                  ? "bg-[var(--text-primary)] text-black border-[var(--text-primary)]"
-                  : "bg-[var(--bg-input)] text-[var(--text-secondary)] border-[var(--border-subtle)] hover:text-white hover:border-[var(--text-muted)]"
-                  } ${searchToggleDisabled ? "opacity-30 cursor-not-allowed" : "cursor-pointer"}`}
-              >
-                <MagnifyingGlassIcon className="h-4 w-4" />
-              </button>
+              {provider === "gemini" ? (
+                <button
+                  type="button"
+                  onClick={handleGoogleSearchToggle}
+                  disabled={searchToggleDisabled}
+                  title={searchToggleDisabled ? "Google Search using Gemini" : "Toggle Google Search"}
+                  className={`shrink-0 flex items-center justify-center rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors ${useGoogleSearch
+                    ? "bg-[var(--text-primary)] text-black border-[var(--text-primary)]"
+                    : "bg-[var(--bg-input)] text-[var(--text-secondary)] border-[var(--border-subtle)] hover:text-white hover:border-[var(--text-muted)]"
+                    } ${searchToggleDisabled ? "opacity-30 cursor-not-allowed" : "cursor-pointer"}`}
+                >
+                  <MagnifyingGlassIcon className="h-4 w-4" />
+                </button>
+              ) : null}
 
               {/* Settings Toggle */}
               <button
@@ -584,38 +690,112 @@ export function Header({
               </button>
             </div>
 
-            <button
-              type="submit"
-              disabled={generateDisabled}
-              className="shrink-0 group relative flex items-center gap-2 rounded-xl bg-white px-4 py-2 md:px-6 text-sm font-bold text-black shadow-[0_0_20px_-5px_rgba(255,255,255,0.3)] transition-all hover:scale-[1.02] hover:shadow-[0_0_25px_-5px_rgba(255,255,255,0.5)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none disabled:grayscale"
-            >
-              <LightningIcon className="h-4 w-4" />
-              <span className="hidden md:inline">{isBudgetLocked ? "Limit Reached" : "Generate"}</span>
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              {isOpenAIProvider && estimatedOpenAICost ? (
+                <div className="group/price relative">
+                  <div className="cursor-default rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-1.5 text-right text-[11px] font-semibold text-[var(--text-primary)]">
+                    <div>{formatUsd(estimatedOpenAICost.totalCostUsd)}</div>
+                    <div className="text-[9px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
+                      Est.
+                    </div>
+                  </div>
+                  <div className="pointer-events-none absolute bottom-[calc(100%+10px)] right-0 z-30 hidden w-72 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-3 text-left shadow-2xl group-hover/price:block group-focus-within/price:block">
+                    <div className="mb-2 flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-[var(--text-muted)]">
+                          Estimated Cost
+                        </div>
+                        <div className="mt-1 text-sm font-semibold text-[var(--text-primary)]">
+                          {formatUsd(estimatedOpenAICost.totalCostUsd)}
+                        </div>
+                      </div>
+                      <div className="text-right text-[10px] text-[var(--text-muted)]">
+                        <div>
+                          {estimatedOpenAICost.size.width}×{estimatedOpenAICost.size.height}
+                        </div>
+                        <div>{estimatedOpenAICost.quality}</div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 text-[11px] text-[var(--text-secondary)]">
+                      <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span>Output</span>
+                          <span className="font-semibold text-[var(--text-primary)]">
+                            {formatUsd(estimatedOpenAICost.outputCostUsd)}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-[10px] text-[var(--text-muted)]">
+                          {estimatedOpenAICost.outputTokensPerImage.toLocaleString()} tokens/image
+                          {estimatedOpenAICost.imageCount > 1
+                            ? ` · ${estimatedOpenAICost.outputTokensTotal.toLocaleString()} total`
+                            : ""}
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2">
+                        <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--text-muted)]">
+                          Input
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span>Text</span>
+                          <span className="font-semibold text-[var(--text-primary)]">
+                            {formatUsd(estimatedOpenAICost.inputTextCostUsd)}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-[var(--text-muted)]">
+                          {estimatedOpenAICost.promptTextTokens.toLocaleString()} tokens
+                        </div>
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <span>Images</span>
+                          <span className="font-semibold text-[var(--text-primary)]">
+                            {formatUsd(estimatedOpenAICost.inputImageCostUsd)}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-[var(--text-muted)]">
+                          {estimatedOpenAICost.inputImageTokens.toLocaleString()} tokens
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              <button
+                type="submit"
+                disabled={generateDisabled}
+                className="group relative flex items-center gap-2 rounded-xl bg-white px-4 py-2 md:px-6 text-sm font-bold text-black shadow-[0_0_20px_-5px_rgba(255,255,255,0.3)] transition-all hover:scale-[1.02] hover:shadow-[0_0_25px_-5px_rgba(255,255,255,0.5)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none disabled:grayscale"
+              >
+                <LightningIcon className="h-4 w-4" />
+                <span className="hidden md:inline">{isBudgetLocked ? "Limit Reached" : "Generate"}</span>
+              </button>
+            </div>
           </div>
 
           {/* Settings Panel */}
           {isSettingsOpen ? (
             <div ref={panelRef} className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-20 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 shadow-2xl animate-in fade-in slide-in-from-bottom-1 duration-200">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Provider</span>
-                  <div className="flex gap-2">
-                    {PROVIDER_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => onProviderChange(opt.value)}
-                        className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-all ${provider === opt.value
-                          ? "border-[var(--text-primary)] bg-[var(--text-primary)] text-black"
-                          : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]"
-                          }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
+                {PROVIDER_OPTIONS.length > 1 ? (
+                  <div className="space-y-2">
+                    <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Provider</span>
+                    <div className="flex gap-2">
+                      {PROVIDER_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => onProviderChange(opt.value)}
+                          className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-all ${provider === opt.value
+                            ? "border-[var(--text-primary)] bg-[var(--text-primary)] text-black"
+                            : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]"
+                            }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                ) : null}
 
                 <div className="space-y-2">
                   <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Output Format</span>
@@ -665,6 +845,84 @@ export function Header({
                     <p className="text-[9px] leading-snug text-orange-400/80 text-center">
                       ⚠️ API calls may fail or incur charges; you are fully responsible for any usage.
                     </p>
+                  </div>
+                ) : null}
+
+                {provider === "openai" ? (
+                  <div className="space-y-2 md:col-span-2">
+                    <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">OpenAI API Key</span>
+                    <input
+                      value={openAIApiKey}
+                      onChange={(e) => onOpenAIApiKeyChange(e.target.value)}
+                      type="password"
+                      placeholder="sk-... (OpenAI API)"
+                      className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-secondary)] focus:border-white focus:text-white focus:outline-none transition-all"
+                    />
+                    <p className="text-[9px] leading-snug text-orange-400/80 text-center">
+                      API calls may fail or incur charges; you are fully responsible for any usage.
+                    </p>
+                  </div>
+                ) : null}
+
+                {provider === "openai" ? (
+                  <div className="space-y-2 md:col-span-2">
+                    <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                      Resolution
+                    </span>
+                    <div className="flex items-center rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => onOpenAIResolutionModeChange("preset")}
+                        className={`flex-1 rounded-md px-3 py-2 text-[10px] font-semibold uppercase tracking-wide transition-colors ${
+                          openAIResolutionMode === "preset"
+                            ? "bg-[var(--text-primary)] text-black"
+                            : "text-[var(--text-secondary)] hover:text-white"
+                        }`}
+                        aria-pressed={openAIResolutionMode === "preset"}
+                      >
+                        Preset
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onOpenAIResolutionModeChange("custom")}
+                        className={`flex-1 rounded-md px-3 py-2 text-[10px] font-semibold uppercase tracking-wide transition-colors ${
+                          openAIResolutionMode === "custom"
+                            ? "bg-[var(--text-primary)] text-black"
+                            : "text-[var(--text-secondary)] hover:text-white"
+                        }`}
+                        aria-pressed={openAIResolutionMode === "custom"}
+                      >
+                        Exact
+                      </button>
+                    </div>
+
+                    {openAIResolutionMode === "custom" ? (
+                      <>
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            value={openAICustomWidth}
+                            onChange={(event) => onOpenAICustomWidthChange(event.target.value)}
+                            inputMode="numeric"
+                            placeholder="Width"
+                            className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-secondary)] focus:border-white focus:text-white focus:outline-none transition-all"
+                          />
+                          <input
+                            value={openAICustomHeight}
+                            onChange={(event) => onOpenAICustomHeightChange(event.target.value)}
+                            inputMode="numeric"
+                            placeholder="Height"
+                            className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-secondary)] focus:border-white focus:text-white focus:outline-none transition-all"
+                          />
+                        </div>
+                        <p className={`text-[10px] leading-snug text-center ${openAICustomSizeError ? "text-red-400" : "text-[var(--text-muted)]"}`}>
+                          {openAICustomSizeError ?? "Use multiples of 16, keep the long edge below 3840px, and stay between 655,360 and 8,294,400 pixels."}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-[10px] leading-snug text-center text-[var(--text-muted)]">
+                        Preset size follows the aspect selector plus the 1K / 2K / 4K control. Current preset: {openAIPresetSizeLabel}.
+                      </p>
+                    )}
                   </div>
                 ) : null}
 

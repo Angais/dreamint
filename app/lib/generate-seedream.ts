@@ -2,16 +2,27 @@
 
 import {
   DEFAULT_GEMINI_MODEL_VARIANT,
+  DEFAULT_OPENAI_MODEL,
+  DEFAULT_OPENAI_QUALITY,
+  calculateOpenAIImageSize,
   calculateImageSize,
   getAspectDefinition,
+  getOpenAIImageSizeError,
   getQualityDefinition,
   type AspectKey,
   type GeminiModelVariant,
   type FlashReasoningLevel,
+  type OpenAIModel,
+  type OpenAIQuality,
   type QualityKey,
   type Provider,
   type OutputFormat,
 } from "./seedream-options";
+import {
+  normalizeOpenAIUsage,
+  type OpenAIEstimatedCostBreakdown,
+  type OpenAIUsageBreakdown,
+} from "./openai-image-costs";
 
 const MIN_IMAGE_DIMENSION = 512;
 const MAX_IMAGE_DIMENSION = 4096;
@@ -49,6 +60,9 @@ export type GenerateSeedreamArgs = {
   flashReasoningLevel?: FlashReasoningLevel;
   apiKey?: string; // FAL Key
   geminiApiKey?: string; // Gemini API key (Generative Language)
+  openAIApiKey?: string;
+  openAIModel?: OpenAIModel;
+  openAIQuality?: OpenAIQuality;
   sizeOverride?: { width: number; height: number };
   inputImages?: InputImage[];
   useGoogleSearch?: boolean;
@@ -66,12 +80,16 @@ export type SeedreamGeneration = {
   quality: QualityKey;
   outputFormat: OutputFormat;
   provider: Provider;
-  modelVariant: GeminiModelVariant;
+  modelVariant?: GeminiModelVariant;
+  openAIModel?: OpenAIModel;
+  openAIQuality?: OpenAIQuality;
   useGoogleSearch?: boolean;
   createdAt: string;
   size: { width: number; height: number };
   images: string[];
   inputImages: InputImage[];
+  estimatedOpenAICost?: OpenAIEstimatedCostBreakdown;
+  openAIUsage?: OpenAIUsageBreakdown | null;
   thoughts?: (ImageThoughts | null)[]; // Chain of thought per image
 };
 
@@ -102,6 +120,9 @@ export async function generateSeedream({
   flashReasoningLevel = "high",
   apiKey,
   geminiApiKey,
+  openAIApiKey,
+  openAIModel = DEFAULT_OPENAI_MODEL,
+  openAIQuality = DEFAULT_OPENAI_QUALITY,
   sizeOverride,
   inputImages = [],
   useGoogleSearch = false,
@@ -115,7 +136,7 @@ export async function generateSeedream({
 
   const validNumImages = Math.max(1, Math.min(4, Math.round(numImages)));
   const effectiveModelVariant =
-    provider === "gemini" ? modelVariant : DEFAULT_GEMINI_MODEL_VARIANT;
+    provider === "openai" ? DEFAULT_GEMINI_MODEL_VARIANT : modelVariant;
   const isFlashModel = effectiveModelVariant === "flash";
 
   if (aspect !== "custom") {
@@ -140,7 +161,12 @@ export async function generateSeedream({
       throw new Error("Custom resolution must be numeric.");
     }
 
-    if (
+    if (provider === "openai") {
+      const sizeError = getOpenAIImageSizeError({ width, height });
+      if (sizeError) {
+        throw new Error(sizeError);
+      }
+    } else if (
       width < MIN_IMAGE_DIMENSION ||
       width > MAX_IMAGE_DIMENSION ||
       height < MIN_IMAGE_DIMENSION ||
@@ -157,7 +183,7 @@ export async function generateSeedream({
       throw new Error("Custom aspect requires a size override.");
     }
 
-    size = calculateImageSize(aspect, quality);
+    size = provider === "openai" ? calculateOpenAIImageSize(aspect, quality) : calculateImageSize(aspect, quality);
   }
 
   const normalizedInputImages = inputImages
@@ -345,6 +371,95 @@ export async function generateSeedream({
 
     return { image: finalImage, thoughts };
   };
+
+  // --- OPENAI IMAGE API LOGIC ---
+  if (provider === "openai") {
+    const resolvedApiKey = (openAIApiKey ?? "").trim();
+    if (!resolvedApiKey) {
+      throw new Error("Missing OpenAI API key. Add one in settings.");
+    }
+
+    const response = await fetchWithTimeout(
+      "/api/openai/images",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          apiKey: resolvedApiKey,
+          prompt: trimmedPrompt,
+          model: openAIModel,
+          quality: openAIQuality,
+          outputFormat,
+          numImages: validNumImages,
+          size,
+          inputImages: effectiveInputImages,
+        }),
+        cache: "no-store",
+      },
+      DEFAULT_REQUEST_TIMEOUT_MS,
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+
+      try {
+        const errorJson = JSON.parse(errorText) as { error?: { message?: string } };
+        if (errorJson.error?.message) {
+          throw new Error(`OpenAI Image API Error: ${errorJson.error.message}`);
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith("OpenAI Image API Error")) {
+          throw error;
+        }
+      }
+
+      throw new Error(`OpenAI Image API Error (${response.status}): ${errorText}`);
+    }
+
+    const json = (await response.json()) as {
+      data?: Array<{ b64_json?: string; url?: string }>;
+      usage?: unknown;
+    };
+
+    const mimeType =
+      outputFormat === "jpeg"
+        ? "image/jpeg"
+        : outputFormat === "webp"
+        ? "image/webp"
+        : "image/png";
+    const images = (json.data ?? [])
+      .map((item) => {
+        if (typeof item?.b64_json === "string" && item.b64_json.length > 0) {
+          return `data:${mimeType};base64,${item.b64_json}`;
+        }
+        if (typeof item?.url === "string" && item.url.length > 0) {
+          return item.url;
+        }
+        return null;
+      })
+      .filter((image): image is string => typeof image === "string" && image.length > 0);
+
+    if (images.length === 0) {
+      throw new Error("No images returned from OpenAI.");
+    }
+
+    return {
+      prompt: trimmedPrompt,
+      aspect,
+      quality,
+      outputFormat,
+      provider,
+      openAIModel,
+      openAIQuality,
+      createdAt: new Date().toISOString(),
+      size,
+      images,
+      inputImages: effectiveInputImages,
+      openAIUsage: normalizeOpenAIUsage(json.usage),
+    };
+  }
 
   // --- FAL PROVIDER LOGIC ---
   if (provider === "fal") {

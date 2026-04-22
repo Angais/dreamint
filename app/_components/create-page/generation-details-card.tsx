@@ -3,11 +3,15 @@
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import {
+  DEFAULT_OPENAI_QUALITY,
   getAspectDescription,
+  getOpenAIQualityLabel,
+  getProviderModelLabel,
   getQualityLabel,
 } from "../../lib/seedream-options";
 import { formatDisplayDate } from "./utils";
-import type { Generation } from "./types";
+import { useResolvedImageSource } from "./use-resolved-image-source";
+import type { Generation, ReusePromptOptions } from "./types";
 import { LightningIcon, ReuseIcon, ShareIcon, SpinnerIcon } from "./icons";
 
 // Simple Trash Icon for the delete button
@@ -68,12 +72,7 @@ function deriveAspectLabel(size: { width: number; height: number }): string {
 type GenerationDetailsCardProps = {
   generation: Generation | null;
   isGenerating: boolean;
-  onUsePrompt: (
-    prompt: string,
-    inputImages: Generation["inputImages"],
-    useGoogleSearch?: boolean,
-    modelVariant?: Generation["modelVariant"],
-  ) => void;
+  onUsePrompt: (prompt: string, inputImages: Generation["inputImages"], options?: ReusePromptOptions) => void;
   onPreviewInputImage?: (image: Generation["inputImages"][number]) => void;
   onDeleteGeneration?: (generationId: string) => void;
   onShareCollage?: (generationId: string) => Promise<boolean>;
@@ -103,7 +102,9 @@ export function GenerationDetailsCard({
 
   // Get simple aspect ratio e.g. "16:9" from description like "16 : 9"
   const aspectLabel = generation
-    ? generation.aspect === "custom"
+    ? generation.aspectSelection === "auto"
+      ? getAspectDescription(generation.aspectSelection)
+      : generation.aspect === "custom"
       ? deriveAspectLabel(generation.size)
       : getAspectDescription(generation.aspect).replace(/\s/g, "")
     : null;
@@ -171,9 +172,20 @@ export function GenerationDetailsCard({
           <span>Ready</span>
         )}
 
-        {generation && !isGenerating && !isInterrupted && (
-          <span className="text-[var(--text-secondary)]">{getQualityLabel(generation.quality)}</span>
-        )}
+        {generation && !isGenerating && !isInterrupted ? (
+          <span className="text-right text-[var(--text-secondary)]">
+            <span>
+              {generation.provider === "openai"
+                ? getOpenAIQualityLabel(generation.openAIQuality ?? DEFAULT_OPENAI_QUALITY)
+                : getQualityLabel(generation.quality)}
+            </span>
+            {typeof generation.durationMs === "number" ? (
+              <span className="block text-[9px] uppercase tracking-wide text-[var(--text-muted)]">
+                {(generation.durationMs / 1000).toFixed(1)}s
+              </span>
+            ) : null}
+          </span>
+        ) : null}
       </div>
 
       {/* Prompt Body or Error */}
@@ -214,23 +226,11 @@ export function GenerationDetailsCard({
       {generation && validInputImages.length ? (
         <div className="flex flex-wrap gap-1.5 pt-1 border-t border-[var(--border-subtle)]">
           {validInputImages.map((image, index) => (
-            <button
+            <ResolvedInputImageButton
               key={`${generation.id}-input-${image.id ? image.id : "ref"}-${index}`}
-              type="button"
+              image={image}
               onClick={() => onPreviewInputImage?.(image)}
-              className="relative block h-8 w-8 overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] transition-transform hover:scale-110 hover:border-[var(--text-muted)] focus:outline-none"
-              title="View reference image"
-            >
-              <Image
-                src={image.url}
-                alt={image.name || "Reference image"}
-                width={32}
-                height={32}
-                unoptimized
-                className="h-full w-full object-cover opacity-80 hover:opacity-100"
-                draggable={false}
-              />
-            </button>
+            />
           ))}
         </div>
       ) : null}
@@ -241,16 +241,21 @@ export function GenerationDetailsCard({
           {/* Tech Badges */}
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
-              {getQualityLabel(generation.quality)}
+              {getQualityLabel(generation.qualitySelection ?? generation.quality)}
             </span>
+            {generation.provider === "openai" ? (
+              <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
+                {getOpenAIQualityLabel(generation.openAIQuality ?? DEFAULT_OPENAI_QUALITY)}
+              </span>
+            ) : null}
             <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
               {aspectLabel ?? "Custom"}
             </span>
             <span className="inline-flex items-center gap-1 rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
-              {generation.modelVariant === "flash" ? (
+              {generation.provider !== "openai" && generation.modelVariant === "flash" ? (
                 <LightningIcon className="h-2.5 w-2.5" />
               ) : null}
-              {generation.modelVariant === "flash" ? "3.1 Flash" : "3 Pro"}
+              {getProviderModelLabel(generation.provider, generation.modelVariant, generation.openAIModel)}
             </span>
             {generation.useGoogleSearch ? (
               <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
@@ -267,8 +272,17 @@ export function GenerationDetailsCard({
                 onUsePrompt(
                   generation.prompt,
                   validInputImages,
-                  generation.useGoogleSearch,
-                  generation.modelVariant,
+                  {
+                    provider: generation.provider,
+                    useGoogleSearch: generation.useGoogleSearch,
+                    modelVariant: generation.modelVariant,
+                    openAIModel: generation.openAIModel,
+                    openAIQuality: generation.openAIQuality,
+                    aspectSelection: generation.aspectSelection,
+                    qualitySelection: generation.qualitySelection,
+                    aspect: generation.aspect,
+                    size: generation.size,
+                  },
                 )
               }
               className="flex items-center justify-center h-6 w-6 rounded hover:bg-[var(--bg-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
@@ -331,5 +345,40 @@ export function GenerationDetailsCard({
         </div>
       )}
     </section>
+  );
+}
+
+function ResolvedInputImageButton({
+  image,
+  onClick,
+}: {
+  image: Generation["inputImages"][number];
+  onClick: () => void;
+}) {
+  const { resolvedSource, isResolving } = useResolvedImageSource(image.url);
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="relative block h-8 w-8 overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] transition-transform hover:scale-110 hover:border-[var(--text-muted)] focus:outline-none"
+      title="View reference image"
+    >
+      {resolvedSource ? (
+        <Image
+          src={resolvedSource}
+          alt={image.name || "Reference image"}
+          width={32}
+          height={32}
+          unoptimized={resolvedSource.startsWith("blob:") || resolvedSource.startsWith("data:")}
+          className="h-full w-full object-cover opacity-80 hover:opacity-100"
+          draggable={false}
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-[8px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+          {isResolving ? "..." : "N/A"}
+        </div>
+      )}
+    </button>
   );
 }
