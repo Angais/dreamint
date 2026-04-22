@@ -99,12 +99,14 @@ const ATTACHMENT_ERROR_MESSAGES = new Set([
 
 const ASPECT_VALUES: AspectKey[] = [
   "square-1-1",
+  "portrait-1-2",
   "portrait-1-4",
   "portrait-1-8",
   "portrait-2-3",
   "portrait-3-4",
   "portrait-4-5",
   "portrait-9-16",
+  "landscape-2-1",
   "landscape-4-1",
   "landscape-8-1",
   "landscape-3-2",

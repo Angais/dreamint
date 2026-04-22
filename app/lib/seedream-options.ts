@@ -19,12 +19,14 @@ export const PROVIDER_OPTIONS: { value: Provider; label: string }[] = [
 
 export type AspectKey =
   | "square-1-1"
+  | "portrait-1-2"
   | "portrait-1-4"
   | "portrait-1-8"
   | "portrait-2-3"
   | "portrait-3-4"
   | "portrait-4-5"
   | "portrait-9-16"
+  | "landscape-2-1"
   | "landscape-4-1"
   | "landscape-8-1"
   | "landscape-3-2"
@@ -78,6 +80,14 @@ export const ASPECT_OPTIONS: AspectDefinition[] = [
     orientation: "square",
   },
   {
+    value: "portrait-1-2",
+    label: "Tall",
+    description: "1 : 2",
+    widthRatio: 1,
+    heightRatio: 2,
+    orientation: "portrait",
+  },
+  {
     value: "portrait-1-4",
     label: "Banner",
     description: "1 : 4",
@@ -124,6 +134,14 @@ export const ASPECT_OPTIONS: AspectDefinition[] = [
     widthRatio: 9,
     heightRatio: 16,
     orientation: "portrait",
+  },
+  {
+    value: "landscape-2-1",
+    label: "Wide",
+    description: "2 : 1",
+    widthRatio: 2,
+    heightRatio: 1,
+    orientation: "landscape",
   },
   {
     value: "landscape-4-1",
