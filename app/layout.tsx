@@ -3,8 +3,8 @@ import "./globals.css";
 import { AccessGuard } from "./_components/access-guard";
 
 export const metadata: Metadata = {
-  title: "Dreamint",
-  description: "Craft image generations with Dreamint.",
+  title: "Dreamint (GPT)",
+  description: "Craft image generations with Dreamint (GPT).",
   icons: {
     icon: "/Dreaming.png",
   },
