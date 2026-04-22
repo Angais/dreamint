@@ -2,10 +2,20 @@ import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import type { WheelEvent } from "react";
 
-import { getAspectDescription, getQualityLabel } from "../../lib/seedream-options";
+import { calculateOpenAIActualCost } from "../../lib/openai-image-costs";
+import {
+  DEFAULT_OPENAI_QUALITY,
+  formatResolution,
+  getAspectDescription,
+  getOpenAIQualityLabel,
+  getProviderModelLabel,
+  getQualityLabel,
+} from "../../lib/seedream-options";
 import { CompareSlider } from "./compare-slider";
 import { ArrowLeftIcon, ArrowRightIcon, DownloadIcon, InfoIcon, PlusIcon, ReuseIcon, SpinnerIcon, XIcon } from "./icons";
-import type { GalleryEntry, Generation } from "./types";
+import { isStoredAssetRef, resolveStoredAssetUrl } from "./storage";
+import type { GalleryEntry, Generation, ReusePromptOptions } from "./types";
+import { useResolvedImageSource } from "./use-resolved-image-source";
 
 type LightboxProps = {
   entry: GalleryEntry;
@@ -19,13 +29,43 @@ type LightboxProps = {
   onEdit?: () => void;
   onDelete?: () => void;
   canDelete?: boolean;
-  onUsePrompt?: (
-    prompt: string,
-    inputImages: Generation["inputImages"],
-    useGoogleSearch?: boolean,
-    modelVariant?: GalleryEntry["modelVariant"],
-  ) => void;
+  onUsePrompt?: (prompt: string, inputImages: Generation["inputImages"], options?: ReusePromptOptions) => void;
 };
+
+function formatGenerationDuration(durationMs: number): string {
+  const totalSeconds = durationMs / 1000;
+
+  if (totalSeconds < 10) {
+    const rounded = Math.round(totalSeconds * 10) / 10;
+    return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1)}s`;
+  }
+
+  if (totalSeconds < 60) {
+    return `${Math.round(totalSeconds)}s`;
+  }
+
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.round(totalSeconds % 60);
+
+  if (seconds === 60) {
+    return `${minutes + 1}m`;
+  }
+
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+function formatUsd(value: number | null): string {
+  if (value === null) {
+    return "Unavailable";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: value < 0.01 ? 4 : 2,
+    maximumFractionDigits: value < 0.01 ? 4 : 2,
+  }).format(value);
+}
 
 export function Lightbox({
   entry,
@@ -52,7 +92,7 @@ export function Lightbox({
     }
     return window.matchMedia("(min-width: 768px)").matches;
   };
-  const [showDetails, setShowDetails] = useState(shouldShowDetailsOnOpen);
+  const [showDetails, setShowDetails] = useState(true);
 
   const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
   const isDragging = useRef(false);
@@ -68,6 +108,8 @@ export function Lightbox({
   });
 
   const hasReferences = entry.inputImages && entry.inputImages.length > 0;
+  const { resolvedSource, isResolving } = useResolvedImageSource(entry.src);
+  const actualOpenAICost = calculateOpenAIActualCost(entry.openAIUsage ?? null);
 
   useEffect(() => {
     setIsCompareMode(false);
@@ -297,6 +339,7 @@ export function Lightbox({
   const handleDownloadComparison = async () => {
     if (!hasReferences || !isCompareMode) return;
     setIsDownloadingComparison(true);
+    const temporaryUrls: string[] = [];
 
     try {
       const originalUrl = entry.inputImages[selectedReferenceIndex].url;
@@ -312,9 +355,22 @@ export function Lightbox({
         img.src = url;
       });
 
+      const resolveUrl = async (value: string) => {
+        const nextUrl = await resolveStoredAssetUrl(value);
+        if (nextUrl.startsWith("blob:") && isStoredAssetRef(value)) {
+          temporaryUrls.push(nextUrl);
+        }
+        return nextUrl;
+      };
+
+      const [resolvedOriginalUrl, resolvedGeneratedUrl] = await Promise.all([
+        resolveUrl(originalUrl),
+        resolveUrl(generatedUrl),
+      ]);
+
       const [imgOriginal, imgGenerated] = await Promise.all([
-        loadImage(originalUrl),
-        loadImage(generatedUrl)
+        loadImage(resolvedOriginalUrl),
+        loadImage(resolvedGeneratedUrl),
       ]);
 
       const canvas = document.createElement('canvas');
@@ -363,6 +419,7 @@ export function Lightbox({
       console.error("Failed to download comparison", e);
     } finally {
       setIsDownloadingComparison(false);
+      temporaryUrls.forEach((url) => URL.revokeObjectURL(url));
     }
   };
 
@@ -429,15 +486,22 @@ export function Lightbox({
                 />
               </div>
             ) : (
-              <Image
-                src={entry.src}
-                alt={entry.prompt}
-                width={entry.size.width}
-                height={entry.size.height}
-                className="max-h-full w-auto max-w-full select-none object-contain shadow-lg"
-                draggable={false}
-                priority
-              />
+              resolvedSource ? (
+                <Image
+                  src={resolvedSource}
+                  alt={entry.prompt}
+                  width={entry.size.width}
+                  height={entry.size.height}
+                  className="max-h-full w-auto max-w-full select-none object-contain shadow-lg"
+                  draggable={false}
+                  priority
+                  unoptimized={resolvedSource.startsWith("blob:") || resolvedSource.startsWith("data:")}
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-xs font-semibold uppercase tracking-wide text-white/60">
+                  {isResolving ? "Loading" : "Unavailable"}
+                </div>
+              )
             )}
           </div>
 
@@ -509,19 +573,89 @@ export function Lightbox({
               {entry.prompt}
             </p>
 
-            <div className={`grid gap-3 text-xs text-[var(--text-secondary)] mb-3 md:mb-6 ${entry.useGoogleSearch ? "grid-cols-3" : "grid-cols-2"}`}>
-              <div className="p-2 rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)]">
-                <span className="block text-[10px] uppercase tracking-wide opacity-60 mb-1">Aspect</span>
-                {getAspectDescription(entry.aspect)}
+            <div className="grid grid-cols-2 gap-3 text-xs text-[var(--text-secondary)] mb-3 md:mb-6">
+              <div className="min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
+                <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Aspect</span>
+                <div className="text-base leading-tight font-medium text-[var(--text-primary)]">
+                  {getAspectDescription(entry.aspectSelection ?? entry.aspect)}
+                </div>
               </div>
-              <div className="p-2 rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)]">
-                <span className="block text-[10px] uppercase tracking-wide opacity-60 mb-1">Quality</span>
-                {getQualityLabel(entry.quality)}
+              <div className="min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
+                <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Size</span>
+                <div className="text-base leading-tight font-medium text-[var(--text-primary)]">
+                  {formatResolution(entry.size)}
+                </div>
               </div>
+              <div className="min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
+                <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Quality</span>
+                <div className="text-base leading-tight font-medium text-[var(--text-primary)]">
+                  {entry.provider === "openai"
+                    ? getOpenAIQualityLabel(entry.openAIQuality ?? DEFAULT_OPENAI_QUALITY)
+                    : getQualityLabel(entry.qualitySelection ?? entry.quality)}
+                </div>
+              </div>
+              {typeof entry.durationMs === "number" && entry.durationMs >= 0 ? (
+                <div className="min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
+                  <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Time</span>
+                  <div className="text-base leading-tight font-medium text-[var(--text-primary)]">
+                    {formatGenerationDuration(entry.durationMs)}
+                  </div>
+                </div>
+              ) : null}
               {entry.useGoogleSearch ? (
-                <div className="p-2 rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)]">
-                  <span className="block text-[10px] uppercase tracking-wide opacity-60 mb-1">Search</span>
-                  Google
+                <div className="min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
+                  <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Search</span>
+                  <div className="text-base leading-tight font-medium text-[var(--text-primary)]">
+                    Google
+                  </div>
+                </div>
+              ) : null}
+              <div className="col-span-2 min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
+                <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Model</span>
+                <div className="text-base leading-snug font-medium text-[var(--text-primary)] break-all">
+                  {getProviderModelLabel(entry.provider, entry.modelVariant, entry.openAIModel)}
+                </div>
+              </div>
+              {entry.provider === "openai" && entry.openAIUsage ? (
+                <div className="col-span-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
+                  <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Cost</span>
+                  <div className="space-y-1 text-[13px] text-[var(--text-secondary)]">
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Input</span>
+                      <span className="font-medium text-[var(--text-primary)]">
+                        {formatUsd(actualOpenAICost.inputCostUsd)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Output</span>
+                      <span className="font-medium text-[var(--text-primary)]">
+                        {formatUsd(actualOpenAICost.outputCostUsd)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 border-t border-[var(--border-subtle)] pt-2">
+                      <span>Total</span>
+                      <span className="font-medium text-[var(--text-primary)]">
+                        {formatUsd(actualOpenAICost.totalCostUsd)}
+                      </span>
+                    </div>
+                    <div className="pt-1 text-[11px] text-[var(--text-muted)]">
+                      {entry.openAIUsage.inputTokens !== null
+                        ? `${entry.openAIUsage.inputTokens.toLocaleString()} input`
+                        : null}
+                      {entry.openAIUsage.inputTokens !== null && entry.openAIUsage.outputTokens !== null
+                        ? " · "
+                        : null}
+                      {entry.openAIUsage.outputTokens !== null
+                        ? `${entry.openAIUsage.outputTokens.toLocaleString()} output`
+                        : null}
+                      {entry.openAIUsage.inputTextTokens !== null
+                        ? ` · ${entry.openAIUsage.inputTextTokens.toLocaleString()} text`
+                        : null}
+                      {entry.openAIUsage.inputImageTokens !== null
+                        ? ` · ${entry.openAIUsage.inputImageTokens.toLocaleString()} image`
+                        : null}
+                    </div>
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -595,18 +729,12 @@ export function Lightbox({
                 {isCompareMode && entry.inputImages.length > 1 ? (
                   <div className="grid grid-cols-4 gap-2 rounded-lg bg-[var(--bg-subtle)] p-2">
                     {entry.inputImages.map((img, idx) => (
-                      <button
-                        type="button"
+                      <ReferencePickerTile
                         key={`${entry.generationId}-input-${img.id ? img.id : "ref"}-${idx}`}
+                        image={img}
+                        isSelected={selectedReferenceIndex === idx}
                         onClick={() => setSelectedReferenceIndex(idx)}
-                        className={`relative aspect-square overflow-hidden rounded-md border-2 transition-all ${selectedReferenceIndex === idx
-                          ? "border-[var(--accent-primary)] opacity-100"
-                          : "border-transparent opacity-50 hover:opacity-100"
-                          }`}
-                        title={img.name}
-                      >
-                        <Image src={img.url} alt={img.name} fill className="object-cover" sizes="60px" />
-                      </button>
+                      />
                     ))}
                   </div>
                 ) : null}
@@ -621,8 +749,17 @@ export function Lightbox({
                     onUsePrompt(
                       entry.prompt,
                       entry.inputImages,
-                      entry.useGoogleSearch,
-                      entry.modelVariant,
+                      {
+                        provider: entry.provider,
+                        useGoogleSearch: entry.useGoogleSearch,
+                        modelVariant: entry.modelVariant,
+                        openAIModel: entry.openAIModel,
+                        openAIQuality: entry.openAIQuality,
+                        aspectSelection: entry.aspectSelection,
+                        qualitySelection: entry.qualitySelection,
+                        aspect: entry.aspect,
+                        size: entry.size,
+                      },
                     )
                   }
                   className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-subtle)] hover:text-white hover:border-[var(--text-muted)]"
@@ -647,5 +784,45 @@ export function Lightbox({
         </div>
       </div>
     </div>
+  );
+}
+
+function ReferencePickerTile({
+  image,
+  isSelected,
+  onClick,
+}: {
+  image: Generation["inputImages"][number];
+  isSelected: boolean;
+  onClick: () => void;
+}) {
+  const { resolvedSource, isResolving } = useResolvedImageSource(image.url);
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`relative aspect-square overflow-hidden rounded-md border-2 transition-all ${
+        isSelected
+          ? "border-[var(--accent-primary)] opacity-100"
+          : "border-transparent opacity-50 hover:opacity-100"
+      }`}
+      title={image.name}
+    >
+      {resolvedSource ? (
+        <Image
+          src={resolvedSource}
+          alt={image.name}
+          fill
+          className="object-cover"
+          sizes="60px"
+          unoptimized={resolvedSource.startsWith("blob:") || resolvedSource.startsWith("data:")}
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold uppercase tracking-wide text-white/60">
+          {isResolving ? "..." : "N/A"}
+        </div>
+      )}
+    </button>
   );
 }

@@ -1,6 +1,6 @@
 # Dreamint
 
-Dreamint is a browser-based workspace for generating and editing images with the Gemini 3 Pro Image Preview model on FAL or the Gemini API. It focuses on quick prompts, format/quality tweaks, and lightweight history so you can experiment without extra setup.
+Dreamint is a browser-based workspace for generating and editing images with OpenAI image models. It focuses on quick prompts, format/quality tweaks, cost visibility, and lightweight history so you can experiment without extra setup.
 
 > WARNING: YOU USE THIS AT YOUR OWN RISK. YOU ARE RESPONSIBLE FOR ANY API COSTS, ERRORS, OR MISBEHAVIOR.
 
@@ -14,7 +14,7 @@ Dreamint is a browser-based workspace for generating and editing images with the
 
 ## Requirements
 - Node.js 18+
-- Provider keys: FAL (Gemini 3 Pro Image Preview) and/or Gemini API. Keys are supplied in-app and stay in your browser; they are not stored on the server.
+- OpenAI API key. It is supplied in-app and stays in your browser; it is not stored on the server.
 
 ## Setup
 ```bash
@@ -27,7 +27,7 @@ npm install
 npm run dev
 ```
 3) Open http://localhost:3000
-4) Add your FAL/Gemini keys in the in-app Settings. They persist in your browser storage only.
+4) Add your OpenAI API key in the in-app Settings. It persists in your browser storage only.
 
 ## Access protection (optional)
 - Set `ACCESS_PASSWORD` in your deploy environment to require a one-time password on first visit.
@@ -35,20 +35,19 @@ npm run dev
 - If `ACCESS_PASSWORD` is unset, the gate is disabled.
 
 ## Using the app
-- Choose aspect, quality, and **Output Format** from the control bar. The format is sent to FAL and used when downloading from the lightbox.
+- Choose aspect, quality, and **Output Format** from the control bar.
 - Add reference images (max 8). If the first image has clear dimensions, the aspect auto-adjusts to match.
 - Click **Generate** or press Enter in the prompt box. While running, a stopwatch shows elapsed time.
 - If you close or reload mid-run, the pending items reappear as **Interrupted** with Retry/Delete buttons and non-animated placeholders.
 - Switch between **Create** and **Gallery** via the floating pill at the top; it stays visible when scrolling.
 
-## Providers
-- **FAL (default):** Uses `fal-ai/gemini-3-pro-image-preview` with sync mode. Supports `output_format` (`png`, `jpeg`, `webp`), `aspect_ratio`, `resolution`, and optional image edits.
-- **Gemini API:** Calls `gemini-3-pro-image-preview` directly via the Generative Language endpoint. Supply your Gemini API key in settings.
+## Model
+- **OpenAI:** Uses `gpt-image-2` and shows estimated and real token-based cost details in the UI when usage data is available.
 
 ## Notes and limitations
 - Everything is client-initiated; server jobs are not durable. Closing the page interrupts in-flight requests.
 - Image generation runs fully in the browser with your own API keys; the host just serves the site (and optional password gate).
-- Attachment, gallery, and provider keys are stored locally in your browser; clear your browser storage to wipe state.
+- Attachment, gallery, and API key state are stored locally in your browser; clear your browser storage to wipe state.
 - Max four outputs per request; max eight input images (UI cap; model accepts more).
 
 ## Scripts
