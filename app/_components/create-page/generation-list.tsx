@@ -1,11 +1,12 @@
 import Image from "next/image";
 import { memo, useMemo, useState } from "react";
 
-import { type AspectKey, type GeminiModelVariant } from "../../lib/seedream-options";
+import { type AspectKey } from "../../lib/seedream-options";
 import { GenerationDetailsCard } from "./generation-details-card";
 import { CopyIcon, DownloadIcon, InfoIcon } from "./icons";
 import { debugLog } from "./logger";
-import type { Generation, ImageThoughts } from "./types";
+import type { Generation, ImageThoughts, ReusePromptOptions } from "./types";
+import { useResolvedImageSource } from "./use-resolved-image-source";
 import { parseThoughtText, renderMarkdownBold } from "./utils";
 
 type GenerationGroupProps = {
@@ -17,8 +18,7 @@ type GenerationGroupProps = {
   onUsePrompt: (
     prompt: string,
     inputImages: Generation["inputImages"],
-    useGoogleSearch?: boolean,
-    modelVariant?: GeminiModelVariant,
+    options?: ReusePromptOptions,
   ) => void;
   onPreviewInputImage?: (image: Generation["inputImages"][number]) => void;
   onDeleteGeneration: (generationId: string) => void;
@@ -219,15 +219,26 @@ const ImageTile = memo(function ImageTile({
     height,
     Math.ceil(Math.max(width, height) * devicePixelRatio),
   );
+  const { resolvedSource, isResolving } = useResolvedImageSource(src);
+  const shouldBypassOptimization =
+    resolvedSource.startsWith("blob:") || resolvedSource.startsWith("data:");
 
-  const shouldBypassOptimization = false;
-
-  if (!src) {
+  if (!src || isResolving || !resolvedSource) {
     if (isDeleted) {
       return (
         <div className={`${className} relative bg-[#0f1017] border border-[var(--border-subtle)] text-[var(--text-muted)]`}>
           <div className="absolute inset-0 flex items-center justify-center text-[11px] font-semibold uppercase tracking-wide">
             Deleted
+          </div>
+        </div>
+      );
+    }
+
+    if (isResolving) {
+      return (
+        <div className={`${className} relative bg-[#1f1f1f] border border-[#333] animate-pulse`}>
+          <div className="absolute inset-0 flex items-center justify-center text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide">
+            Loading
           </div>
         </div>
       );
@@ -426,7 +437,7 @@ const ImageTile = memo(function ImageTile({
         </div>
       ) : null}
       <Image
-        src={src}
+        src={resolvedSource}
         alt={prompt}
         width={width}
         height={height}
@@ -464,12 +475,14 @@ const ImageTile = memo(function ImageTile({
 
 const GRID_CLASS_MAP: Record<AspectKey, string> = {
   "square-1-1": "grid grid-cols-2 gap-0.5",
+  "portrait-1-2": "grid grid-cols-2 gap-0.5",
   "portrait-1-4": "grid grid-cols-2 gap-0.5",
   "portrait-1-8": "grid grid-cols-2 gap-0.5",
   "portrait-2-3": "grid grid-cols-2 gap-0.5",
   "portrait-3-4": "grid grid-cols-2 gap-0.5",
   "portrait-4-5": "grid grid-cols-2 gap-0.5",
   "portrait-9-16": "grid grid-cols-2 gap-0.5",
+  "landscape-2-1": "grid grid-cols-2 gap-0.5",
   "landscape-4-1": "grid grid-cols-2 gap-0.5",
   "landscape-8-1": "grid grid-cols-2 gap-0.5",
   "landscape-3-2": "grid grid-cols-2 gap-0.5",
@@ -481,12 +494,14 @@ const GRID_CLASS_MAP: Record<AspectKey, string> = {
 
 const TILE_CLASS_MAP: Record<AspectKey, string> = {
   "square-1-1": "relative aspect-square overflow-hidden",
+  "portrait-1-2": "relative aspect-[1/2] overflow-hidden",
   "portrait-1-4": "relative aspect-[1/4] overflow-hidden",
   "portrait-1-8": "relative aspect-[1/8] overflow-hidden",
   "portrait-2-3": "relative aspect-[2/3] overflow-hidden",
   "portrait-3-4": "relative aspect-[3/4] overflow-hidden",
   "portrait-4-5": "relative aspect-[4/5] overflow-hidden",
   "portrait-9-16": "relative aspect-[9/16] overflow-hidden",
+  "landscape-2-1": "relative aspect-[2/1] overflow-hidden",
   "landscape-4-1": "relative aspect-[4/1] overflow-hidden",
   "landscape-8-1": "relative aspect-[8/1] overflow-hidden",
   "landscape-3-2": "relative aspect-[3/2] overflow-hidden",

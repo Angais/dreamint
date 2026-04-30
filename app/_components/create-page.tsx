@@ -5,7 +5,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 
 import { debugLog } from "./create-page/logger";
 import { generateSeedream } from "../lib/generate-seedream";
-import { estimateOpenAIImageRequestCost } from "../lib/openai-image-costs";
+import { calculateOpenAIActualCost, estimateOpenAIImageRequestCost } from "../lib/openai-image-costs";
 import {
   type AspectSelection,
   DEFAULT_GEMINI_MODEL_VARIANT,
@@ -40,6 +40,7 @@ import { GalleryView } from "./create-page/gallery-view";
 import { Header } from "./create-page/header";
 import { Lightbox } from "./create-page/lightbox";
 import { AttachmentLightbox } from "./create-page/attachment-lightbox";
+import { BudgetWidget } from "./create-page/budget-widget";
 import { createCollageBlob } from "./create-page/collage";
 import { convertBlobToOutputFormat, extensionFromMimeType } from "./create-page/download-utils";
 import { createId, groupByDate, normalizeImages } from "./create-page/utils";
@@ -153,6 +154,23 @@ function safePersist(key: string, value: string | null) {
   } catch (error) {
     console.error(`Unable to persist ${key} in localStorage`, error);
   }
+}
+
+function parseStoredCents(value: string | null): number | null {
+  if (value === null) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function dollarsToCents(value: number | null | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return 0;
+  }
+
+  return Math.max(1, Math.round(value * 100));
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {
@@ -274,6 +292,8 @@ export function CreatePage() {
   const [error, setError] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [budgetCents, setBudgetCents] = useState<number | null>(null);
+  const [spentCents, setSpentCents] = useState(0);
   const [lightboxSelection, setLightboxSelection] = useState<{ generationId: string; imageIndex: number } | null>(null);
   const [thoughtsToShow, setThoughtsToShow] = useState<ImageThoughts | null>(null);
   const [streamingThoughts, setStreamingThoughts] = useState<Map<string, (ImageThoughts | null)[]>>(new Map());
@@ -465,6 +485,25 @@ export function CreatePage() {
     prompt,
     resolveDraftSize,
   ]);
+  const batchCostCents = useMemo(
+    () => dollarsToCents(estimatedOpenAICost?.totalCostUsd),
+    [estimatedOpenAICost],
+  );
+  const budgetRemainingCents = useMemo(
+    () => (budgetCents !== null ? Math.max(0, budgetCents - spentCents) : null),
+    [budgetCents, spentCents],
+  );
+  const isBudgetLocked = useMemo(() => {
+    if (budgetCents === null) {
+      return false;
+    }
+
+    if (spentCents >= budgetCents) {
+      return true;
+    }
+
+    return batchCostCents > 0 && spentCents + batchCostCents > budgetCents;
+  }, [batchCostCents, budgetCents, spentCents]);
 
   const applyAttachmentSizing = useCallback(
     () => {
@@ -576,6 +615,12 @@ export function CreatePage() {
         if (storedApiKey !== null) {
           setApiKey(storedApiKey);
         }
+
+        const storedBudgetCents = parseStoredCents(window.localStorage.getItem(STORAGE_KEYS.budgetCents));
+        setBudgetCents(storedBudgetCents);
+
+        const storedSpentCents = parseStoredCents(window.localStorage.getItem(STORAGE_KEYS.spentCents));
+        setSpentCents(storedSpentCents ?? 0);
 
         const storedGeminiApiKey = window.localStorage.getItem(STORAGE_KEYS.geminiApiKey);
         if (storedGeminiApiKey !== null) {
@@ -739,6 +784,15 @@ export function CreatePage() {
     initialLimit: 10,
     increment: 10,
   });
+
+  useEffect(() => {
+    if (!storageHydratedRef.current || typeof window === "undefined") {
+      return;
+    }
+
+    safePersist(STORAGE_KEYS.budgetCents, budgetCents !== null ? String(budgetCents) : null);
+    safePersist(STORAGE_KEYS.spentCents, String(spentCents));
+  }, [budgetCents, spentCents]);
 
   useEffect(() => {
     if (!storageHydratedRef.current || typeof window === "undefined") {
@@ -1177,6 +1231,14 @@ export function CreatePage() {
             inputImages: inputImageSnapshot,
           })
         : null;
+    const requestCostCents = dollarsToCents(estimatedRequestCost?.totalCostUsd);
+    if (budgetCents !== null && (spentCents >= budgetCents || (requestCostCents > 0 && spentCents + requestCostCents > budgetCents))) {
+      setError(
+        `Budget limit reached. This batch would bring spending to $${((spentCents + requestCostCents) / 100).toFixed(2)} of your $${(budgetCents / 100).toFixed(2)} limit.`,
+      );
+      return;
+    }
+
     const enableGoogleSearch = provider === "gemini" && useGoogleSearch;
     const effectiveModelVariant =
       provider === "openai" ? undefined : geminiModelVariant;
@@ -1356,6 +1418,13 @@ export function CreatePage() {
             qualitySelection: quality,
             estimatedOpenAICost: estimatedRequestCost ?? undefined,
           };
+          const actualCost = calculateOpenAIActualCost(generation.openAIUsage ?? null);
+          const generationCostCents = dollarsToCents(
+            actualCost.totalCostUsd ?? estimatedRequestCost?.totalCostUsd,
+          );
+          if (provider === "openai" && generationCostCents > 0) {
+            setSpentCents((previous) => previous + generationCostCents);
+          }
 
           let optimizedGeneration = generation;
           try {
@@ -2092,6 +2161,17 @@ export function CreatePage() {
           Dreamint (GPT)
         </span>
       </div>
+      <BudgetWidget
+        budgetCents={budgetCents}
+        spentCents={spentCents}
+        budgetRemainingCents={budgetRemainingCents}
+        batchCostCents={batchCostCents}
+        imagesPerBatch={imageCount}
+        isBudgetLocked={isBudgetLocked}
+        onBudgetSave={setBudgetCents}
+        onBudgetClear={() => setBudgetCents(null)}
+        onResetSpending={() => setSpentCents(0)}
+      />
 
       {/* Main Scrollable Content */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
@@ -2208,7 +2288,7 @@ export function CreatePage() {
               geminiApiKey={geminiApiKey}
               appVersion={APP_VERSION}
               totalImages={totalImages}
-              isBudgetLocked={false}
+              isBudgetLocked={isBudgetLocked}
               isSettingsOpen={isSettingsOpen}
               onSubmit={handleSubmit}
               onPromptChange={setPrompt}

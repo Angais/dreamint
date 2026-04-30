@@ -5,8 +5,10 @@ import { useCallback, useMemo, useState } from "react";
 import JSZip from "jszip";
 import { convertBlobToOutputFormat, extensionFromMimeType } from "./download-utils";
 import { CopyIcon, DownloadIcon, MagnifyingGlassIcon } from "./icons";
+import { isStoredAssetRef, resolveStoredAssetBlob } from "./storage";
 import type { Generation } from "./types";
 import { useInfiniteScroll } from "./use-infinite-scroll";
+import { useResolvedImageSource } from "./use-resolved-image-source";
 
 type GalleryViewProps = {
   generations: Generation[];
@@ -16,6 +18,23 @@ type GalleryViewProps = {
   onDownloadImage: (generationId: string, imageIndex: number) => Promise<boolean>;
   onCopyImage: (generationId: string, imageIndex: number) => Promise<boolean>;
 };
+
+async function sourceToBlob(source: string): Promise<Blob | null> {
+  if (isStoredAssetRef(source)) {
+    return resolveStoredAssetBlob(source);
+  }
+
+  try {
+    const response = await fetch(source);
+    if (!response.ok) {
+      return null;
+    }
+
+    return await response.blob();
+  } catch {
+    return null;
+  }
+}
 
 export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteImage, onDownloadImage, onCopyImage }: GalleryViewProps) {
   const [search, setSearch] = useState("");
@@ -120,9 +139,8 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
       await Promise.all(
         selectedItems.map(async (item, i) => {
           try {
-            const response = await fetch(item.fullSrc);
-            if (!response.ok) return;
-            const blob = await response.blob();
+            const blob = await sourceToBlob(item.fullSrc);
+            if (!blob) return;
             const downloadBlob = item.outputFormat
               ? await convertBlobToOutputFormat(blob, item.outputFormat)
               : blob;
@@ -241,15 +259,7 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
                   }}
                   className="group relative aspect-square w-full overflow-hidden bg-[var(--bg-subtle)] focus:outline-none transform-gpu"
                 >
-                  <Image
-                    src={item.src}
-                    alt={item.prompt}
-                    width={512}
-                    height={512}
-                    className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-110"
-                    unoptimized
-                    style={{ willChange: "transform", transform: "translateZ(0)" }}
-                  />
+                  <GalleryImage src={item.src} alt={item.prompt} />
                   <div className="pointer-events-none absolute inset-0 bg-black/0 transition-colors group-hover:bg-black/20" />
 
 	                  {selectionMode ? (
@@ -354,5 +364,29 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
         </div>
       )}
     </div>
+  );
+}
+
+function GalleryImage({ src, alt }: { src: string; alt: string }) {
+  const { resolvedSource, isResolving } = useResolvedImageSource(src);
+
+  if (!resolvedSource) {
+    return (
+      <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+        {isResolving ? "Loading" : "Unavailable"}
+      </div>
+    );
+  }
+
+  return (
+    <Image
+      src={resolvedSource}
+      alt={alt}
+      width={512}
+      height={512}
+      className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-110"
+      unoptimized={resolvedSource.startsWith("blob:") || resolvedSource.startsWith("data:")}
+      style={{ willChange: "transform", transform: "translateZ(0)" }}
+    />
   );
 }

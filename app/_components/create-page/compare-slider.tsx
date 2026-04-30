@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useRef } from "react";
 import { ArrowLeftIcon, ArrowRightIcon } from "./icons";
+import { useResolvedImageSource } from "./use-resolved-image-source";
 
 type CompareSliderProps = {
   original: string;
@@ -26,6 +27,10 @@ export function CompareSlider({
   const containerRef = useRef<HTMLDivElement>(null);
   const handleRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
+  const { resolvedSource: resolvedOriginal, isResolving: isResolvingOriginal } =
+    useResolvedImageSource(original);
+  const { resolvedSource: resolvedGenerated, isResolving: isResolvingGenerated } =
+    useResolvedImageSource(generated);
 
   const handleMove = useCallback((clientX: number) => {
     if (!containerRef.current) {
@@ -107,14 +112,21 @@ export function CompareSlider({
     >
       {/* Generated Image (Right side / Background) */}
       <div className="absolute inset-0 h-full w-full">
-        <Image
-          src={generated}
-          alt={generatedAlt}
-          fill
-          className="object-contain"
-          draggable={false}
-          priority
-        />
+        {resolvedGenerated ? (
+          <Image
+            src={resolvedGenerated}
+            alt={generatedAlt}
+            fill
+            className="object-contain"
+            draggable={false}
+            priority
+            unoptimized={resolvedGenerated.startsWith("blob:") || resolvedGenerated.startsWith("data:")}
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-xs font-semibold uppercase tracking-wide text-white/60">
+            {isResolvingGenerated ? "Loading" : "Unavailable"}
+          </div>
+        )}
         <div className="absolute bottom-4 right-4 rounded-md bg-black/60 px-2 py-1 text-xs font-medium text-white backdrop-blur-sm">
           After
         </div>
@@ -125,14 +137,21 @@ export function CompareSlider({
         className="absolute inset-0 h-full w-full"
         style={{ clipPath: `inset(0 ${100 - position}% 0 0)` }}
       >
-        <Image
-          src={original}
-          alt={originalAlt}
-          fill
-          className="object-contain"
-          draggable={false}
-          priority
-        />
+        {resolvedOriginal ? (
+          <Image
+            src={resolvedOriginal}
+            alt={originalAlt}
+            fill
+            className="object-contain"
+            draggable={false}
+            priority
+            unoptimized={resolvedOriginal.startsWith("blob:") || resolvedOriginal.startsWith("data:")}
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-xs font-semibold uppercase tracking-wide text-white/60">
+            {isResolvingOriginal ? "Loading" : "Unavailable"}
+          </div>
+        )}
         <div className="absolute bottom-4 left-4 rounded-md bg-black/60 px-2 py-1 text-xs font-medium text-white backdrop-blur-sm">
           Before
         </div>

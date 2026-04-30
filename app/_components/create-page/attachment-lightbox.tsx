@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 
 import { DownloadIcon } from "./icons";
+import { useResolvedImageSource } from "./use-resolved-image-source";
 
 type AttachmentLightboxProps = {
   attachment: { url: string; name: string; id?: string; width?: number | null; height?: number | null };
@@ -13,6 +14,7 @@ type AttachmentLightboxProps = {
 export function AttachmentLightbox({ attachment, onClose }: AttachmentLightboxProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDownloading, setIsDownloading] = useState(false);
+  const { resolvedSource, isResolving } = useResolvedImageSource(attachment.url);
 
   useEffect(() => {
     containerRef.current?.focus();
@@ -34,8 +36,12 @@ export function AttachmentLightbox({ attachment, onClose }: AttachmentLightboxPr
 
   const handleDownload = async () => {
     try {
+      if (!resolvedSource) {
+        throw new Error("Attachment is not ready.");
+      }
+
       setIsDownloading(true);
-      const response = await fetch(attachment.url);
+      const response = await fetch(resolvedSource);
       if (!response.ok) {
         throw new Error(`Download failed (${response.status})`);
       }
@@ -80,15 +86,21 @@ export function AttachmentLightbox({ attachment, onClose }: AttachmentLightboxPr
         </div>
         <div className="mt-4 flex flex-col gap-5 text-sm text-[var(--text-secondary)]">
           <div className="relative flex max-h-[70vh] w-full justify-center overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-black/50">
-            <Image
-              src={attachment.url}
-              alt={attachment.name}
-              width={attachment.width ?? 1024}
-              height={attachment.height ?? 1024}
-              unoptimized
-              className="max-h-[70vh] w-auto max-w-full select-none object-contain"
-              draggable={false}
-            />
+            {resolvedSource ? (
+              <Image
+                src={resolvedSource}
+                alt={attachment.name}
+                width={attachment.width ?? 1024}
+                height={attachment.height ?? 1024}
+                unoptimized
+                className="max-h-[70vh] w-auto max-w-full select-none object-contain"
+                draggable={false}
+              />
+            ) : (
+              <div className="flex min-h-64 w-full items-center justify-center text-xs font-semibold uppercase tracking-wide text-white/60">
+                {isResolving ? "Loading" : "Unavailable"}
+              </div>
+            )}
           </div>
           <div className="flex items-center justify-between">
             <p className="text-base font-semibold text-[var(--text-primary)]">{attachment.name}</p>
