@@ -40,6 +40,32 @@ function makeRef(key: string): string {
   return `ref:${key}`;
 }
 
+export function isStoredAssetRef(value: string): boolean {
+  return isRef(value);
+}
+
+export async function resolveStoredAssetBlob(value: string): Promise<Blob | null> {
+  if (!store || !isRef(value)) {
+    return null;
+  }
+
+  try {
+    return (await store.getItem<Blob>(getRefKey(value))) ?? null;
+  } catch (error) {
+    console.error("Failed to resolve stored asset blob", error);
+    return null;
+  }
+}
+
+export async function resolveStoredAssetUrl(value: string): Promise<string> {
+  if (!isRef(value)) {
+    return value;
+  }
+
+  const blob = await resolveStoredAssetBlob(value);
+  return blob ? URL.createObjectURL(blob) : "";
+}
+
 async function removeGenerationAssets(generation: Generation) {
   if (!store) return;
 
@@ -178,6 +204,78 @@ async function createThumbnailBlob(blob: Blob, maxSize = MIN_THUMB_DIMENSION): P
     console.error("Failed to create thumbnail", error);
     return null;
   }
+}
+
+export async function cacheGenerationAssets(generation: Generation): Promise<Generation> {
+  if (!store) {
+    return generation;
+  }
+
+  const outputResults = await Promise.all(
+    generation.images.map(async (image, index) => {
+      if (!image) {
+        return { image: "", thumbnail: "" };
+      }
+
+      if (isRef(image)) {
+        const existingThumb = generation.thumbnails?.[index] ?? "";
+        return {
+          image,
+          thumbnail: existingThumb && isRef(existingThumb) ? existingThumb : existingThumb,
+        };
+      }
+
+      const imageKey = getImageKey(generation.id, index, "output");
+      const thumbnailKey = getThumbnailKey(generation.id, index);
+
+      try {
+        const blob = await urlToBlob(image);
+        await store.setItem(imageKey, blob);
+
+        const thumbnailBlob = await createThumbnailBlob(blob);
+        if (thumbnailBlob) {
+          await store.setItem(thumbnailKey, thumbnailBlob);
+        }
+
+        return {
+          image: makeRef(imageKey),
+          thumbnail: thumbnailBlob ? makeRef(thumbnailKey) : "",
+        };
+      } catch (error) {
+        console.error(`Failed to cache generation image ${imageKey}`, error);
+        return {
+          image,
+          thumbnail: generation.thumbnails?.[index] ?? "",
+        };
+      }
+    }),
+  );
+
+  const inputImages = await Promise.all(
+    (generation.inputImages || []).map(async (image) => {
+      if (!image.url || isRef(image.url)) {
+        return image;
+      }
+
+      const inputKey = getImageKey(generation.id, 0, "input", image.id);
+
+      try {
+        const blob = await urlToBlob(image.url);
+        await store.setItem(inputKey, blob);
+        return { ...image, url: makeRef(inputKey) };
+      } catch (error) {
+        console.error(`Failed to cache input image ${inputKey}`, error);
+        return image;
+      }
+    }),
+  );
+
+  return {
+    ...generation,
+    images: outputResults.map((result) => result.image),
+    thumbnails: outputResults.map((result) => result.thumbnail),
+    inputImages,
+  };
 }
 
 /**

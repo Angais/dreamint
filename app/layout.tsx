@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AccessGuard } from "./_components/access-guard";
 
@@ -8,7 +8,12 @@ export const metadata: Metadata = {
   icons: {
     icon: "/Dreaming.png",
   },
-  viewport: "width=device-width, initial-scale=1, interactive-widget=resizes-content",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({
