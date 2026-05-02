@@ -19,6 +19,10 @@ type GalleryViewProps = {
   onCopyImage: (generationId: string, imageIndex: number) => Promise<boolean>;
 };
 
+type GallerySort = "newest" | "oldest";
+type GalleryProviderFilter = "all" | "openai" | "gemini" | "fal";
+type GalleryFormatFilter = "all" | "png" | "jpeg" | "webp";
+
 async function sourceToBlob(source: string): Promise<Blob | null> {
   if (isStoredAssetRef(source)) {
     return resolveStoredAssetBlob(source);
@@ -38,6 +42,9 @@ async function sourceToBlob(source: string): Promise<Blob | null> {
 
 export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteImage, onDownloadImage, onCopyImage }: GalleryViewProps) {
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<GallerySort>("newest");
+  const [providerFilter, setProviderFilter] = useState<GalleryProviderFilter>("all");
+  const [formatFilter, setFormatFilter] = useState<GalleryFormatFilter>("all");
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [isZipping, setIsZipping] = useState(false);
@@ -62,6 +69,7 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
             src: thumbSrc,
             fullSrc,
             outputFormat: gen.outputFormat,
+            provider: gen.provider,
             prompt: gen.prompt,
             aspect: gen.aspect,
             createdAt: gen.createdAt,
@@ -72,21 +80,39 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
     });
   }, [generations]);
 
-  // Filter based on search
   const filteredImages = useMemo(() => {
-    if (!search.trim()) return allImages;
-    const lowerSearch = search.toLowerCase();
-    return allImages.filter((img) => img.prompt.toLowerCase().includes(lowerSearch));
-  }, [allImages, search]);
+    const searchedImages = (() => {
+      const trimmedSearch = search.trim().toLowerCase();
+      const matchesSearch = (prompt: string) =>
+        !trimmedSearch || prompt.toLowerCase().includes(trimmedSearch);
+      const matchesProvider = (provider: string) =>
+        providerFilter === "all" || provider === providerFilter;
+      const matchesFormat = (outputFormat: string | undefined) =>
+        formatFilter === "all" || (outputFormat ?? "png") === formatFilter;
+
+      return allImages.filter(
+        (img) =>
+          matchesSearch(img.prompt) &&
+          matchesProvider(img.provider) &&
+          matchesFormat(img.outputFormat),
+      );
+    })();
+
+    return [...searchedImages].sort((a, b) => {
+      const firstTime = new Date(a.createdAt).getTime();
+      const secondTime = new Date(b.createdAt).getTime();
+      return sort === "newest" ? secondTime - firstTime : firstTime - secondTime;
+    });
+  }, [allImages, formatFilter, providerFilter, search, sort]);
 
   const visibleImages = useMemo(() => filteredImages.slice(0, limit), [filteredImages, limit]);
   const imageByKey = useMemo(() => {
-    const map = new Map<string, (typeof allImages)[number]>();
-    allImages.forEach((img) => {
+    const map = new Map<string, (typeof filteredImages)[number]>();
+    filteredImages.forEach((img) => {
       map.set(`${img.id}:${img.index}`, img);
     });
     return map;
-  }, [allImages]);
+  }, [filteredImages]);
 
   const selectedItems = useMemo(() => {
     const items: (typeof allImages)[number][] = [];
@@ -170,22 +196,67 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
 
   return (
     <div className="w-full max-w-[1600px] mx-auto flex flex-col gap-8 animate-in fade-in duration-500">
-      {/* Search Bar */}
-      <div className="relative max-w-md mx-auto w-full">
-        <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
-          <MagnifyingGlassIcon className="h-4 w-4" />
+      {/* Search and Filters */}
+      <div className="mx-auto grid w-full max-w-4xl grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
+        <div className="relative min-w-0 flex-1">
+          <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
+            <MagnifyingGlassIcon className="h-4 w-4" />
+          </div>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search your dreams..."
+            className="w-full rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] py-3 pl-11 pr-4 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent-primary)] transition-all"
+          />
         </div>
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search your dreams..."
-          className="w-full rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] py-3 pl-11 pr-4 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent-primary)] transition-all"
-        />
+        <label className="flex shrink-0 items-center gap-2 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] px-4 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)] focus-within:border-[var(--accent-primary)] focus-within:ring-1 focus-within:ring-[var(--accent-primary)]">
+          Sort
+          <select
+            value={sort}
+            onChange={(event) => setSort(event.target.value as GallerySort)}
+            className="h-11 bg-transparent text-sm font-semibold normal-case tracking-normal text-[var(--text-primary)] outline-none"
+            aria-label="Sort gallery images"
+          >
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+          </select>
+        </label>
+        <label className="flex shrink-0 items-center gap-2 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] px-4 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)] focus-within:border-[var(--accent-primary)] focus-within:ring-1 focus-within:ring-[var(--accent-primary)]">
+          Model
+          <select
+            value={providerFilter}
+            onChange={(event) => setProviderFilter(event.target.value as GalleryProviderFilter)}
+            className="h-11 bg-transparent text-sm font-semibold normal-case tracking-normal text-[var(--text-primary)] outline-none"
+            aria-label="Filter gallery by model provider"
+          >
+            <option value="all">All models</option>
+            <option value="openai">OpenAI</option>
+            <option value="gemini">Gemini</option>
+            <option value="fal">Fal</option>
+          </select>
+        </label>
+        <label className="flex shrink-0 items-center gap-2 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] px-4 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)] focus-within:border-[var(--accent-primary)] focus-within:ring-1 focus-within:ring-[var(--accent-primary)]">
+          Format
+          <select
+            value={formatFilter}
+            onChange={(event) => setFormatFilter(event.target.value as GalleryFormatFilter)}
+            className="h-11 bg-transparent text-sm font-semibold uppercase tracking-normal text-[var(--text-primary)] outline-none"
+            aria-label="Filter gallery by output format"
+          >
+            <option value="all">All</option>
+            <option value="png">PNG</option>
+            <option value="jpeg">JPEG</option>
+            <option value="webp">WEBP</option>
+          </select>
+        </label>
       </div>
 
       {/* Selection Actions */}
       <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-[var(--text-secondary)]">
+        <span className="px-2 py-1 rounded-full bg-[var(--bg-subtle)] border border-[var(--border-subtle)]">
+          {filteredImages.length} shown
+        </span>
         <button
           type="button"
           onClick={() => {

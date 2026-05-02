@@ -21,6 +21,10 @@ function formatBatchLabel(count: number): string {
   return `${safeCount} ${safeCount === 1 ? "batch" : "batches"}`;
 }
 
+function formatPercent(value: number): string {
+  return `${Math.round(value)}%`;
+}
+
 function normalizeInput(value: string): string {
   const cleaned = value.replace(/[^0-9.]/g, "");
   const [whole, ...fractionParts] = cleaned.split(".");
@@ -104,6 +108,28 @@ export function BudgetWidget({
     [budgetCents],
   );
   const batchCostLabel = useMemo(() => formatCents(batchCostCents), [batchCostCents]);
+  const perImageCostLabel = useMemo(
+    () => formatCents(batchCostCents / Math.max(1, imagesPerBatch)),
+    [batchCostCents, imagesPerBatch],
+  );
+  const budgetUsedPercent = useMemo(() => {
+    if (budgetCents === null || budgetCents <= 0) {
+      return null;
+    }
+
+    return Math.min(100, Math.max(0, (spentCents / budgetCents) * 100));
+  }, [budgetCents, spentCents]);
+  const projectedBudgetPercent = useMemo(() => {
+    if (budgetCents === null || budgetCents <= 0) {
+      return null;
+    }
+
+    return Math.min(100, Math.max(0, ((spentCents + batchCostCents) / budgetCents) * 100));
+  }, [batchCostCents, budgetCents, spentCents]);
+  const batchLabel = useMemo(
+    () => `${imagesPerBatch} ${imagesPerBatch === 1 ? "image" : "images"}`,
+    [imagesPerBatch],
+  );
 
   const completedRuns = useMemo(
     () => Math.floor(Math.max(0, spentCents) / Math.max(1, batchCostCents)),
@@ -222,6 +248,36 @@ export function BudgetWidget({
                   {budgetLabel ?? "Not set"}
                 </span>
               </div>
+
+              {budgetUsedPercent !== null ? (
+                <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] p-3">
+                  <div className="mb-2 flex items-center justify-between text-[11px] font-semibold text-[var(--text-secondary)]">
+                    <span>{formatPercent(budgetUsedPercent)} used</span>
+                    <span>{formatPercent(projectedBudgetPercent ?? budgetUsedPercent)} after next batch</span>
+                  </div>
+                  <div
+                    className="relative h-2 overflow-hidden rounded-full bg-black/40"
+                    role="meter"
+                    aria-label="Budget used"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(budgetUsedPercent)}
+                  >
+                    {projectedBudgetPercent !== null ? (
+                      <div
+                        className="absolute inset-y-0 left-0 rounded-full bg-white/15"
+                        style={{ width: `${projectedBudgetPercent}%` }}
+                      />
+                    ) : null}
+                    <div
+                      className={`absolute inset-y-0 left-0 rounded-full ${
+                        isBudgetLocked ? "bg-red-400" : "bg-white"
+                      }`}
+                      style={{ width: `${budgetUsedPercent}%` }}
+                    />
+                  </div>
+                </div>
+              ) : null}
               
               {budgetLabel ? (
                 <div className="flex items-baseline justify-between px-2 text-[var(--text-secondary)]">
@@ -241,6 +297,27 @@ export function BudgetWidget({
                 <span className="text-sm font-medium text-[var(--text-primary)]">
                   {spentLabel} ({formatBatchLabel(completedRuns)})
                 </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                    Next batch
+                  </span>
+                  <span className="mt-1 block text-sm font-semibold text-[var(--text-primary)]">
+                    {batchCostLabel}
+                  </span>
+                  <span className="text-[10px] text-[var(--text-muted)]">{batchLabel}</span>
+                </div>
+                <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                    Per image
+                  </span>
+                  <span className="mt-1 block text-sm font-semibold text-[var(--text-primary)]">
+                    {perImageCostLabel}
+                  </span>
+                  <span className="text-[10px] text-[var(--text-muted)]">estimate</span>
+                </div>
               </div>
             </div>
 

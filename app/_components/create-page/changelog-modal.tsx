@@ -7,7 +7,14 @@ import { XIcon } from "./icons";
 const CHANGELOG_ENTRIES = [
   {
     date: "May 2, 2026",
-    changes: ["Added a changelog."],
+    changes: [
+      "Budget tracking now shows usage progress, next-batch impact, and per-image estimates.",
+      "Gallery search now filters by model provider and output format.",
+      "The composer can now save and reuse pinned prompt snippets.",
+      "Gallery search now includes a newest/oldest sort control.",
+      "Prompt history now persists across reloads and avoids duplicate entries.",
+      "Added a changelog.",
+    ],
   },
 ];
 

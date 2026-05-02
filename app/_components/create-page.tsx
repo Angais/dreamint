@@ -68,6 +68,8 @@ const APP_VERSION = "1.2.1";
 
 const STORAGE_KEYS = {
   prompt: "seedream:prompt",
+  promptHistory: "seedream:prompt_history",
+  promptSnippets: "seedream:prompt_snippets",
   aspect: "seedream:aspect",
   quality: "seedream:quality",
   provider: "seedream:provider",
@@ -90,6 +92,7 @@ const STORAGE_KEYS = {
 
 const MAX_ATTACHMENTS = 8;
 const MAX_PROMPT_HISTORY = 5;
+const MAX_PROMPT_SNIPPETS = 6;
 const ATTACHMENT_LIMIT_MESSAGE = `Maximum of ${MAX_ATTACHMENTS} images allowed.`;
 const ATTACHMENT_TYPE_MESSAGE = "Only image files can be used for editing.";
 const ATTACHMENT_READ_MESSAGE = "Unable to load one of the images you pasted or uploaded.";
@@ -164,6 +167,82 @@ function parseStoredCents(value: string | null): number | null {
 
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function parseStoredPromptHistory(value: string | null): string[] {
+  if (value === null) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    const seen = new Set<string>();
+    const history: string[] = [];
+
+    for (const item of parsed) {
+      if (typeof item !== "string") {
+        continue;
+      }
+
+      const trimmedItem = item.trim();
+      if (!trimmedItem || seen.has(trimmedItem)) {
+        continue;
+      }
+
+      seen.add(trimmedItem);
+      history.push(trimmedItem);
+
+      if (history.length >= MAX_PROMPT_HISTORY) {
+        break;
+      }
+    }
+
+    return history;
+  } catch {
+    return [];
+  }
+}
+
+function parseStoredPromptSnippets(value: string | null): string[] {
+  if (value === null) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    const seen = new Set<string>();
+    const snippets: string[] = [];
+
+    for (const item of parsed) {
+      if (typeof item !== "string") {
+        continue;
+      }
+
+      const trimmedItem = item.trim();
+      if (!trimmedItem || seen.has(trimmedItem)) {
+        continue;
+      }
+
+      seen.add(trimmedItem);
+      snippets.push(trimmedItem);
+
+      if (snippets.length >= MAX_PROMPT_SNIPPETS) {
+        break;
+      }
+    }
+
+    return snippets;
+  } catch {
+    return [];
+  }
 }
 
 function dollarsToCents(value: number | null | undefined): number {
@@ -267,6 +346,7 @@ export function CreatePage() {
   const [viewportHeight, setViewportHeight] = useState("100dvh");
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [promptHistory, setPromptHistory] = useState<string[]>([]);
+  const [promptSnippets, setPromptSnippets] = useState<string[]>([]);
   const [aspect, setAspect] = useState<AspectSelection>(defaultAspect);
   const [quality, setQuality] = useState<QualitySelection>(defaultQuality);
   const [outputFormat, setOutputFormat] = useState<OutputFormat>(defaultOutputFormat);
@@ -579,6 +659,20 @@ export function CreatePage() {
           setPrompt(storedPrompt);
         }
 
+        const storedPromptHistory = parseStoredPromptHistory(
+          window.localStorage.getItem(STORAGE_KEYS.promptHistory),
+        );
+        if (storedPromptHistory.length > 0) {
+          setPromptHistory(storedPromptHistory);
+        }
+
+        const storedPromptSnippets = parseStoredPromptSnippets(
+          window.localStorage.getItem(STORAGE_KEYS.promptSnippets),
+        );
+        if (storedPromptSnippets.length > 0) {
+          setPromptSnippets(storedPromptSnippets);
+        }
+
         const storedAspect = window.localStorage.getItem(STORAGE_KEYS.aspect);
         if (isAspectSelection(storedAspect)) {
           setAspect(storedAspect);
@@ -807,6 +901,22 @@ export function CreatePage() {
 
     return () => window.clearTimeout(timeoutId);
   }, [prompt]);
+
+  useEffect(() => {
+    if (!storageHydratedRef.current || typeof window === "undefined") {
+      return;
+    }
+
+    safePersist(STORAGE_KEYS.promptHistory, JSON.stringify(promptHistory));
+  }, [promptHistory]);
+
+  useEffect(() => {
+    if (!storageHydratedRef.current || typeof window === "undefined") {
+      return;
+    }
+
+    safePersist(STORAGE_KEYS.promptSnippets, JSON.stringify(promptSnippets));
+  }, [promptSnippets]);
 
   useEffect(() => {
     if (!storageHydratedRef.current || typeof window === "undefined") {
@@ -1190,13 +1300,30 @@ export function CreatePage() {
     [applyAttachmentSizing, attachments, clearAttachmentError, setError],
   );
 
+  const handleSavePromptSnippet = useCallback(() => {
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt) {
+      return;
+    }
+
+    setPromptSnippets((previous) => [
+      trimmedPrompt,
+      ...previous.filter((item) => item !== trimmedPrompt),
+    ].slice(0, MAX_PROMPT_SNIPPETS));
+  }, [prompt]);
+
+  const handleDeletePromptSnippet = useCallback((snippet: string) => {
+    setPromptSnippets((previous) => previous.filter((item) => item !== snippet));
+  }, []);
+
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmedPrompt = prompt.trim();
     if (trimmedPrompt.length > 0) {
-      setPromptHistory((previous) =>
-        [trimmedPrompt, ...previous].slice(0, MAX_PROMPT_HISTORY),
-      );
+      setPromptHistory((previous) => [
+        trimmedPrompt,
+        ...previous.filter((item) => item !== trimmedPrompt),
+      ].slice(0, MAX_PROMPT_HISTORY));
     }
 
     debugLog("submit:start", {
@@ -2269,6 +2396,7 @@ export function CreatePage() {
             <Header
               prompt={prompt}
               promptHistory={promptHistory}
+              promptSnippets={promptSnippets}
               aspect={aspect}
               quality={quality}
               outputFormat={outputFormat}
@@ -2294,6 +2422,9 @@ export function CreatePage() {
               isSettingsOpen={isSettingsOpen}
               onSubmit={handleSubmit}
               onPromptChange={setPrompt}
+              onSavePromptSnippet={handleSavePromptSnippet}
+              onUsePromptSnippet={setPrompt}
+              onDeletePromptSnippet={handleDeletePromptSnippet}
               onAspectSelect={handleAspectSelect}
               onQualityChange={setQuality}
               onOutputFormatChange={setOutputFormat}

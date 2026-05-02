@@ -27,7 +27,7 @@ import {
   type Provider,
 } from "../../lib/seedream-options";
 import type { OpenAIEstimatedCostBreakdown } from "../../lib/openai-image-costs";
-import { LightningIcon, MagnifyingGlassIcon, PlusIcon, SettingsIcon } from "./icons";
+import { LightningIcon, MagnifyingGlassIcon, PlusIcon, SettingsIcon, XIcon } from "./icons";
 import { AttachmentPreviewList } from "./attachment-preview";
 import type { PromptAttachment } from "./types";
 import { resizeTextarea } from "./utils";
@@ -35,6 +35,7 @@ import { resizeTextarea } from "./utils";
 type HeaderProps = {
   prompt: string;
   promptHistory: string[];
+  promptSnippets: string[];
   aspect: AspectSelection;
   quality: QualitySelection;
   outputFormat: OutputFormat;
@@ -60,6 +61,9 @@ type HeaderProps = {
   isSettingsOpen: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onPromptChange: (value: string) => void;
+  onSavePromptSnippet: () => void;
+  onUsePromptSnippet: (value: string) => void;
+  onDeletePromptSnippet: (value: string) => void;
   onAspectSelect: (value: string) => void;
   onQualityChange: (value: QualitySelection) => void;
   onOutputFormatChange: (value: OutputFormat) => void;
@@ -88,6 +92,7 @@ type HeaderProps = {
 export function Header({
   prompt,
   promptHistory,
+  promptSnippets,
   aspect,
   quality,
   outputFormat,
@@ -113,6 +118,9 @@ export function Header({
   isSettingsOpen,
   onSubmit,
   onPromptChange,
+  onSavePromptSnippet,
+  onUsePromptSnippet,
+  onDeletePromptSnippet,
   onAspectSelect,
   onQualityChange,
   onOutputFormatChange,
@@ -182,6 +190,8 @@ export function Header({
   ];
   const trimmedPrompt = prompt.trim();
   const generateDisabled = trimmedPrompt.length === 0 || isBudgetLocked;
+  const canSavePromptSnippet =
+    trimmedPrompt.length > 0 && !promptSnippets.includes(trimmedPrompt);
   const formatUsd = (value: number) =>
     new Intl.NumberFormat("en-US", {
       style: "currency",
@@ -510,6 +520,46 @@ export function Header({
           {attachments.length > 0 ? (
             <div className="px-4 pb-2 animate-in fade-in slide-in-from-top-2 duration-300">
               <AttachmentPreviewList attachments={attachments} onRemove={onRemoveAttachment} onPreview={onPreviewAttachment} />
+            </div>
+          ) : null}
+
+          {(promptSnippets.length > 0 || trimmedPrompt.length > 0) ? (
+            <div className="flex items-center gap-2 overflow-x-auto px-4 pb-2 text-xs [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
+              <button
+                type="button"
+                onClick={onSavePromptSnippet}
+                disabled={!canSavePromptSnippet}
+                className="shrink-0 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-1.5 font-semibold text-[var(--text-secondary)] transition-colors hover:border-[var(--border-highlight)] hover:text-white disabled:opacity-35 disabled:hover:border-[var(--border-subtle)] disabled:hover:text-[var(--text-secondary)]"
+              >
+                Save Prompt
+              </button>
+              {promptSnippets.map((snippet) => (
+                <div
+                  key={snippet}
+                  className="group/snippet flex max-w-[16rem] shrink-0 items-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors hover:border-[var(--border-highlight)] hover:text-white"
+                  title={snippet}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onUsePromptSnippet(snippet);
+                      promptTextareaRef.current?.focus();
+                    }}
+                    className="min-w-0 truncate py-1.5 pl-3 pr-2 text-left"
+                  >
+                    {snippet}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDeletePromptSnippet(snippet)}
+                    className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-white/10 hover:text-white"
+                    aria-label="Delete saved prompt"
+                    title="Delete saved prompt"
+                  >
+                    <XIcon className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
             </div>
           ) : null}
 
