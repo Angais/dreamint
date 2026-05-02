@@ -41,6 +41,7 @@ import { Header } from "./create-page/header";
 import { Lightbox } from "./create-page/lightbox";
 import { AttachmentLightbox } from "./create-page/attachment-lightbox";
 import { BudgetWidget } from "./create-page/budget-widget";
+import { ChangelogModal } from "./create-page/changelog-modal";
 import { createCollageBlob } from "./create-page/collage";
 import { convertBlobToOutputFormat, extensionFromMimeType } from "./create-page/download-utils";
 import { createId, groupByDate, normalizeImages } from "./create-page/utils";
@@ -292,6 +293,7 @@ export function CreatePage() {
   const [error, setError] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isChangelogOpen, setIsChangelogOpen] = useState(false);
   const [budgetCents, setBudgetCents] = useState<number | null>(null);
   const [spentCents, setSpentCents] = useState(0);
   const [lightboxSelection, setLightboxSelection] = useState<{ generationId: string; imageIndex: number } | null>(null);
@@ -2320,6 +2322,14 @@ export function CreatePage() {
         </div>
       )}
 
+      <button
+        type="button"
+        onClick={() => setIsChangelogOpen(true)}
+        className="absolute bottom-4 right-4 z-50 rounded-full border border-white/10 bg-black px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--text-muted)] shadow-lg shadow-black/30 transition-colors hover:border-white/20 hover:text-white focus:outline-none focus:ring-2 focus:ring-white/20"
+      >
+        Changelog
+      </button>
+
       {attachmentPreview ? (
         <AttachmentLightbox attachment={attachmentPreview} onClose={() => setAttachmentPreview(null)} />
       ) : null}
@@ -2345,6 +2355,9 @@ export function CreatePage() {
       ) : null}
       {thoughtsToShow ? (
         <ThoughtsModal thoughts={thoughtsToShow} onClose={() => setThoughtsToShow(null)} />
+      ) : null}
+      {isChangelogOpen ? (
+        <ChangelogModal onClose={() => setIsChangelogOpen(false)} />
       ) : null}
     </div>
   );

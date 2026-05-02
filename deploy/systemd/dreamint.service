@@ -1,0 +1,15 @@
+[Unit]
+Description=Dreamint Next.js app
+After=network.target
+
+[Service]
+Type=simple
+User=angel
+WorkingDirectory=/home/angel/proyectos/dreamint
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npm run start -- --hostname 127.0.0.1 --port 3000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
