@@ -9,10 +9,11 @@ import {
   getProviderModelLabel,
   getQualityLabel,
 } from "../../lib/seedream-options";
+import { calculateOpenAIActualCost } from "../../lib/openai-image-costs";
 import { formatDisplayDate } from "./utils";
 import { useResolvedImageSource } from "./use-resolved-image-source";
 import type { Generation, ReusePromptOptions } from "./types";
-import { LightningIcon, ReuseIcon, ShareIcon, SpinnerIcon } from "./icons";
+import { CopyIcon, LightningIcon, ReuseIcon, SettingsIcon, ShareIcon, SpinnerIcon } from "./icons";
 
 // Simple Trash Icon for the delete button
 function TrashIcon({ className }: { className?: string }) {
@@ -77,6 +78,7 @@ type GenerationDetailsCardProps = {
   onDeleteGeneration?: (generationId: string) => void;
   onShareCollage?: (generationId: string) => Promise<boolean>;
   canDelete?: boolean;
+  isRetrying?: boolean;
   onRetry?: () => void;
 };
 
@@ -88,10 +90,14 @@ export function GenerationDetailsCard({
   onDeleteGeneration,
   onShareCollage,
   canDelete = false,
+  isRetrying = false,
   onRetry,
 }: GenerationDetailsCardProps) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [isSharing, setIsSharing] = useState(false);
+  const [promptCopyState, setPromptCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [setupCopyState, setSetupCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [summaryCopyState, setSummaryCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const validInputImages = useMemo(
     () =>
       generation?.inputImages?.filter(
@@ -145,6 +151,194 @@ export function GenerationDetailsCard({
     return () => window.clearInterval(id);
   }, [isGenerating, createdAtDate]);
 
+  useEffect(() => {
+    if (promptCopyState === "idle" && setupCopyState === "idle" && summaryCopyState === "idle") {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setPromptCopyState("idle");
+      setSetupCopyState("idle");
+      setSummaryCopyState("idle");
+    }, 1200);
+    return () => window.clearTimeout(timeoutId);
+  }, [promptCopyState, setupCopyState, summaryCopyState]);
+
+  const formatUsd = (value: number) =>
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: value < 0.01 ? 4 : 2,
+      maximumFractionDigits: value < 0.01 ? 4 : 2,
+    }).format(value);
+
+  const copyText = async (value: string) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+
+    if (typeof document === "undefined") {
+      throw new Error("Clipboard is unavailable.");
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+
+    try {
+      document.execCommand("copy");
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  };
+
+  const copyPrompt = async () => {
+    if (!generation?.prompt.trim()) {
+      return;
+    }
+
+    try {
+      await copyText(generation.prompt);
+      setPromptCopyState("copied");
+    } catch (error) {
+      console.error("Unable to copy generation prompt", error);
+      setPromptCopyState("failed");
+    }
+  };
+
+  const buildGenerationSetupMarkdown = () => {
+    if (!generation) {
+      return "";
+    }
+
+    const actualCost = calculateOpenAIActualCost(generation.openAIUsage ?? null);
+    const modelLabel = getProviderModelLabel(
+      generation.provider,
+      generation.modelVariant,
+      generation.openAIModel,
+    );
+    const resolutionLabel = getQualityLabel(generation.qualitySelection ?? generation.quality);
+    const qualityLabel =
+      generation.provider === "openai"
+        ? getOpenAIQualityLabel(generation.openAIQuality ?? DEFAULT_OPENAI_QUALITY)
+        : getQualityLabel(generation.quality);
+    const durationLabel =
+      typeof generation.durationMs === "number"
+        ? `${(generation.durationMs / 1000).toFixed(1)}s`
+        : null;
+
+    return [
+      "# Dreamint Generation Setup",
+      "",
+      "## Prompt",
+      generation.prompt.trim(),
+      "",
+      "## Settings",
+      `- Model: ${modelLabel}`,
+      `- Aspect: ${aspectLabel ?? "Custom"}`,
+      `- Resolution: ${resolutionLabel}`,
+      `- Output size: ${generation.size.width}x${generation.size.height}`,
+      `- Quality: ${qualityLabel}`,
+      `- Output format: ${generation.outputFormat.toUpperCase()}`,
+      `- Images: ${generation.images.length}`,
+      `- References: ${validInputImages.length}`,
+      ...(durationLabel ? [`- Duration: ${durationLabel}`] : []),
+      ...(generation.estimatedOpenAICost
+        ? [`- Estimated cost: ${formatUsd(generation.estimatedOpenAICost.totalCostUsd)}`]
+        : []),
+      ...(actualCost.totalCostUsd !== null
+        ? [`- Actual cost: ${formatUsd(actualCost.totalCostUsd)}`]
+        : []),
+      ...(generation.openAIUsage
+        ? [
+            "",
+            "## Usage",
+            ...(generation.openAIUsage.inputTokens !== null
+              ? [`- Input tokens: ${generation.openAIUsage.inputTokens.toLocaleString()}`]
+              : []),
+            ...(generation.openAIUsage.outputTokens !== null
+              ? [`- Output tokens: ${generation.openAIUsage.outputTokens.toLocaleString()}`]
+              : []),
+            ...(generation.openAIUsage.inputTextTokens !== null
+              ? [`- Text tokens: ${generation.openAIUsage.inputTextTokens.toLocaleString()}`]
+              : []),
+            ...(generation.openAIUsage.inputImageTokens !== null
+              ? [`- Image tokens: ${generation.openAIUsage.inputImageTokens.toLocaleString()}`]
+              : []),
+          ]
+        : []),
+    ].join("\n");
+  };
+
+  const buildGenerationSetupSummary = () => {
+    if (!generation) {
+      return "";
+    }
+
+    const actualCost = calculateOpenAIActualCost(generation.openAIUsage ?? null);
+    const modelLabel = getProviderModelLabel(
+      generation.provider,
+      generation.modelVariant,
+      generation.openAIModel,
+    );
+    const qualityLabel =
+      generation.provider === "openai"
+        ? getOpenAIQualityLabel(generation.openAIQuality ?? DEFAULT_OPENAI_QUALITY)
+        : getQualityLabel(generation.quality);
+    const costLabel =
+      actualCost.totalCostUsd !== null
+        ? `actual ${formatUsd(actualCost.totalCostUsd)}`
+        : generation.estimatedOpenAICost
+          ? `est. ${formatUsd(generation.estimatedOpenAICost.totalCostUsd)}`
+          : null;
+    const promptPreview = generation.prompt.trim().replace(/\s+/g, " ");
+
+    return [
+      `"${promptPreview}"`,
+      modelLabel,
+      `${generation.size.width}x${generation.size.height}`,
+      qualityLabel,
+      generation.outputFormat.toUpperCase(),
+      `${validInputImages.length} ref${validInputImages.length === 1 ? "" : "s"}`,
+      ...(costLabel ? [costLabel] : []),
+    ].join(" | ");
+  };
+
+  const copyGenerationSetup = async () => {
+    const setupMarkdown = buildGenerationSetupMarkdown();
+    if (!setupMarkdown) {
+      return;
+    }
+
+    try {
+      await copyText(setupMarkdown);
+      setSetupCopyState("copied");
+    } catch (error) {
+      console.error("Unable to copy generation setup", error);
+      setSetupCopyState("failed");
+    }
+  };
+
+  const copyGenerationSummary = async () => {
+    const setupSummary = buildGenerationSetupSummary();
+    if (!setupSummary) {
+      return;
+    }
+
+    try {
+      await copyText(setupSummary);
+      setSummaryCopyState("copied");
+    } catch (error) {
+      console.error("Unable to copy generation setup summary", error);
+      setSummaryCopyState("failed");
+    }
+  };
+
   const formattedElapsed = useMemo(() => {
     const minutes = Math.floor(elapsedSeconds / 60);
     const seconds = elapsedSeconds % 60;
@@ -196,15 +390,27 @@ export function GenerationDetailsCard({
               Request interrupted
             </p>
             <p className="text-[11px] text-orange-300/70 leading-relaxed">
-              The page was reloaded or closed before the image finished.
+              {isRetrying
+                ? "A retry is running. The original request will stay here unless the retry succeeds."
+                : "The page was reloaded or closed before the image finished."}
             </p>
             {onRetry && (
               <button
                 onClick={onRetry}
-                className="mt-3 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-orange-400 hover:text-orange-300 transition-colors"
+                disabled={isRetrying}
+                className={`mt-3 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide transition-colors ${
+                  isRetrying
+                    ? "cursor-not-allowed text-orange-300/70"
+                    : "text-orange-400 hover:text-orange-300"
+                }`}
+                aria-disabled={isRetrying}
               >
-                <RetryIcon className="h-3 w-3" />
-                Retry Request
+                {isRetrying ? (
+                  <SpinnerIcon className="h-3 w-3 animate-spin" />
+                ) : (
+                  <RetryIcon className="h-3 w-3" />
+                )}
+                {isRetrying ? "Retrying..." : "Retry Request"}
               </button>
             )}
           </div>
@@ -268,6 +474,72 @@ export function GenerationDetailsCard({
           <div className="flex items-center gap-1">
             <button
               type="button"
+              onClick={copyPrompt}
+              className={`flex items-center justify-center h-6 w-6 rounded transition-colors ${
+                promptCopyState === "copied"
+                  ? "bg-emerald-400/10 text-emerald-200"
+                  : promptCopyState === "failed"
+                    ? "bg-red-400/10 text-red-200"
+                    : "hover:bg-[var(--bg-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+              }`}
+              title={
+                promptCopyState === "copied"
+                  ? "Prompt copied"
+                  : promptCopyState === "failed"
+                    ? "Copy failed"
+                    : "Copy prompt"
+              }
+              aria-label="Copy generation prompt"
+            >
+              <CopyIcon className="h-3.5 w-3.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={copyGenerationSetup}
+              className={`flex items-center justify-center h-6 w-6 rounded transition-colors ${
+                setupCopyState === "copied"
+                  ? "bg-emerald-400/10 text-emerald-200"
+                  : setupCopyState === "failed"
+                    ? "bg-red-400/10 text-red-200"
+                    : "hover:bg-[var(--bg-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+              }`}
+              title={
+                setupCopyState === "copied"
+                  ? "Setup copied"
+                  : setupCopyState === "failed"
+                    ? "Copy failed"
+                    : "Copy generation setup"
+              }
+              aria-label="Copy generation setup"
+            >
+              <SettingsIcon className="h-3.5 w-3.5" />
+            </button>
+
+            <button
+              type="button"
+              onClick={copyGenerationSummary}
+              className={`flex items-center justify-center h-6 w-6 rounded transition-colors ${
+                summaryCopyState === "copied"
+                  ? "bg-emerald-400/10 text-emerald-200"
+                  : summaryCopyState === "failed"
+                    ? "bg-red-400/10 text-red-200"
+                    : "hover:bg-[var(--bg-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+              }`}
+              title={
+                summaryCopyState === "copied"
+                  ? "Summary copied"
+                  : summaryCopyState === "failed"
+                    ? "Copy failed"
+                    : "Copy one-line setup summary"
+              }
+              aria-label="Copy one-line setup summary"
+            >
+              <LightningIcon className="h-3.5 w-3.5" />
+            </button>
+
+            <button
+              type="button"
               onClick={() =>
                 onUsePrompt(
                   generation.prompt,
@@ -278,6 +550,7 @@ export function GenerationDetailsCard({
                     modelVariant: generation.modelVariant,
                     openAIModel: generation.openAIModel,
                     openAIQuality: generation.openAIQuality,
+                    outputFormat: generation.outputFormat,
                     aspectSelection: generation.aspectSelection,
                     qualitySelection: generation.qualitySelection,
                     aspect: generation.aspect,

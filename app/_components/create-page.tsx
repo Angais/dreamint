@@ -44,6 +44,7 @@ import { BudgetWidget } from "./create-page/budget-widget";
 import { ChangelogModal } from "./create-page/changelog-modal";
 import { createCollageBlob } from "./create-page/collage";
 import { convertBlobToOutputFormat, extensionFromMimeType } from "./create-page/download-utils";
+import { XIcon } from "./create-page/icons";
 import { createId, groupByDate, normalizeImages } from "./create-page/utils";
 import type {
   GalleryEntry,
@@ -83,6 +84,7 @@ const STORAGE_KEYS = {
   flashReasoningLevel: "seedream:flash_reasoning_level",
   googleSearchEnabled: "seedream:google_search_enabled",
   openAIApiKey: "seedream:openai_api_key",
+  openAIApiKeyUpdatedAt: "seedream:openai_api_key_updated_at",
   openAIModel: "seedream:openai_model",
   openAIQuality: "seedream:openai_quality",
   openAIResolutionMode: "seedream:openai_resolution_mode",
@@ -96,10 +98,17 @@ const MAX_PROMPT_SNIPPETS = 6;
 const ATTACHMENT_LIMIT_MESSAGE = `Maximum of ${MAX_ATTACHMENTS} images allowed.`;
 const ATTACHMENT_TYPE_MESSAGE = "Only image files can be used for editing.";
 const ATTACHMENT_READ_MESSAGE = "Unable to load one of the images you pasted or uploaded.";
+const ATTACHMENT_DUPLICATE_MESSAGE = "That reference image is already attached.";
+const ATTACHMENT_DUPLICATES_MESSAGE = "Duplicate reference images were skipped.";
+const ATTACHMENT_PARTIAL_LIMIT_MESSAGE =
+  `Only the available reference slots were added. Maximum of ${MAX_ATTACHMENTS} images allowed.`;
 const ATTACHMENT_ERROR_MESSAGES = new Set([
   ATTACHMENT_LIMIT_MESSAGE,
   ATTACHMENT_TYPE_MESSAGE,
   ATTACHMENT_READ_MESSAGE,
+  ATTACHMENT_DUPLICATE_MESSAGE,
+  ATTACHMENT_DUPLICATES_MESSAGE,
+  ATTACHMENT_PARTIAL_LIMIT_MESSAGE,
 ]);
 
 const ASPECT_VALUES: AspectKey[] = [
@@ -167,6 +176,28 @@ function parseStoredCents(value: string | null): number | null {
 
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function getAttachmentAddNotice({
+  skippedDuplicates,
+  skippedForLimit,
+}: {
+  skippedDuplicates: number;
+  skippedForLimit: number;
+}): string | null {
+  if (skippedForLimit > 0) {
+    return ATTACHMENT_PARTIAL_LIMIT_MESSAGE;
+  }
+
+  if (skippedDuplicates > 1) {
+    return ATTACHMENT_DUPLICATES_MESSAGE;
+  }
+
+  if (skippedDuplicates === 1) {
+    return ATTACHMENT_DUPLICATE_MESSAGE;
+  }
+
+  return null;
 }
 
 function parseStoredPromptHistory(value: string | null): string[] {
@@ -327,6 +358,28 @@ async function ensureSerializableUrl(url: string): Promise<string> {
   }
 }
 
+async function resolveImageSourceBlob(source: string): Promise<Blob | null> {
+  if (!source) {
+    return null;
+  }
+
+  if (isStoredAssetRef(source)) {
+    return resolveStoredAssetBlob(source);
+  }
+
+  try {
+    const response = await fetch(source);
+    if (!response.ok) {
+      return null;
+    }
+
+    return await response.blob();
+  } catch (error) {
+    console.error("Unable to resolve image source blob", error);
+    return null;
+  }
+}
+
 function parseDimensionInput(value: string): number | null {
   const trimmedValue = value.trim();
   if (!trimmedValue) {
@@ -359,6 +412,7 @@ export function CreatePage() {
   const [apiKey, setApiKey] = useState("");
   const [geminiApiKey, setGeminiApiKey] = useState("");
   const [openAIApiKey, setOpenAIApiKey] = useState("");
+  const [openAIApiKeyUpdatedAt, setOpenAIApiKeyUpdatedAt] = useState<string | null>(null);
   const [openAIModel, setOpenAIModel] = useState<OpenAIModelSelection>(DEFAULT_OPENAI_MODEL);
   const [openAIQuality, setOpenAIQuality] = useState<OpenAIQuality>(DEFAULT_OPENAI_QUALITY);
   const [openAIResolutionMode, setOpenAIResolutionMode] =
@@ -370,7 +424,9 @@ export function CreatePage() {
   const [attachmentPreview, setAttachmentPreview] = useState<PromptAttachment | null>(null);
   const [generations, setGenerations] = useState<Generation[]>([]);
   const [pendingGenerations, setPendingGenerations] = useState<Generation[]>([]);
+  const [retryingGenerationIds, setRetryingGenerationIds] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [reuseNotice, setReuseNotice] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isChangelogOpen, setIsChangelogOpen] = useState(false);
@@ -413,6 +469,8 @@ export function CreatePage() {
         url: attachment.url,
         width: attachment.width ?? null,
         height: attachment.height ?? null,
+        mimeType: attachment.mimeType ?? null,
+        fileSize: attachment.fileSize ?? null,
       })),
     [attachments],
   );
@@ -728,6 +786,11 @@ export function CreatePage() {
           setOpenAIApiKey(storedOpenAIApiKey);
         }
 
+        const storedOpenAIApiKeyUpdatedAt = window.localStorage.getItem(STORAGE_KEYS.openAIApiKeyUpdatedAt);
+        if (storedOpenAIApiKeyUpdatedAt !== null && !Number.isNaN(Date.parse(storedOpenAIApiKeyUpdatedAt))) {
+          setOpenAIApiKeyUpdatedAt(storedOpenAIApiKeyUpdatedAt);
+        }
+
         const storedOpenAIModel = normalizeStoredOpenAIModel(window.localStorage.getItem(STORAGE_KEYS.openAIModel));
         if (storedOpenAIModel) {
           setOpenAIModel(storedOpenAIModel);
@@ -919,6 +982,18 @@ export function CreatePage() {
   }, [promptSnippets]);
 
   useEffect(() => {
+    if (!reuseNotice || typeof window === "undefined") {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setReuseNotice(null);
+    }, 5000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [reuseNotice]);
+
+  useEffect(() => {
     if (!storageHydratedRef.current || typeof window === "undefined") {
       return;
     }
@@ -940,6 +1015,7 @@ export function CreatePage() {
 
     const normalizedOpenAIApiKey = openAIApiKey.trim();
     safePersist(STORAGE_KEYS.openAIApiKey, normalizedOpenAIApiKey.length > 0 ? normalizedOpenAIApiKey : null);
+    safePersist(STORAGE_KEYS.openAIApiKeyUpdatedAt, normalizedOpenAIApiKey.length > 0 ? openAIApiKeyUpdatedAt : null);
     safePersist(STORAGE_KEYS.openAIModel, openAIModel);
     safePersist(STORAGE_KEYS.openAIQuality, openAIQuality);
     safePersist(STORAGE_KEYS.openAIResolutionMode, openAIResolutionMode);
@@ -957,6 +1033,7 @@ export function CreatePage() {
     apiKey,
     geminiApiKey,
     openAIApiKey,
+    openAIApiKeyUpdatedAt,
     openAIModel,
     openAIQuality,
     openAIResolutionMode,
@@ -1095,6 +1172,11 @@ export function CreatePage() {
     [openAICustomHeight, openAICustomWidth, openAIResolutionMode, provider, quality],
   );
 
+  const handleOpenAIApiKeyChange = useCallback((value: string) => {
+    setOpenAIApiKey(value);
+    setOpenAIApiKeyUpdatedAt(value.trim().length > 0 ? new Date().toISOString() : null);
+  }, []);
+
   const groupedGenerations = useMemo(() => groupByDate(visibleFeed), [visibleFeed]);
   const pendingIdSet = useMemo(() => new Set(pendingGenerations.map((generation) => generation.id)), [pendingGenerations]);
 
@@ -1193,6 +1275,7 @@ export function CreatePage() {
         return;
       }
 
+      const skippedForLimit = Math.max(0, imageFiles.length - availableSlots);
       const filesToProcess = imageFiles.slice(0, availableSlots);
 
       try {
@@ -1206,6 +1289,8 @@ export function CreatePage() {
               url: dataUrl,
               width: dimensions?.width ?? null,
               height: dimensions?.height ?? null,
+              mimeType: file.type || null,
+              fileSize: file.size,
               kind: "local" as const,
             };
           }),
@@ -1213,9 +1298,14 @@ export function CreatePage() {
 
         const existingUrls = new Set(attachments.map((attachment) => attachment.url));
         const uniquePrepared = prepared.filter((attachment) => !existingUrls.has(attachment.url));
+        const skippedDuplicates = prepared.length - uniquePrepared.length;
+        const attachmentNotice = getAttachmentAddNotice({
+          skippedDuplicates,
+          skippedForLimit,
+        });
 
         if (uniquePrepared.length === 0) {
-          // All images were duplicates, silently ignore
+          setError(attachmentNotice ?? ATTACHMENT_DUPLICATE_MESSAGE);
           return;
         }
 
@@ -1238,7 +1328,11 @@ export function CreatePage() {
           return [...previous, ...nextItems];
         });
 
-        clearAttachmentError();
+        if (attachmentNotice) {
+          setError(attachmentNotice);
+        } else {
+          clearAttachmentError();
+        }
       } catch (attachmentError) {
         console.error("Failed to read attachment", attachmentError);
         setError(ATTACHMENT_READ_MESSAGE);
@@ -1250,6 +1344,34 @@ export function CreatePage() {
   const handleRemoveAttachment = useCallback(
     (attachmentId: string) => {
       setAttachments((previous) => previous.filter((attachment) => attachment.id !== attachmentId));
+      clearAttachmentError();
+    },
+    [clearAttachmentError],
+  );
+
+  const handleClearAttachments = useCallback(() => {
+    setAttachments([]);
+    setAttachmentPreview(null);
+    clearAttachmentError();
+  }, [clearAttachmentError]);
+
+  const handleMoveAttachment = useCallback(
+    (attachmentId: string, direction: -1 | 1) => {
+      setAttachments((previous) => {
+        const currentIndex = previous.findIndex((attachment) => attachment.id === attachmentId);
+        if (currentIndex < 0) {
+          return previous;
+        }
+
+        const nextIndex = currentIndex + direction;
+        if (nextIndex < 0 || nextIndex >= previous.length) {
+          return previous;
+        }
+
+        const next = [...previous];
+        [next[currentIndex], next[nextIndex]] = [next[nextIndex], next[currentIndex]];
+        return next;
+      });
       clearAttachmentError();
     },
     [clearAttachmentError],
@@ -1269,6 +1391,7 @@ export function CreatePage() {
       }
 
       if (attachments.some((attachment) => attachment.url === resolvedUrl)) {
+        setError(ATTACHMENT_DUPLICATE_MESSAGE);
         return false;
       }
 
@@ -1285,7 +1408,16 @@ export function CreatePage() {
       setAttachments((previous) => {
         const next = [
           ...previous,
-          { id: createId("attachment"), name, url: resolvedUrl, kind: "remote" as const, width, height },
+          {
+            id: createId("attachment"),
+            name,
+            url: resolvedUrl,
+            kind: "remote" as const,
+            width,
+            height,
+            mimeType: null,
+            fileSize: null,
+          },
         ];
 
         if (previous.length === 0 && width && height) {
@@ -1315,6 +1447,149 @@ export function CreatePage() {
   const handleDeletePromptSnippet = useCallback((snippet: string) => {
     setPromptSnippets((previous) => previous.filter((item) => item !== snippet));
   }, []);
+
+  const handleRenamePromptSnippet = useCallback((snippet: string, nextValue: string) => {
+    const trimmedValue = nextValue.trim();
+    if (!trimmedValue) {
+      return;
+    }
+
+    setPromptSnippets((previous) => {
+      const currentIndex = previous.findIndex((item) => item === snippet);
+      if (currentIndex < 0) {
+        return previous;
+      }
+
+      const next = previous.reduce<string[]>((items, item) => {
+        if (item === snippet) {
+          items.push(trimmedValue);
+        } else if (item !== trimmedValue) {
+          items.push(item);
+        }
+
+        return items;
+      }, []);
+
+      return next.slice(0, MAX_PROMPT_SNIPPETS);
+    });
+  }, []);
+
+  const handleRestorePromptSnippets = useCallback((snippets: string[]) => {
+    setPromptSnippets(snippets.slice(0, MAX_PROMPT_SNIPPETS));
+  }, []);
+
+  const handleMovePromptSnippet = useCallback((snippet: string, direction: -1 | 1) => {
+    setPromptSnippets((previous) => {
+      const currentIndex = previous.findIndex((item) => item === snippet);
+      if (currentIndex < 0) {
+        return previous;
+      }
+
+      const nextIndex = currentIndex + direction;
+      if (nextIndex < 0 || nextIndex >= previous.length) {
+        return previous;
+      }
+
+      const next = [...previous];
+      [next[currentIndex], next[nextIndex]] = [next[nextIndex], next[currentIndex]];
+      return next;
+    });
+  }, []);
+
+  const handleDeletePromptHistoryItem = useCallback((historyItem: string) => {
+    setPromptHistory((previous) => previous.filter((item) => item !== historyItem));
+  }, []);
+
+  const handleClearPromptHistory = useCallback(() => {
+    setPromptHistory([]);
+  }, []);
+
+  const handleRestorePromptHistory = useCallback((historyItems: string[]) => {
+    setPromptHistory(historyItems.slice(0, MAX_PROMPT_HISTORY));
+  }, []);
+
+  const handleImprovePrompt = useCallback(async (): Promise<boolean> => {
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt) {
+      return false;
+    }
+
+    const trimmedOpenAIApiKey = openAIApiKey.trim();
+    if (!trimmedOpenAIApiKey) {
+      setError("Add an OpenAI API key in settings before improving prompts.");
+      setIsSettingsOpen(true);
+      return false;
+    }
+
+    try {
+      const response = await fetch("/api/openai/prompts/improve", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          apiKey: trimmedOpenAIApiKey,
+          prompt: trimmedPrompt,
+          context: {
+            aspect,
+            resolution:
+              openAIResolutionMode === "custom" &&
+              openAICustomWidth.trim() &&
+              openAICustomHeight.trim()
+                ? `${openAICustomWidth.trim()}x${openAICustomHeight.trim()}`
+                : openAIPresetSizeLabel,
+            outputFormat,
+            imageCount,
+            quality: openAIQuality,
+            referenceImages: attachments.map((attachment) => ({
+              name: attachment.name,
+              width: attachment.width ?? null,
+              height: attachment.height ?? null,
+              mimeType: attachment.mimeType ?? null,
+            })),
+          },
+        }),
+        cache: "no-store",
+      });
+
+      const responseText = await response.text();
+      let payload: { prompt?: string; error?: { message?: string } } = {};
+      try {
+        payload = JSON.parse(responseText) as typeof payload;
+      } catch {
+        // Keep the original response text for the error below.
+      }
+
+      if (!response.ok) {
+        throw new Error(payload.error?.message ?? responseText ?? "Prompt improvement failed.");
+      }
+
+      const improvedPrompt = typeof payload.prompt === "string" ? payload.prompt.trim() : "";
+      if (!improvedPrompt) {
+        throw new Error("No improved prompt returned.");
+      }
+
+      setPrompt(improvedPrompt);
+      setError(null);
+      return true;
+    } catch (promptError) {
+      const message = promptError instanceof Error ? promptError.message : "Prompt improvement failed.";
+      setError(message);
+      return false;
+    }
+  }, [
+    aspect,
+    attachments,
+    imageCount,
+    openAIApiKey,
+    openAICustomHeight,
+    openAICustomWidth,
+    openAIPresetSizeLabel,
+    openAIQuality,
+    openAIResolutionMode,
+    outputFormat,
+    prompt,
+  ]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1603,7 +1878,7 @@ export function CreatePage() {
   const handleDownload = useCallback(async (entry: GalleryEntry): Promise<boolean> => {
     setIsDownloading(true);
     try {
-      const blob = await resolveStoredAssetBlob(entry.src);
+      const blob = await resolveImageSourceBlob(entry.src);
       if (!blob) {
         throw new Error("Download failed.");
       }
@@ -1681,7 +1956,7 @@ export function CreatePage() {
         throw new Error("Clipboard is not supported in this browser.");
       }
 
-      const blob = await resolveStoredAssetBlob(entry.src);
+      const blob = await resolveImageSourceBlob(entry.src);
       if (!blob) {
         throw new Error("Copy failed.");
       }
@@ -1767,7 +2042,9 @@ export function CreatePage() {
       };
 
       const pngBlob = await toPngBlob(blob);
-      await writeToClipboard(new Blob([pngBlob], { type: "image/png" }));
+      await writeToClipboard(
+        pngBlob.type === "image/png" ? pngBlob : new Blob([pngBlob], { type: "image/png" }),
+      );
       return true;
     } catch (copyError) {
       const message =
@@ -1929,6 +2206,8 @@ export function CreatePage() {
       url: image.url,
       width: image.width ?? null,
       height: image.height ?? null,
+      mimeType: image.mimeType ?? null,
+      fileSize: image.fileSize ?? null,
       kind: "remote",
     });
   }, []);
@@ -1948,6 +2227,10 @@ export function CreatePage() {
 
   const handleRetryGeneration = useCallback(
     (generationId: string) => {
+      if (retryingGenerationIds.has(generationId)) {
+        return;
+      }
+
       const generation = generations.find((gen) => gen.id === generationId);
       if (!generation) {
         return;
@@ -2002,8 +2285,12 @@ export function CreatePage() {
         inputImages: inputImageSnapshot.length,
       });
 
-      setGenerations((previous) => previous.filter((gen) => gen.id !== generationId));
       setPendingGenerations((previous) => [pendingGeneration, ...previous.filter((gen) => gen.id !== pendingId)]);
+      setRetryingGenerationIds((previous) => {
+        const next = new Set(previous);
+        next.add(generationId);
+        return next;
+      });
       setError(null);
       setIsSettingsOpen(false);
 
@@ -2057,7 +2344,15 @@ export function CreatePage() {
             images: normalizedImages,
             aspectSelection: generation.aspectSelection,
             qualitySelection: generation.qualitySelection,
+            estimatedOpenAICost: generation.estimatedOpenAICost,
           };
+          const actualCost = calculateOpenAIActualCost(nextGeneration.openAIUsage ?? null);
+          const generationCostCents = dollarsToCents(
+            actualCost.totalCostUsd ?? generation.estimatedOpenAICost?.totalCostUsd,
+          );
+          if (generation.provider === "openai" && generationCostCents > 0) {
+            setSpentCents((previous) => previous + generationCostCents);
+          }
 
           let optimizedGeneration = nextGeneration;
           try {
@@ -2067,7 +2362,10 @@ export function CreatePage() {
           }
 
           setGenerations((previous) => {
-            const next = [optimizedGeneration, ...previous];
+            const next = [
+              optimizedGeneration,
+              ...previous.filter((gen) => gen.id !== generationId),
+            ];
             debugLog("generations:prepended", {
               generationId: optimizedGeneration.id,
               total: next.length,
@@ -2093,9 +2391,14 @@ export function CreatePage() {
             });
             return next;
           });
+          setRetryingGenerationIds((previous) => {
+            const next = new Set(previous);
+            next.delete(generationId);
+            return next;
+          });
         });
     },
-    [apiKey, flashReasoningLevel, geminiApiKey, generations, openAIApiKey],
+    [apiKey, flashReasoningLevel, geminiApiKey, generations, openAIApiKey, retryingGenerationIds],
   );
 
   const handleDeleteGeneration = useCallback(
@@ -2209,6 +2512,13 @@ export function CreatePage() {
       if (options?.openAIQuality === "low" || options?.openAIQuality === "medium" || options?.openAIQuality === "high") {
         setOpenAIQuality(options.openAIQuality);
       }
+      if (
+        options?.outputFormat === "png" ||
+        options?.outputFormat === "jpeg" ||
+        options?.outputFormat === "webp"
+      ) {
+        setOutputFormat(options.outputFormat);
+      }
 
       if (options?.aspectSelection && isAspectSelection(options.aspectSelection)) {
         setAspect(options.aspectSelection);
@@ -2242,6 +2552,8 @@ export function CreatePage() {
             url: await ensureSerializableUrl(image.url),
             width: image.width ?? null,
             height: image.height ?? null,
+            mimeType: image.mimeType ?? null,
+            fileSize: image.fileSize ?? null,
             kind: "remote" as const,
           })),
         );
@@ -2253,6 +2565,19 @@ export function CreatePage() {
         setAttachmentPreview(null);
         clearAttachmentError();
       }
+
+      const restoredFormat =
+        options?.outputFormat === "jpeg" || options?.outputFormat === "png" || options?.outputFormat === "webp"
+          ? options.outputFormat.toUpperCase()
+          : null;
+      const restoredReferenceCount = Math.min(inputImages.length, MAX_ATTACHMENTS);
+      const referenceLabel =
+        restoredReferenceCount === 0
+          ? "no references"
+          : `${restoredReferenceCount} reference${restoredReferenceCount === 1 ? "" : "s"}`;
+      setReuseNotice(
+        `Restored prompt${restoredFormat ? ` and ${restoredFormat} setup` : ""} with ${referenceLabel}.`,
+      );
     },
     [clearAttachmentError, setUseGoogleSearch],
   );
@@ -2347,6 +2672,25 @@ export function CreatePage() {
                 </div>
               ) : null}
 
+              {reuseNotice ? (
+                <div className="rounded-lg border border-white/10 bg-white/[0.04] px-4 py-3 flex items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--text-muted)]">
+                      Setup restored
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-[var(--text-secondary)]">{reuseNotice}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setReuseNotice(null)}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-white/20"
+                    aria-label="Dismiss restored setup notice"
+                  >
+                    <XIcon className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : null}
+
               {hasGenerations ? (
                 <>
                   {groupedGenerations.map((group) => (
@@ -2355,6 +2699,7 @@ export function CreatePage() {
                       label={group.label}
                       generations={group.items}
                       pendingIdSet={pendingIdSet}
+                      retryingGenerationIds={retryingGenerationIds}
                       streamingThoughts={streamingThoughts}
                       onExpand={handleExpand}
                       onUsePrompt={(prompt, inputImages, options) => {
@@ -2402,20 +2747,16 @@ export function CreatePage() {
               outputFormat={outputFormat}
               provider={provider}
               geminiModelVariant={geminiModelVariant}
-              openAIModel={openAIModel}
               openAIQuality={openAIQuality}
               openAIApiKey={openAIApiKey}
+              openAIApiKeyUpdatedAt={openAIApiKeyUpdatedAt}
               openAIResolutionMode={openAIResolutionMode}
               openAICustomWidth={openAICustomWidth}
               openAICustomHeight={openAICustomHeight}
               openAICustomSizeError={openAICustomSizeError}
               openAIPresetSizeLabel={openAIPresetSizeLabel}
               estimatedOpenAICost={estimatedOpenAICost}
-              flashReasoningLevel={flashReasoningLevel}
-              useGoogleSearch={useGoogleSearch}
               imageCount={imageCount}
-              apiKey={apiKey}
-              geminiApiKey={geminiApiKey}
               appVersion={APP_VERSION}
               totalImages={totalImages}
               isBudgetLocked={isBudgetLocked}
@@ -2423,30 +2764,33 @@ export function CreatePage() {
               onSubmit={handleSubmit}
               onPromptChange={setPrompt}
               onSavePromptSnippet={handleSavePromptSnippet}
+              onImprovePrompt={handleImprovePrompt}
               onUsePromptSnippet={setPrompt}
               onDeletePromptSnippet={handleDeletePromptSnippet}
+              onRenamePromptSnippet={handleRenamePromptSnippet}
+              onMovePromptSnippet={handleMovePromptSnippet}
+              onRestorePromptSnippets={handleRestorePromptSnippets}
+              onDeletePromptHistoryItem={handleDeletePromptHistoryItem}
+              onClearPromptHistory={handleClearPromptHistory}
+              onRestorePromptHistory={handleRestorePromptHistory}
               onAspectSelect={handleAspectSelect}
               onQualityChange={setQuality}
               onOutputFormatChange={setOutputFormat}
-              onProviderChange={setProvider}
-              onGeminiModelVariantChange={setGeminiModelVariant}
-              onOpenAIModelChange={setOpenAIModel}
               onOpenAIQualityChange={setOpenAIQuality}
-              onOpenAIApiKeyChange={setOpenAIApiKey}
+              onOpenAIApiKeyChange={handleOpenAIApiKeyChange}
               onOpenAIResolutionModeChange={setOpenAIResolutionMode}
               onOpenAICustomWidthChange={setOpenAICustomWidth}
               onOpenAICustomHeightChange={setOpenAICustomHeight}
-              onFlashReasoningLevelChange={setFlashReasoningLevel}
-              onToggleGoogleSearch={setUseGoogleSearch}
               onImageCountChange={setImageCount}
-              onApiKeyChange={setApiKey}
-              onGeminiApiKeyChange={setGeminiApiKey}
               onToggleSettings={setIsSettingsOpen}
               attachments={attachments}
               onAddAttachments={handleAddAttachments}
               onRemoveAttachment={handleRemoveAttachment}
+              onClearAttachments={handleClearAttachments}
               onPreviewAttachment={handlePreviewAttachment}
+              onMoveAttachment={handleMoveAttachment}
               isAttachmentLimitReached={isAttachmentLimitReached}
+              maxAttachments={MAX_ATTACHMENTS}
               canUseAutoQuality={canUseAutoQuality}
             />
           </div>

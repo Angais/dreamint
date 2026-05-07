@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   ChangeEvent,
   ClipboardEvent as ReactClipboardEvent,
@@ -10,16 +10,12 @@ import type {
 } from "react";
 
 import {
-  OPENAI_MODEL_OPTIONS,
   OPENAI_QUALITY_OPTIONS,
   getAspectOptionsForModel,
   QUALITY_OPTIONS,
   OUTPUT_FORMAT_OPTIONS,
-  PROVIDER_OPTIONS,
   type AspectSelection,
-  type FlashReasoningLevel,
   type GeminiModelVariant,
-  type OpenAIModelSelection,
   type OpenAIQuality,
   type OpenAIResolutionMode,
   type QualitySelection,
@@ -27,7 +23,7 @@ import {
   type Provider,
 } from "../../lib/seedream-options";
 import type { OpenAIEstimatedCostBreakdown } from "../../lib/openai-image-costs";
-import { LightningIcon, MagnifyingGlassIcon, PlusIcon, SettingsIcon, XIcon } from "./icons";
+import { ArrowLeftIcon, ArrowRightIcon, CopyIcon, DownloadIcon, EyeIcon, EyeOffIcon, LightningIcon, PencilIcon, PlusIcon, SettingsIcon, WandIcon, XIcon } from "./icons";
 import { AttachmentPreviewList } from "./attachment-preview";
 import type { PromptAttachment } from "./types";
 import { resizeTextarea } from "./utils";
@@ -41,20 +37,16 @@ type HeaderProps = {
   outputFormat: OutputFormat;
   provider: Provider;
   geminiModelVariant: GeminiModelVariant;
-  openAIModel: OpenAIModelSelection;
   openAIQuality: OpenAIQuality;
   openAIApiKey: string;
+  openAIApiKeyUpdatedAt: string | null;
   openAIResolutionMode: OpenAIResolutionMode;
   openAICustomWidth: string;
   openAICustomHeight: string;
   openAICustomSizeError: string | null;
   openAIPresetSizeLabel: string;
   estimatedOpenAICost: OpenAIEstimatedCostBreakdown | null;
-  flashReasoningLevel: FlashReasoningLevel;
-  useGoogleSearch: boolean;
   imageCount: number;
-  apiKey: string;
-  geminiApiKey: string;
   appVersion: string;
   totalImages: number;
   isBudgetLocked: boolean;
@@ -62,30 +54,33 @@ type HeaderProps = {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onPromptChange: (value: string) => void;
   onSavePromptSnippet: () => void;
+  onImprovePrompt: () => Promise<boolean>;
   onUsePromptSnippet: (value: string) => void;
   onDeletePromptSnippet: (value: string) => void;
+  onRenamePromptSnippet: (previousValue: string, nextValue: string) => void;
+  onMovePromptSnippet: (value: string, direction: -1 | 1) => void;
+  onRestorePromptSnippets: (values: string[]) => void;
+  onDeletePromptHistoryItem: (value: string) => void;
+  onClearPromptHistory: () => void;
+  onRestorePromptHistory: (values: string[]) => void;
   onAspectSelect: (value: string) => void;
   onQualityChange: (value: QualitySelection) => void;
   onOutputFormatChange: (value: OutputFormat) => void;
-  onProviderChange: (value: Provider) => void;
-  onGeminiModelVariantChange: (value: GeminiModelVariant) => void;
-  onOpenAIModelChange: (value: OpenAIModelSelection) => void;
   onOpenAIQualityChange: (value: OpenAIQuality) => void;
   onOpenAIApiKeyChange: (value: string) => void;
   onOpenAIResolutionModeChange: (value: OpenAIResolutionMode) => void;
   onOpenAICustomWidthChange: (value: string) => void;
   onOpenAICustomHeightChange: (value: string) => void;
-  onFlashReasoningLevelChange: (value: FlashReasoningLevel) => void;
-  onToggleGoogleSearch: (value: boolean) => void;
   onImageCountChange: (value: number) => void;
-  onApiKeyChange: (value: string) => void;
-  onGeminiApiKeyChange: (value: string) => void;
   onToggleSettings: Dispatch<SetStateAction<boolean>>;
   attachments: PromptAttachment[];
   onAddAttachments: (files: File[]) => void;
   onRemoveAttachment: (attachmentId: string) => void;
+  onClearAttachments: () => void;
   onPreviewAttachment: (attachment: PromptAttachment) => void;
+  onMoveAttachment: (attachmentId: string, direction: -1 | 1) => void;
   isAttachmentLimitReached: boolean;
+  maxAttachments: number;
   canUseAutoQuality: boolean;
 };
 
@@ -98,20 +93,16 @@ export function Header({
   outputFormat,
   provider,
   geminiModelVariant,
-  openAIModel,
   openAIQuality,
   openAIApiKey,
+  openAIApiKeyUpdatedAt,
   openAIResolutionMode,
   openAICustomWidth,
   openAICustomHeight,
   openAICustomSizeError,
   openAIPresetSizeLabel,
   estimatedOpenAICost,
-  flashReasoningLevel,
-  useGoogleSearch,
   imageCount,
-  apiKey,
-  geminiApiKey,
   appVersion,
   totalImages,
   isBudgetLocked,
@@ -119,30 +110,33 @@ export function Header({
   onSubmit,
   onPromptChange,
   onSavePromptSnippet,
+  onImprovePrompt,
   onUsePromptSnippet,
   onDeletePromptSnippet,
+  onRenamePromptSnippet,
+  onMovePromptSnippet,
+  onRestorePromptSnippets,
+  onDeletePromptHistoryItem,
+  onClearPromptHistory,
+  onRestorePromptHistory,
   onAspectSelect,
   onQualityChange,
   onOutputFormatChange,
-  onProviderChange,
-  onGeminiModelVariantChange,
-  onOpenAIModelChange,
   onOpenAIQualityChange,
   onOpenAIApiKeyChange,
   onOpenAIResolutionModeChange,
   onOpenAICustomWidthChange,
   onOpenAICustomHeightChange,
-  onFlashReasoningLevelChange,
-  onToggleGoogleSearch,
   onImageCountChange,
-  onApiKeyChange,
-  onGeminiApiKeyChange,
   onToggleSettings,
   attachments,
   onAddAttachments,
   onRemoveAttachment,
+  onClearAttachments,
   onPreviewAttachment,
+  onMoveAttachment,
   isAttachmentLimitReached,
+  maxAttachments,
   canUseAutoQuality,
 }: HeaderProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -151,13 +145,38 @@ export function Header({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const dragCounterRef = useRef(0);
+  const clearPromptTimeoutRef = useRef<number | null>(null);
+  const clearHistoryTimeoutRef = useRef<number | null>(null);
+  const deleteHistoryItemTimeoutRef = useRef<number | null>(null);
+  const deleteSnippetTimeoutRef = useRef<number | null>(null);
+  const clearApiKeyTimeoutRef = useRef<number | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
+  const [promptCopyState, setPromptCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [setupCopyState, setSetupCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [setupDownloadState, setSetupDownloadState] = useState<"idle" | "saved" | "failed">("idle");
+  const [promptImproveState, setPromptImproveState] =
+    useState<"idle" | "improving" | "improved" | "failed">("idle");
+  const [apiKeyCopyState, setApiKeyCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [isOpenAIApiKeyVisible, setIsOpenAIApiKeyVisible] = useState(false);
+  const [clearedOpenAIApiKey, setClearedOpenAIApiKey] = useState<string | null>(null);
+  const [clearedPrompt, setClearedPrompt] = useState<string | null>(null);
+  const [clearedPromptHistory, setClearedPromptHistory] = useState<string[] | null>(null);
+  const [deletedPromptHistory, setDeletedPromptHistory] = useState<{
+    label: string;
+    snapshot: string[];
+  } | null>(null);
+  const [deletedPromptSnippet, setDeletedPromptSnippet] = useState<{
+    label: string;
+    snapshot: string[];
+  } | null>(null);
+  const [editingPromptSnippet, setEditingPromptSnippet] = useState<{
+    original: string;
+    draft: string;
+  } | null>(null);
   const historyDraftRef = useRef("");
   const historyNavigationRef = useRef(false);
   const isOpenAIProvider = provider === "openai";
-  const searchToggleDisabled = provider !== "gemini";
-  const isFlashModel = geminiModelVariant === "flash";
   const availableAspectOptions = getAspectOptionsForModel(provider, geminiModelVariant);
   const aspectSelectOptions = [
     { value: "auto", label: "Auto", description: "Image" },
@@ -167,13 +186,6 @@ export function Header({
       description: option.description,
     })),
   ];
-  const providerModelValue = isOpenAIProvider ? openAIModel : geminiModelVariant;
-  const providerModelOptions = isOpenAIProvider
-    ? OPENAI_MODEL_OPTIONS
-    : [
-        { value: "pro", label: "3 Pro" },
-        { value: "flash", label: "3.1 Flash" },
-      ];
   const qualitySelectValue = isOpenAIProvider ? openAIQuality : quality;
   const qualitySelectOptions = isOpenAIProvider
     ? OPENAI_QUALITY_OPTIONS
@@ -189,9 +201,24 @@ export function Header({
     })),
   ];
   const trimmedPrompt = prompt.trim();
+  const isImprovingPrompt = promptImproveState === "improving";
+  const trimmedOpenAIApiKey = openAIApiKey.trim();
+  const remainingAttachmentSlots = Math.max(0, maxAttachments - attachments.length);
+  const attachmentSlotLabel =
+    remainingAttachmentSlots === 0
+      ? "Full"
+      : `${remainingAttachmentSlots} ref${remainingAttachmentSlots === 1 ? "" : "s"} left`;
+  const promptStats = useMemo(() => {
+    const words = trimmedPrompt.length === 0 ? 0 : trimmedPrompt.split(/\s+/).length;
+    return {
+      characters: prompt.length,
+      words,
+    };
+  }, [prompt, trimmedPrompt]);
   const generateDisabled = trimmedPrompt.length === 0 || isBudgetLocked;
   const canSavePromptSnippet =
     trimmedPrompt.length > 0 && !promptSnippets.includes(trimmedPrompt);
+  const visiblePromptHistory = promptHistory.filter((historyItem) => historyItem !== trimmedPrompt);
   const formatUsd = (value: number) =>
     new Intl.NumberFormat("en-US", {
       style: "currency",
@@ -199,6 +226,71 @@ export function Header({
       minimumFractionDigits: value < 0.01 ? 4 : 2,
       maximumFractionDigits: value < 0.01 ? 4 : 2,
     }).format(value);
+  const formatSettingLabel = (value: string) => value.replace(/-/g, " ");
+  const formatOpenAIApiKeyUpdatedAt = () => {
+    if (!openAIApiKeyUpdatedAt) {
+      return null;
+    }
+
+    const updatedAtMs = Date.parse(openAIApiKeyUpdatedAt);
+    if (Number.isNaN(updatedAtMs)) {
+      return null;
+    }
+
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - updatedAtMs) / 1000));
+    if (elapsedSeconds < 60) {
+      return "updated just now";
+    }
+
+    const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+    if (elapsedMinutes < 60) {
+      return `updated ${elapsedMinutes}m ago`;
+    }
+
+    const elapsedHours = Math.floor(elapsedMinutes / 60);
+    if (elapsedHours < 24) {
+      return `updated ${elapsedHours}h ago`;
+    }
+
+    const elapsedDays = Math.floor(elapsedHours / 24);
+    return `updated ${elapsedDays}d ago`;
+  };
+  const buildPromptSetupMarkdown = () => {
+    const aspectLabel =
+      aspect === "auto"
+        ? `Auto${attachments[0]?.width && attachments[0]?.height ? ` (${attachments[0].width}x${attachments[0].height})` : ""}`
+        : aspectSelectOptions.find((option) => option.value === aspect)?.label ?? formatSettingLabel(aspect);
+    const customSizeLabel =
+      openAICustomWidth.trim() && openAICustomHeight.trim()
+        ? `${openAICustomWidth.trim()}x${openAICustomHeight.trim()}`
+        : "Exact size";
+    const resolutionLabel =
+      openAIResolutionMode === "custom"
+        ? customSizeLabel
+        : openAIResolutionOptions.find((option) => option.value === quality)?.label ??
+          formatSettingLabel(quality);
+    const qualityLabel =
+      qualitySelectOptions.find((option) => option.value === qualitySelectValue)?.label ??
+      formatSettingLabel(qualitySelectValue);
+
+    return [
+      "# Dreamint Prompt Setup",
+      "",
+      "## Prompt",
+      trimmedPrompt,
+      "",
+      "## Settings",
+      `- Aspect: ${aspectLabel}`,
+      `- Resolution: ${resolutionLabel}`,
+      `- Resolution mode: ${openAIResolutionMode === "custom" ? "Exact" : "Preset"}`,
+      ...(openAIResolutionMode === "preset" ? [`- Preset size: ${openAIPresetSizeLabel}`] : []),
+      `- Quality: ${qualityLabel}`,
+      `- Output format: ${outputFormat.toUpperCase()}`,
+      `- Images: ${imageCount}`,
+      `- References: ${attachments.length}`,
+      ...(estimatedOpenAICost ? [`- Estimated cost: ${formatUsd(estimatedOpenAICost.totalCostUsd)}`] : []),
+    ].join("\n");
+  };
   const shouldSubmitOnEnter = () => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
       return true;
@@ -208,27 +300,386 @@ export function Header({
     const hasNoHover = window.matchMedia("(hover: none)").matches;
     return !(hasCoarsePointer && hasNoHover);
   };
-  const handleGoogleSearchToggle = () => {
-    if (searchToggleDisabled) {
-      return;
-    }
-    onToggleGoogleSearch(!useGoogleSearch);
-  };
-  const handleModelChange = (value: string) => {
-    if (isOpenAIProvider) {
-      onOpenAIModelChange(value as OpenAIModelSelection);
-      return;
-    }
-
-    onGeminiModelVariantChange(value as GeminiModelVariant);
-  };
-
+  const openAIApiKeyStatus = formatOpenAIApiKeyUpdatedAt();
   const handleAttachmentButtonClick = () => {
     if (isAttachmentLimitReached) {
       return;
     }
 
     fileInputRef.current?.click();
+  };
+
+  const copyText = async (value: string) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+
+    if (typeof document === "undefined") {
+      throw new Error("Clipboard is unavailable.");
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+
+    try {
+      document.execCommand("copy");
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  };
+
+  const handleCopyPrompt = async () => {
+    if (!trimmedPrompt) {
+      return;
+    }
+
+    try {
+      await copyText(trimmedPrompt);
+      setPromptCopyState("copied");
+    } catch (error) {
+      console.error("Unable to copy prompt", error);
+      setPromptCopyState("failed");
+    }
+  };
+
+  const handleCopyPromptSetup = async () => {
+    if (!trimmedPrompt) {
+      return;
+    }
+
+    try {
+      await copyText(buildPromptSetupMarkdown());
+      setSetupCopyState("copied");
+    } catch (error) {
+      console.error("Unable to copy prompt setup", error);
+      setSetupCopyState("failed");
+    }
+  };
+
+  const handleDownloadPromptSetup = () => {
+    if (!trimmedPrompt || typeof document === "undefined") {
+      return;
+    }
+
+    try {
+      const slug = trimmedPrompt
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 48);
+      const filename = `dreamint-setup-${slug || "prompt"}.md`;
+      const blob = new Blob([buildPromptSetupMarkdown()], {
+        type: "text/markdown;charset=utf-8",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setSetupDownloadState("saved");
+    } catch (error) {
+      console.error("Unable to download prompt setup", error);
+      setSetupDownloadState("failed");
+    }
+  };
+
+  const handleImprovePrompt = async () => {
+    if (!trimmedPrompt || isImprovingPrompt) {
+      return;
+    }
+
+    setPromptImproveState("improving");
+    const improved = await onImprovePrompt();
+    setPromptImproveState(improved ? "improved" : "failed");
+    setHistoryIndex(null);
+    window.requestAnimationFrame(() => {
+      promptTextareaRef.current?.focus();
+      movePromptCaretToEnd();
+    });
+  };
+
+  const handleCopyOpenAIApiKey = async () => {
+    if (!trimmedOpenAIApiKey) {
+      return;
+    }
+
+    try {
+      await copyText(trimmedOpenAIApiKey);
+      setApiKeyCopyState("copied");
+    } catch (error) {
+      console.error("Unable to copy OpenAI API key", error);
+      setApiKeyCopyState("failed");
+    }
+  };
+
+  const clearPromptUndoTimer = () => {
+    if (clearPromptTimeoutRef.current === null) {
+      return;
+    }
+
+    window.clearTimeout(clearPromptTimeoutRef.current);
+    clearPromptTimeoutRef.current = null;
+  };
+
+  const dismissClearedPrompt = () => {
+    clearPromptUndoTimer();
+    setClearedPrompt(null);
+  };
+
+  const clearHistoryUndoTimer = () => {
+    if (clearHistoryTimeoutRef.current === null) {
+      return;
+    }
+
+    window.clearTimeout(clearHistoryTimeoutRef.current);
+    clearHistoryTimeoutRef.current = null;
+  };
+
+  const dismissClearedPromptHistory = () => {
+    clearHistoryUndoTimer();
+    setClearedPromptHistory(null);
+  };
+
+  const clearDeleteHistoryItemUndoTimer = () => {
+    if (deleteHistoryItemTimeoutRef.current === null) {
+      return;
+    }
+
+    window.clearTimeout(deleteHistoryItemTimeoutRef.current);
+    deleteHistoryItemTimeoutRef.current = null;
+  };
+
+  const dismissDeletedPromptHistory = () => {
+    clearDeleteHistoryItemUndoTimer();
+    setDeletedPromptHistory(null);
+  };
+
+  const clearDeleteSnippetUndoTimer = () => {
+    if (deleteSnippetTimeoutRef.current === null) {
+      return;
+    }
+
+    window.clearTimeout(deleteSnippetTimeoutRef.current);
+    deleteSnippetTimeoutRef.current = null;
+  };
+
+  const dismissDeletedPromptSnippet = () => {
+    clearDeleteSnippetUndoTimer();
+    setDeletedPromptSnippet(null);
+  };
+
+  const clearApiKeyUndoTimer = () => {
+    if (clearApiKeyTimeoutRef.current === null) {
+      return;
+    }
+
+    window.clearTimeout(clearApiKeyTimeoutRef.current);
+    clearApiKeyTimeoutRef.current = null;
+  };
+
+  const dismissClearedOpenAIApiKey = () => {
+    clearApiKeyUndoTimer();
+    setClearedOpenAIApiKey(null);
+  };
+
+  const handlePromptChange = (value: string) => {
+    if (clearedPrompt !== null) {
+      dismissClearedPrompt();
+    }
+
+    onPromptChange(value);
+  };
+
+  const handleOpenAIApiKeyChange = (value: string) => {
+    if (clearedOpenAIApiKey !== null) {
+      dismissClearedOpenAIApiKey();
+    }
+
+    onOpenAIApiKeyChange(value);
+  };
+
+  const handleClearPrompt = () => {
+    if (!trimmedPrompt) {
+      return;
+    }
+
+    clearPromptUndoTimer();
+    setClearedPrompt(prompt);
+    onPromptChange("");
+    setHistoryIndex(null);
+    historyDraftRef.current = "";
+    clearPromptTimeoutRef.current = window.setTimeout(() => {
+      setClearedPrompt(null);
+      clearPromptTimeoutRef.current = null;
+    }, 7000);
+    window.requestAnimationFrame(() => {
+      promptTextareaRef.current?.focus();
+    });
+  };
+
+  const handleUndoClearPrompt = () => {
+    if (clearedPrompt === null) {
+      return;
+    }
+
+    const promptToRestore = clearedPrompt;
+    dismissClearedPrompt();
+    onPromptChange(promptToRestore);
+    window.requestAnimationFrame(() => {
+      promptTextareaRef.current?.focus();
+      movePromptCaretToEnd();
+    });
+  };
+
+  const handleClearPromptHistory = () => {
+    if (promptHistory.length === 0) {
+      return;
+    }
+
+    dismissDeletedPromptHistory();
+    clearHistoryUndoTimer();
+    setClearedPromptHistory(promptHistory);
+    onClearPromptHistory();
+    clearHistoryTimeoutRef.current = window.setTimeout(() => {
+      setClearedPromptHistory(null);
+      clearHistoryTimeoutRef.current = null;
+    }, 7000);
+  };
+
+  const handleUndoClearPromptHistory = () => {
+    if (clearedPromptHistory === null) {
+      return;
+    }
+
+    const historyToRestore = clearedPromptHistory;
+    dismissClearedPromptHistory();
+    onRestorePromptHistory(historyToRestore);
+    window.requestAnimationFrame(() => {
+      promptTextareaRef.current?.focus();
+    });
+  };
+
+  const handleDeletePromptHistoryItem = (historyItem: string) => {
+    clearDeleteHistoryItemUndoTimer();
+    setDeletedPromptHistory({ label: historyItem, snapshot: promptHistory });
+    onDeletePromptHistoryItem(historyItem);
+    deleteHistoryItemTimeoutRef.current = window.setTimeout(() => {
+      setDeletedPromptHistory(null);
+      deleteHistoryItemTimeoutRef.current = null;
+    }, 7000);
+  };
+
+  const handleUndoDeletePromptHistoryItem = () => {
+    if (deletedPromptHistory === null) {
+      return;
+    }
+
+    const historyToRestore = deletedPromptHistory.snapshot;
+    dismissDeletedPromptHistory();
+    onRestorePromptHistory(historyToRestore);
+    window.requestAnimationFrame(() => {
+      promptTextareaRef.current?.focus();
+    });
+  };
+
+  const handleDeletePromptSnippet = (snippet: string) => {
+    clearDeleteSnippetUndoTimer();
+    if (editingPromptSnippet?.original === snippet) {
+      setEditingPromptSnippet(null);
+    }
+    setDeletedPromptSnippet({ label: snippet, snapshot: promptSnippets });
+    onDeletePromptSnippet(snippet);
+    deleteSnippetTimeoutRef.current = window.setTimeout(() => {
+      setDeletedPromptSnippet(null);
+      deleteSnippetTimeoutRef.current = null;
+    }, 7000);
+  };
+
+  const handleUndoDeletePromptSnippet = () => {
+    if (deletedPromptSnippet === null) {
+      return;
+    }
+
+    const snippetsToRestore = deletedPromptSnippet.snapshot;
+    dismissDeletedPromptSnippet();
+    onRestorePromptSnippets(snippetsToRestore);
+    window.requestAnimationFrame(() => {
+      promptTextareaRef.current?.focus();
+    });
+  };
+
+  const startRenamePromptSnippet = (snippet: string) => {
+    dismissDeletedPromptSnippet();
+    setEditingPromptSnippet({ original: snippet, draft: snippet });
+  };
+
+  const cancelRenamePromptSnippet = () => {
+    setEditingPromptSnippet(null);
+    window.requestAnimationFrame(() => {
+      promptTextareaRef.current?.focus();
+    });
+  };
+
+  const appendPromptSnippet = (snippet: string) => {
+    const nextPrompt = trimmedPrompt.length > 0 ? `${prompt.trimEnd()}\n\n${snippet}` : snippet;
+    onPromptChange(nextPrompt);
+    setHistoryIndex(null);
+    historyDraftRef.current = nextPrompt;
+    movePromptCaretToEnd();
+    window.requestAnimationFrame(() => {
+      promptTextareaRef.current?.focus();
+    });
+  };
+
+  const saveRenamedPromptSnippet = () => {
+    if (editingPromptSnippet === null) {
+      return;
+    }
+
+    const trimmedDraft = editingPromptSnippet.draft.trim();
+    if (!trimmedDraft) {
+      return;
+    }
+
+    onRenamePromptSnippet(editingPromptSnippet.original, trimmedDraft);
+    setEditingPromptSnippet(null);
+    window.requestAnimationFrame(() => {
+      promptTextareaRef.current?.focus();
+    });
+  };
+
+  const handleClearOpenAIApiKey = () => {
+    if (!trimmedOpenAIApiKey) {
+      return;
+    }
+
+    clearApiKeyUndoTimer();
+    setClearedOpenAIApiKey(openAIApiKey);
+    setApiKeyCopyState("idle");
+    onOpenAIApiKeyChange("");
+    clearApiKeyTimeoutRef.current = window.setTimeout(() => {
+      setClearedOpenAIApiKey(null);
+      clearApiKeyTimeoutRef.current = null;
+    }, 7000);
+  };
+
+  const handleUndoClearOpenAIApiKey = () => {
+    if (clearedOpenAIApiKey === null) {
+      return;
+    }
+
+    const keyToRestore = clearedOpenAIApiKey;
+    dismissClearedOpenAIApiKey();
+    onOpenAIApiKeyChange(keyToRestore);
   };
 
   const handleFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -416,6 +867,51 @@ export function Header({
   }, [prompt]);
 
   useEffect(() => {
+    if (promptCopyState === "idle") {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setPromptCopyState("idle"), 1200);
+    return () => window.clearTimeout(timeoutId);
+  }, [promptCopyState]);
+
+  useEffect(() => {
+    if (setupCopyState === "idle") {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setSetupCopyState("idle"), 1200);
+    return () => window.clearTimeout(timeoutId);
+  }, [setupCopyState]);
+
+  useEffect(() => {
+    if (setupDownloadState === "idle") {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setSetupDownloadState("idle"), 1200);
+    return () => window.clearTimeout(timeoutId);
+  }, [setupDownloadState]);
+
+  useEffect(() => {
+    if (promptImproveState === "idle" || promptImproveState === "improving") {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setPromptImproveState("idle"), 1600);
+    return () => window.clearTimeout(timeoutId);
+  }, [promptImproveState]);
+
+  useEffect(() => {
+    if (apiKeyCopyState === "idle") {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setApiKeyCopyState("idle"), 1200);
+    return () => window.clearTimeout(timeoutId);
+  }, [apiKeyCopyState]);
+
+  useEffect(() => {
     if (historyNavigationRef.current) {
       historyNavigationRef.current = false;
       return;
@@ -423,6 +919,13 @@ export function Header({
     setHistoryIndex(null);
     historyDraftRef.current = prompt;
   }, [prompt]);
+
+  useEffect(() => {
+    if (promptHistory.length > 0 && clearedPromptHistory !== null) {
+      clearHistoryUndoTimer();
+      setClearedPromptHistory(null);
+    }
+  }, [clearedPromptHistory, promptHistory.length]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -470,6 +973,17 @@ export function Header({
     };
   }, [isSettingsOpen, onToggleSettings]);
 
+  useEffect(
+    () => () => {
+      clearPromptUndoTimer();
+      clearHistoryUndoTimer();
+      clearDeleteHistoryItemUndoTimer();
+      clearDeleteSnippetUndoTimer();
+      clearApiKeyUndoTimer();
+    },
+    [],
+  );
+
   return (
     <header className="flex flex-col items-center justify-center gap-6 w-full max-w-4xl mx-auto transition-all duration-500 ease-out">
       <form ref={formRef} onSubmit={onSubmit} className="w-full flex flex-col gap-4">
@@ -478,6 +992,8 @@ export function Header({
         <div
           className={`group relative flex w-full flex-col gap-3 rounded-[24px] border transition-all duration-300 p-1 ${isDragOver
             ? "border-[var(--text-primary)] bg-[var(--bg-subtle)] ring-1 ring-[var(--text-primary)]"
+            : isImprovingPrompt
+              ? "prompt-improve-active border-white/30 bg-[var(--bg-panel)] shadow-2xl shadow-white/[0.06]"
             : "border-[var(--border-subtle)] bg-[var(--bg-panel)] hover:border-[var(--border-highlight)] shadow-2xl shadow-black/50"
             }`}
           onDragEnter={handleDragEnter}
@@ -485,27 +1001,47 @@ export function Header({
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
+          {isImprovingPrompt ? (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 overflow-hidden rounded-[24px]"
+            >
+              <div className="prompt-improve-sweep" />
+              <div className="prompt-improve-lines" />
+            </div>
+          ) : null}
+
           {/* Prompt Area */}
           <div className="relative flex w-full items-start gap-3 px-3 py-3 md:px-5 md:py-4">
             <textarea
               ref={promptTextareaRef}
               value={prompt}
-              onChange={(event) => onPromptChange(event.target.value)}
+              onChange={(event) => handlePromptChange(event.target.value)}
               onPaste={handlePromptPaste}
               onKeyDown={handlePromptKeyDown}
               rows={1}
               className="flex-1 resize-none overflow-y-auto max-h-40 bg-transparent text-base md:text-lg leading-[1.6] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none font-medium"
               placeholder="What are you imagining?"
             />
-            <button
-              type="button"
-              aria-label="Add reference image"
-              onClick={handleAttachmentButtonClick}
-              disabled={isAttachmentLimitReached}
-              className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] transition-all duration-200 hover:border-[var(--text-primary)] hover:bg-[var(--bg-subtle)] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              <PlusIcon className="h-4 w-4" />
-            </button>
+            <div className="mt-1 flex shrink-0 flex-col items-center gap-1">
+              <button
+                type="button"
+                aria-label={`${isAttachmentLimitReached ? "Reference image limit reached" : "Add reference image"} (${attachmentSlotLabel})`}
+                title={attachmentSlotLabel}
+                onClick={handleAttachmentButtonClick}
+                disabled={isAttachmentLimitReached}
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] transition-all duration-200 hover:border-[var(--text-primary)] hover:bg-[var(--bg-subtle)] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <PlusIcon className="h-4 w-4" />
+              </button>
+              <span
+                className={`whitespace-nowrap text-[8px] font-bold uppercase leading-none tracking-[0.14em] ${
+                  isAttachmentLimitReached ? "text-amber-200/80" : "text-[var(--text-muted)]"
+                }`}
+              >
+                {attachmentSlotLabel}
+              </span>
+            </div>
             <input
               ref={fileInputRef}
               type="file"
@@ -519,7 +1055,123 @@ export function Header({
           {/* Attachments */}
           {attachments.length > 0 ? (
             <div className="px-4 pb-2 animate-in fade-in slide-in-from-top-2 duration-300">
-              <AttachmentPreviewList attachments={attachments} onRemove={onRemoveAttachment} onPreview={onPreviewAttachment} />
+              <AttachmentPreviewList
+                attachments={attachments}
+                onRemove={onRemoveAttachment}
+                onPreview={onPreviewAttachment}
+                onMove={onMoveAttachment}
+                onClear={onClearAttachments}
+                isAutoAspectActive={aspect === "auto"}
+              />
+            </div>
+          ) : null}
+
+          {trimmedPrompt.length > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-2 text-[10px] text-[var(--text-muted)]">
+              <span className="font-semibold uppercase tracking-[0.2em]">
+                {promptStats.words.toLocaleString()} {promptStats.words === 1 ? "word" : "words"} · {promptStats.characters.toLocaleString()} chars
+                {estimatedOpenAICost
+                  ? ` · ${estimatedOpenAICost.promptTextTokens.toLocaleString()} tokens`
+                  : ""}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => { void handleImprovePrompt(); }}
+                  disabled={!trimmedPrompt || isImprovingPrompt}
+                  className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-semibold uppercase tracking-[0.18em] transition-colors ${
+                    promptImproveState === "improved"
+                      ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
+                      : promptImproveState === "failed"
+                        ? "border-red-400/40 bg-red-400/10 text-red-200"
+                        : isImprovingPrompt
+                          ? "border-white/40 bg-white/10 text-white"
+                          : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:border-[var(--border-highlight)] hover:text-white"
+                  } disabled:cursor-not-allowed disabled:opacity-50`}
+                  aria-label={
+                    promptImproveState === "improved"
+                      ? "Prompt improved"
+                      : promptImproveState === "failed"
+                        ? "Prompt improvement failed"
+                        : "Improve prompt with GPT-5.5 Medium"
+                  }
+                  title="Improve prompt with GPT-5.5 Medium"
+                >
+                  <WandIcon className={`h-3 w-3 ${isImprovingPrompt ? "prompt-wand" : ""}`} />
+                  {isImprovingPrompt
+                    ? "Improving"
+                    : promptImproveState === "improved"
+                      ? "Improved"
+                      : promptImproveState === "failed"
+                        ? "Failed"
+                        : "Improve"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyPrompt}
+                  className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-semibold uppercase tracking-[0.18em] transition-colors ${
+                    promptCopyState === "copied"
+                      ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
+                      : promptCopyState === "failed"
+                        ? "border-red-400/40 bg-red-400/10 text-red-200"
+                        : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:border-[var(--border-highlight)] hover:text-white"
+                  }`}
+                >
+                  <CopyIcon className="h-3 w-3" />
+                  {promptCopyState === "copied" ? "Copied" : promptCopyState === "failed" ? "Failed" : "Copy"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyPromptSetup}
+                  className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-semibold uppercase tracking-[0.18em] transition-colors ${
+                    setupCopyState === "copied"
+                      ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
+                      : setupCopyState === "failed"
+                        ? "border-red-400/40 bg-red-400/10 text-red-200"
+                        : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:border-[var(--border-highlight)] hover:text-white"
+                  }`}
+                >
+                  <CopyIcon className="h-3 w-3" />
+                  {setupCopyState === "copied" ? "Copied Setup" : setupCopyState === "failed" ? "Failed" : "Copy Setup"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadPromptSetup}
+                  className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-semibold uppercase tracking-[0.18em] transition-colors ${
+                    setupDownloadState === "saved"
+                      ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
+                      : setupDownloadState === "failed"
+                        ? "border-red-400/40 bg-red-400/10 text-red-200"
+                        : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:border-[var(--border-highlight)] hover:text-white"
+                  }`}
+                >
+                  <DownloadIcon className="h-3 w-3" />
+                  {setupDownloadState === "saved" ? "Saved Setup" : setupDownloadState === "failed" ? "Failed" : "Save Setup"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClearPrompt}
+                  className="flex items-center gap-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2.5 py-1 font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)] transition-colors hover:border-red-400/40 hover:text-red-200"
+                >
+                  <XIcon className="h-3 w-3" />
+                  Clear
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {trimmedPrompt.length === 0 && clearedPrompt !== null ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-2 text-[10px] text-[var(--text-muted)]">
+              <span className="font-semibold uppercase tracking-[0.2em]">
+                Prompt cleared
+              </span>
+              <button
+                type="button"
+                onClick={handleUndoClearPrompt}
+                className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2.5 py-1 font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)] transition-colors hover:border-[var(--border-highlight)] hover:text-white"
+              >
+                Undo
+              </button>
             </div>
           ) : null}
 
@@ -533,33 +1185,204 @@ export function Header({
               >
                 Save Prompt
               </button>
-              {promptSnippets.map((snippet) => (
+              {promptSnippets.map((snippet, index) => (
                 <div
                   key={snippet}
-                  className="group/snippet flex max-w-[16rem] shrink-0 items-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors hover:border-[var(--border-highlight)] hover:text-white"
+                  className={`${editingPromptSnippet?.original === snippet ? "max-w-[24rem]" : "max-w-[16rem]"} group/snippet flex shrink-0 items-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors hover:border-[var(--border-highlight)] hover:text-white`}
                   title={snippet}
+                >
+                  {editingPromptSnippet?.original === snippet ? (
+                    <>
+                      <input
+                        type="text"
+                        value={editingPromptSnippet.draft}
+                        onChange={(event) =>
+                          setEditingPromptSnippet((previous) =>
+                            previous === null ? previous : { ...previous, draft: event.target.value },
+                          )
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            saveRenamedPromptSnippet();
+                          }
+
+                          if (event.key === "Escape") {
+                            event.preventDefault();
+                            cancelRenamePromptSnippet();
+                          }
+                        }}
+                        className="min-w-40 flex-1 bg-transparent py-1.5 pl-3 pr-2 text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={saveRenamedPromptSnippet}
+                        disabled={editingPromptSnippet.draft.trim().length === 0}
+                        className="px-2 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--text-secondary)] transition-colors hover:text-white disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:text-[var(--text-secondary)]"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelRenamePromptSnippet}
+                        className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-white/10 hover:text-white"
+                        aria-label="Cancel rename"
+                        title="Cancel"
+                      >
+                        <XIcon className="h-3 w-3" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onUsePromptSnippet(snippet);
+                          promptTextareaRef.current?.focus();
+                        }}
+                        className="min-w-0 truncate py-1.5 pl-3 pr-2 text-left"
+                      >
+                        {snippet}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => startRenamePromptSnippet(snippet)}
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-white/10 hover:text-white"
+                        aria-label="Rename saved prompt"
+                        title="Rename saved prompt"
+                      >
+                        <PencilIcon className="h-3 w-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => appendPromptSnippet(snippet)}
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-white/10 hover:text-white"
+                        aria-label="Append saved prompt"
+                        title="Append to prompt"
+                      >
+                        <PlusIcon className="h-3 w-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onMovePromptSnippet(snippet, -1)}
+                        disabled={index === 0}
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-[var(--text-muted)]"
+                        aria-label="Move saved prompt earlier"
+                        title="Move earlier"
+                      >
+                        <ArrowLeftIcon className="h-3 w-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onMovePromptSnippet(snippet, 1)}
+                        disabled={index === promptSnippets.length - 1}
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-[var(--text-muted)]"
+                        aria-label="Move saved prompt later"
+                        title="Move later"
+                      >
+                        <ArrowRightIcon className="h-3 w-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePromptSnippet(snippet)}
+                        className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-white/10 hover:text-white"
+                        aria-label="Delete saved prompt"
+                        title="Delete saved prompt"
+                      >
+                        <XIcon className="h-3 w-3" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {deletedPromptSnippet !== null ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-2 text-[10px] text-[var(--text-muted)]">
+              <span className="min-w-0 truncate font-semibold uppercase tracking-[0.2em]" title={deletedPromptSnippet.label}>
+                Saved prompt removed
+              </span>
+              <button
+                type="button"
+                onClick={handleUndoDeletePromptSnippet}
+                className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2.5 py-1 font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)] transition-colors hover:border-[var(--border-highlight)] hover:text-white"
+              >
+                Undo
+              </button>
+            </div>
+          ) : null}
+
+          {visiblePromptHistory.length > 0 ? (
+            <div className="flex items-center gap-2 overflow-x-auto px-4 pb-2 text-xs [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
+              <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--text-muted)]">
+                Recent
+              </span>
+              {visiblePromptHistory.map((historyItem) => (
+                <div
+                  key={historyItem}
+                  className="group/recent flex max-w-[18rem] shrink-0 items-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors hover:border-[var(--border-highlight)] hover:text-white"
+                  title={historyItem}
                 >
                   <button
                     type="button"
                     onClick={() => {
-                      onUsePromptSnippet(snippet);
+                      onPromptChange(historyItem);
                       promptTextareaRef.current?.focus();
                     }}
-                    className="min-w-0 truncate py-1.5 pl-3 pr-2 text-left"
+                    className="min-w-0 truncate py-1.5 pl-3 pr-2 text-left font-medium"
                   >
-                    {snippet}
+                    {historyItem}
                   </button>
                   <button
                     type="button"
-                    onClick={() => onDeletePromptSnippet(snippet)}
+                    onClick={() => handleDeletePromptHistoryItem(historyItem)}
                     className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-white/10 hover:text-white"
-                    aria-label="Delete saved prompt"
-                    title="Delete saved prompt"
+                    aria-label="Delete recent prompt"
+                    title="Delete recent prompt"
                   >
                     <XIcon className="h-3 w-3" />
                   </button>
                 </div>
               ))}
+              <button
+                type="button"
+                onClick={handleClearPromptHistory}
+                className="shrink-0 rounded-full border border-transparent px-2 py-1.5 font-semibold text-[var(--text-muted)] transition-colors hover:text-white"
+              >
+                Clear
+              </button>
+            </div>
+          ) : null}
+
+          {deletedPromptHistory !== null ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-2 text-[10px] text-[var(--text-muted)]">
+              <span className="min-w-0 truncate font-semibold uppercase tracking-[0.2em]" title={deletedPromptHistory.label}>
+                Recent prompt removed
+              </span>
+              <button
+                type="button"
+                onClick={handleUndoDeletePromptHistoryItem}
+                className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2.5 py-1 font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)] transition-colors hover:border-[var(--border-highlight)] hover:text-white"
+              >
+                Undo
+              </button>
+            </div>
+          ) : null}
+
+          {visiblePromptHistory.length === 0 && clearedPromptHistory !== null ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-2 text-[10px] text-[var(--text-muted)]">
+              <span className="font-semibold uppercase tracking-[0.2em]">
+                Recent prompts cleared
+              </span>
+              <button
+                type="button"
+                onClick={handleUndoClearPromptHistory}
+                className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2.5 py-1 font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)] transition-colors hover:border-[var(--border-highlight)] hover:text-white"
+              >
+                Undo
+              </button>
             </div>
           ) : null}
 
@@ -687,45 +1510,6 @@ export function Header({
                 </div>
               </div>
 
-              {/* Model Selector */}
-              <div className="relative group/select shrink-0 max-w-[180px]">
-                <select
-                  value={providerModelValue}
-                  onChange={(event) => {
-                    handleModelChange(event.target.value);
-                    promptTextareaRef.current?.focus();
-                  }}
-                  className="w-full appearance-none cursor-pointer rounded-lg bg-[var(--bg-input)] border border-[var(--border-subtle)] pl-2 pr-6 md:pl-3 md:pr-8 py-1.5 text-xs font-semibold tracking-wide text-[var(--text-secondary)] hover:text-white hover:border-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-white/20 transition-colors"
-                >
-                  {providerModelOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <div className="pointer-events-none absolute right-2 md:right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
-                  <svg width="8" height="5" viewBox="0 0 8 5" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M1 1L4 4L7 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </div>
-              </div>
-
-              {/* Google Search Toggle Button */}
-              {provider === "gemini" ? (
-                <button
-                  type="button"
-                  onClick={handleGoogleSearchToggle}
-                  disabled={searchToggleDisabled}
-                  title={searchToggleDisabled ? "Google Search using Gemini" : "Toggle Google Search"}
-                  className={`shrink-0 flex items-center justify-center rounded-lg border px-2 py-1.5 text-xs font-semibold transition-colors ${useGoogleSearch
-                    ? "bg-[var(--text-primary)] text-black border-[var(--text-primary)]"
-                    : "bg-[var(--bg-input)] text-[var(--text-secondary)] border-[var(--border-subtle)] hover:text-white hover:border-[var(--text-muted)]"
-                    } ${searchToggleDisabled ? "opacity-30 cursor-not-allowed" : "cursor-pointer"}`}
-                >
-                  <MagnifyingGlassIcon className="h-4 w-4" />
-                </button>
-              ) : null}
-
               {/* Settings Toggle */}
               <button
                 ref={toggleButtonRef}
@@ -826,27 +1610,6 @@ export function Header({
           {isSettingsOpen ? (
             <div ref={panelRef} className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-20 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-4 shadow-2xl animate-in fade-in slide-in-from-bottom-1 duration-200">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                {PROVIDER_OPTIONS.length > 1 ? (
-                  <div className="space-y-2">
-                    <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Provider</span>
-                    <div className="flex gap-2">
-                      {PROVIDER_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => onProviderChange(opt.value)}
-                          className={`flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-all ${provider === opt.value
-                            ? "border-[var(--text-primary)] bg-[var(--text-primary)] text-black"
-                            : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]"
-                            }`}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
                 <div className="space-y-2">
                   <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Output Format</span>
                   <div className="flex gap-2">
@@ -866,51 +1629,99 @@ export function Header({
                   </div>
                 </div>
 
-                {provider === "fal" ? (
-                  <div className="space-y-2 md:col-span-2">
-                    <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">FAL API Key</span>
-                    <input
-                      value={apiKey}
-                      onChange={(e) => onApiKeyChange(e.target.value)}
-                      type="password"
-                      placeholder="fal_sk_..."
-                      className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-secondary)] focus:border-white focus:text-white focus:outline-none transition-all"
-                    />
-                    <p className="text-[9px] leading-snug text-orange-400/80 text-center">
-                      ⚠️ API calls may fail or incur charges; you are fully responsible for any usage.
-                    </p>
-                  </div>
-                ) : null}
-
-                {provider === "gemini" ? (
-                  <div className="space-y-2 md:col-span-2">
-                    <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Gemini API Key</span>
-                    <input
-                      value={geminiApiKey}
-                      onChange={(e) => onGeminiApiKeyChange(e.target.value)}
-                      type="password"
-                      placeholder="AIzaSy... (Gemini API)"
-                      className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-secondary)] focus:border-white focus:text-white focus:outline-none transition-all"
-                    />
-                    <p className="text-[9px] leading-snug text-orange-400/80 text-center">
-                      ⚠️ API calls may fail or incur charges; you are fully responsible for any usage.
-                    </p>
-                  </div>
-                ) : null}
-
                 {provider === "openai" ? (
                   <div className="space-y-2 md:col-span-2">
                     <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">OpenAI API Key</span>
-                    <input
-                      value={openAIApiKey}
-                      onChange={(e) => onOpenAIApiKeyChange(e.target.value)}
-                      type="password"
-                      placeholder="sk-... (OpenAI API)"
-                      className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-secondary)] focus:border-white focus:text-white focus:outline-none transition-all"
-                    />
-                    <p className="text-[9px] leading-snug text-orange-400/80 text-center">
-                      API calls may fail or incur charges; you are fully responsible for any usage.
-                    </p>
+                    <div className="relative">
+                      <input
+                        value={openAIApiKey}
+                        onChange={(e) => handleOpenAIApiKeyChange(e.target.value)}
+                        type={isOpenAIApiKeyVisible ? "text" : "password"}
+                        placeholder="sk-... (OpenAI API)"
+                        spellCheck={false}
+                        autoComplete="off"
+                        className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] py-2 pl-3 pr-[7rem] text-sm text-[var(--text-secondary)] transition-all focus:border-white focus:text-white focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleClearOpenAIApiKey}
+                        disabled={!trimmedOpenAIApiKey}
+                        className="absolute right-[4.5rem] top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-red-400/10 hover:text-red-200 focus:outline-none focus:ring-1 focus:ring-white/25 disabled:cursor-not-allowed disabled:opacity-30"
+                        aria-label="Clear OpenAI API key"
+                        title="Clear key"
+                      >
+                        <XIcon className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCopyOpenAIApiKey}
+                        disabled={!trimmedOpenAIApiKey}
+                        className={`absolute right-10 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md transition-colors focus:outline-none focus:ring-1 focus:ring-white/25 disabled:cursor-not-allowed disabled:opacity-30 ${
+                          apiKeyCopyState === "copied"
+                            ? "bg-emerald-400/10 text-emerald-200"
+                            : apiKeyCopyState === "failed"
+                              ? "bg-red-400/10 text-red-200"
+                              : "text-[var(--text-muted)] hover:bg-white/10 hover:text-white"
+                        }`}
+                        aria-label={
+                          apiKeyCopyState === "copied"
+                            ? "OpenAI API key copied"
+                            : apiKeyCopyState === "failed"
+                              ? "OpenAI API key copy failed"
+                              : "Copy OpenAI API key"
+                        }
+                        title={
+                          apiKeyCopyState === "copied"
+                            ? "Copied"
+                            : apiKeyCopyState === "failed"
+                              ? "Copy failed"
+                              : "Copy key"
+                        }
+                      >
+                        <CopyIcon className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsOpenAIApiKeyVisible((isVisible) => !isVisible)}
+                        className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-white/10 hover:text-white focus:outline-none focus:ring-1 focus:ring-white/25"
+                        aria-label={isOpenAIApiKeyVisible ? "Hide OpenAI API key" : "Show OpenAI API key"}
+                        title={isOpenAIApiKeyVisible ? "Hide key" : "Show key"}
+                      >
+                        {isOpenAIApiKeyVisible ? (
+                          <EyeOffIcon className="h-4 w-4" />
+                        ) : (
+                          <EyeIcon className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-[9px] leading-snug">
+                      <span
+                        className={`font-semibold uppercase tracking-[0.16em] ${
+                          trimmedOpenAIApiKey ? "text-emerald-200/75" : "text-[var(--text-muted)]"
+                        }`}
+                      >
+                        {trimmedOpenAIApiKey
+                          ? `Key saved locally${openAIApiKeyStatus ? ` · ${openAIApiKeyStatus}` : ""}`
+                          : "No key saved"}
+                      </span>
+                      <span className="text-orange-400/80">
+                        API calls may fail or incur charges; you are fully responsible for any usage.
+                      </span>
+                    </div>
+                    {!trimmedOpenAIApiKey && clearedOpenAIApiKey !== null ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-[10px] text-[var(--text-muted)]">
+                        <span className="font-semibold uppercase tracking-[0.18em]">
+                          API key cleared
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleUndoClearOpenAIApiKey}
+                          className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-2.5 py-1 font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)] transition-colors hover:border-[var(--border-highlight)] hover:text-white"
+                        >
+                          Undo
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -973,40 +1784,6 @@ export function Header({
                         Preset size follows the aspect selector plus the 1K / 2K / 4K control. Current preset: {openAIPresetSizeLabel}.
                       </p>
                     )}
-                  </div>
-                ) : null}
-
-                {provider === "gemini" && isFlashModel ? (
-                  <div className="space-y-2 md:col-span-2">
-                    <span className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                      Flash Reasoning
-                    </span>
-                    <div className="flex items-center rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] p-0.5">
-                      <button
-                        type="button"
-                        onClick={() => onFlashReasoningLevelChange("minimal")}
-                        className={`flex-1 rounded-md px-3 py-2 text-[10px] font-semibold uppercase tracking-wide transition-colors ${
-                          flashReasoningLevel === "minimal"
-                            ? "bg-[var(--text-primary)] text-black"
-                            : "text-[var(--text-secondary)] hover:text-white"
-                        }`}
-                        aria-pressed={flashReasoningLevel === "minimal"}
-                      >
-                        Minimal
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onFlashReasoningLevelChange("high")}
-                        className={`flex-1 rounded-md px-3 py-2 text-[10px] font-semibold uppercase tracking-wide transition-colors ${
-                          flashReasoningLevel === "high"
-                            ? "bg-[var(--text-primary)] text-black"
-                            : "text-[var(--text-secondary)] hover:text-white"
-                        }`}
-                        aria-pressed={flashReasoningLevel === "high"}
-                      >
-                        High
-                      </button>
-                    </div>
                   </div>
                 ) : null}
 

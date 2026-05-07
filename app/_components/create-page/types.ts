@@ -22,6 +22,8 @@ export type PromptAttachment = {
   kind: "local" | "remote";
   width?: number | null;
   height?: number | null;
+  mimeType?: string | null;
+  fileSize?: number | null;
 };
 
 export type ImageThoughts = {
@@ -67,6 +69,7 @@ export type ReusePromptOptions = {
   modelVariant?: GeminiModelVariant;
   openAIModel?: OpenAIModel;
   openAIQuality?: OpenAIQuality;
+  outputFormat?: OutputFormat;
   aspectSelection?: AspectSelection;
   qualitySelection?: QualitySelection;
   aspect?: AspectKey | "custom";

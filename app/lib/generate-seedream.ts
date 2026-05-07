@@ -45,6 +45,8 @@ export type InputImage = {
   url: string;
   width?: number | null;
   height?: number | null;
+  mimeType?: string | null;
+  fileSize?: number | null;
 };
 
 type GenerateAspect = AspectKey | "custom";
@@ -193,6 +195,8 @@ export async function generateSeedream({
       url: typeof image.url === "string" ? image.url.trim() : "",
       width: typeof image.width === "number" && Number.isFinite(image.width) ? image.width : null,
       height: typeof image.height === "number" && Number.isFinite(image.height) ? image.height : null,
+      mimeType: typeof image.mimeType === "string" && image.mimeType.trim() ? image.mimeType : null,
+      fileSize: typeof image.fileSize === "number" && Number.isFinite(image.fileSize) ? image.fileSize : null,
     }))
     .filter((image) => image.url.length > 0);
 

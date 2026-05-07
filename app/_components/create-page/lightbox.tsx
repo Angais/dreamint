@@ -12,7 +12,7 @@ import {
   getQualityLabel,
 } from "../../lib/seedream-options";
 import { CompareSlider } from "./compare-slider";
-import { ArrowLeftIcon, ArrowRightIcon, DownloadIcon, InfoIcon, PlusIcon, ReuseIcon, SpinnerIcon, XIcon } from "./icons";
+import { ArrowLeftIcon, ArrowRightIcon, CopyIcon, DownloadIcon, InfoIcon, LightningIcon, MinusIcon, PlusIcon, ReuseIcon, SettingsIcon, SpinnerIcon, XIcon } from "./icons";
 import { isStoredAssetRef, resolveStoredAssetUrl } from "./storage";
 import type { GalleryEntry, Generation, ReusePromptOptions } from "./types";
 import { useResolvedImageSource } from "./use-resolved-image-source";
@@ -86,6 +86,11 @@ export function Lightbox({
   const [selectedReferenceIndex, setSelectedReferenceIndex] = useState(0);
   const [compareSliderPosition, setCompareSliderPosition] = useState(50);
   const [isDownloadingComparison, setIsDownloadingComparison] = useState(false);
+  const [promptCopyState, setPromptCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [setupCopyState, setSetupCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [summaryCopyState, setSummaryCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [metadataCopyState, setMetadataCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [metadataDownloadState, setMetadataDownloadState] = useState<"idle" | "saved" | "failed">("idle");
   const shouldShowDetailsOnOpen = () => {
     if (typeof window === "undefined") {
       return true;
@@ -110,6 +115,42 @@ export function Lightbox({
   const hasReferences = entry.inputImages && entry.inputImages.length > 0;
   const { resolvedSource, isResolving } = useResolvedImageSource(entry.src);
   const actualOpenAICost = calculateOpenAIActualCost(entry.openAIUsage ?? null);
+  const zoomPercent = Math.round(transform.scale * 100);
+
+  const clampTransform = (scale: number, x: number, y: number) => {
+    if (!imageContainerRef.current) {
+      return { x, y, scale };
+    }
+
+    const { width: viewportWidth, height: viewportHeight } = imageContainerRef.current.getBoundingClientRect();
+    const effectiveImageWidth = viewportWidth * scale;
+    const effectiveImageHeight = viewportHeight * scale;
+
+    const limitX = Math.max(0, (effectiveImageWidth - viewportWidth) / 2);
+    const limitY = Math.max(0, (effectiveImageHeight - viewportHeight) / 2);
+
+    return {
+      x: Math.max(-limitX, Math.min(limitX, x)),
+      y: Math.max(-limitY, Math.min(limitY, y)),
+      scale,
+    };
+  };
+
+  const handleZoomIn = () => {
+    setTransform((previous) =>
+      clampTransform(Math.min(previous.scale * 1.25, 8), previous.x, previous.y),
+    );
+  };
+
+  const handleZoomOut = () => {
+    setTransform((previous) =>
+      clampTransform(Math.max(previous.scale / 1.25, 0.5), previous.x, previous.y),
+    );
+  };
+
+  const handleResetZoom = () => {
+    setTransform({ x: 0, y: 0, scale: 1 });
+  };
 
   useEffect(() => {
     setIsCompareMode(false);
@@ -117,6 +158,11 @@ export function Lightbox({
     setCompareSliderPosition(50);
     setTransform({ x: 0, y: 0, scale: 1 });
     setShowDetails(shouldShowDetailsOnOpen());
+    setPromptCopyState("idle");
+    setSetupCopyState("idle");
+    setSummaryCopyState("idle");
+    setMetadataCopyState("idle");
+    setMetadataDownloadState("idle");
   }, [entry.generationId, entry.imageIndex]);
 
   useEffect(() => {
@@ -423,6 +469,232 @@ export function Lightbox({
     }
   };
 
+  const handleCopyPrompt = async () => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(entry.prompt);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = entry.prompt;
+        textarea.setAttribute("readonly", "true");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+
+      setPromptCopyState("copied");
+      window.setTimeout(() => {
+        setPromptCopyState((previous) => (previous === "copied" ? "idle" : previous));
+      }, 1400);
+    } catch (error) {
+      console.error("Failed to copy prompt", error);
+      setPromptCopyState("failed");
+      window.setTimeout(() => {
+        setPromptCopyState((previous) => (previous === "failed" ? "idle" : previous));
+      }, 1800);
+    }
+  };
+
+  const writeClipboardText = async (value: string) => {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.setAttribute("readonly", "true");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textarea);
+  };
+
+  const buildMetadata = () => ({
+    generationId: entry.generationId,
+    imageIndex: entry.imageIndex,
+    prompt: entry.prompt,
+    provider: entry.provider ?? "seedream",
+    model: getProviderModelLabel(entry.provider, entry.modelVariant, entry.openAIModel),
+    aspect: getAspectDescription(entry.aspectSelection ?? entry.aspect),
+    quality: entry.provider === "openai"
+      ? getOpenAIQualityLabel(entry.openAIQuality ?? DEFAULT_OPENAI_QUALITY)
+      : getQualityLabel(entry.qualitySelection ?? entry.quality),
+    outputFormat: entry.outputFormat ?? "png",
+    size: entry.size,
+    durationMs: entry.durationMs ?? null,
+    referenceCount: entry.inputImages.length,
+    useGoogleSearch: entry.useGoogleSearch ?? false,
+    estimatedOpenAICostUsd: entry.estimatedOpenAICost?.totalCostUsd ?? null,
+    actualOpenAICostUsd: actualOpenAICost.totalCostUsd,
+    openAIUsage: entry.openAIUsage ?? null,
+  });
+
+  const buildSetupMarkdown = () => {
+    const actualCost = actualOpenAICost.totalCostUsd;
+    const modelLabel = getProviderModelLabel(entry.provider, entry.modelVariant, entry.openAIModel);
+    const qualityLabel =
+      entry.provider === "openai"
+        ? getOpenAIQualityLabel(entry.openAIQuality ?? DEFAULT_OPENAI_QUALITY)
+        : getQualityLabel(entry.qualitySelection ?? entry.quality);
+    const durationLabel =
+      typeof entry.durationMs === "number"
+        ? formatGenerationDuration(entry.durationMs)
+        : null;
+
+    return [
+      "# Dreamint Image Setup",
+      "",
+      "## Prompt",
+      entry.prompt.trim(),
+      "",
+      "## Settings",
+      `- Model: ${modelLabel}`,
+      `- Aspect: ${getAspectDescription(entry.aspectSelection ?? entry.aspect)}`,
+      `- Output size: ${entry.size.width}x${entry.size.height}`,
+      `- Quality: ${qualityLabel}`,
+      `- Output format: ${(entry.outputFormat ?? "png").toUpperCase()}`,
+      `- Image: ${entry.imageIndex + 1}`,
+      `- References: ${entry.inputImages.length}`,
+      ...(durationLabel ? [`- Duration: ${durationLabel}`] : []),
+      ...(entry.estimatedOpenAICost
+        ? [`- Estimated generation cost: ${formatUsd(entry.estimatedOpenAICost.totalCostUsd)}`]
+        : []),
+      ...(actualCost !== null ? [`- Actual generation cost: ${formatUsd(actualCost)}`] : []),
+      "",
+      "## Source",
+      `- Generation ID: ${entry.generationId}`,
+      `- Image index: ${entry.imageIndex}`,
+      ...(entry.openAIUsage
+        ? [
+            "",
+            "## Usage",
+            ...(entry.openAIUsage.inputTokens !== null
+              ? [`- Input tokens: ${entry.openAIUsage.inputTokens.toLocaleString()}`]
+              : []),
+            ...(entry.openAIUsage.outputTokens !== null
+              ? [`- Output tokens: ${entry.openAIUsage.outputTokens.toLocaleString()}`]
+              : []),
+            ...(entry.openAIUsage.inputTextTokens !== null
+              ? [`- Text tokens: ${entry.openAIUsage.inputTextTokens.toLocaleString()}`]
+              : []),
+            ...(entry.openAIUsage.inputImageTokens !== null
+              ? [`- Image tokens: ${entry.openAIUsage.inputImageTokens.toLocaleString()}`]
+              : []),
+          ]
+        : []),
+    ].join("\n");
+  };
+
+  const buildSetupSummary = () => {
+    const actualCost = actualOpenAICost.totalCostUsd;
+    const modelLabel = getProviderModelLabel(entry.provider, entry.modelVariant, entry.openAIModel);
+    const qualityLabel =
+      entry.provider === "openai"
+        ? getOpenAIQualityLabel(entry.openAIQuality ?? DEFAULT_OPENAI_QUALITY)
+        : getQualityLabel(entry.qualitySelection ?? entry.quality);
+    const costLabel =
+      actualCost !== null
+        ? `actual ${formatUsd(actualCost)}`
+        : entry.estimatedOpenAICost
+          ? `est. ${formatUsd(entry.estimatedOpenAICost.totalCostUsd)}`
+          : null;
+    const promptPreview = entry.prompt.trim().replace(/\s+/g, " ");
+
+    return [
+      `"${promptPreview}"`,
+      modelLabel,
+      `${entry.size.width}x${entry.size.height}`,
+      qualityLabel,
+      (entry.outputFormat ?? "png").toUpperCase(),
+      `${entry.inputImages.length} ref${entry.inputImages.length === 1 ? "" : "s"}`,
+      ...(costLabel ? [costLabel] : []),
+    ].join(" | ");
+  };
+
+  const handleCopySetup = async () => {
+    try {
+      await writeClipboardText(buildSetupMarkdown());
+      setSetupCopyState("copied");
+      window.setTimeout(() => {
+        setSetupCopyState((previous) => (previous === "copied" ? "idle" : previous));
+      }, 1400);
+    } catch (error) {
+      console.error("Failed to copy setup", error);
+      setSetupCopyState("failed");
+      window.setTimeout(() => {
+        setSetupCopyState((previous) => (previous === "failed" ? "idle" : previous));
+      }, 1800);
+    }
+  };
+
+  const handleCopySummary = async () => {
+    try {
+      await writeClipboardText(buildSetupSummary());
+      setSummaryCopyState("copied");
+      window.setTimeout(() => {
+        setSummaryCopyState((previous) => (previous === "copied" ? "idle" : previous));
+      }, 1400);
+    } catch (error) {
+      console.error("Failed to copy setup summary", error);
+      setSummaryCopyState("failed");
+      window.setTimeout(() => {
+        setSummaryCopyState((previous) => (previous === "failed" ? "idle" : previous));
+      }, 1800);
+    }
+  };
+
+  const handleCopyMetadata = async () => {
+    const metadata = buildMetadata();
+
+    try {
+      await writeClipboardText(JSON.stringify(metadata, null, 2));
+      setMetadataCopyState("copied");
+      window.setTimeout(() => {
+        setMetadataCopyState((previous) => (previous === "copied" ? "idle" : previous));
+      }, 1400);
+    } catch (error) {
+      console.error("Failed to copy metadata", error);
+      setMetadataCopyState("failed");
+      window.setTimeout(() => {
+        setMetadataCopyState((previous) => (previous === "failed" ? "idle" : previous));
+      }, 1800);
+    }
+  };
+
+  const handleDownloadMetadata = () => {
+    try {
+      const metadata = buildMetadata();
+      const blob = new Blob([JSON.stringify(metadata, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `dreamint-${entry.generationId.slice(0, 8)}-${entry.imageIndex + 1}-metadata.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setMetadataDownloadState("saved");
+      window.setTimeout(() => {
+        setMetadataDownloadState((previous) => (previous === "saved" ? "idle" : previous));
+      }, 1400);
+    } catch (error) {
+      console.error("Failed to download metadata", error);
+      setMetadataDownloadState("failed");
+      window.setTimeout(() => {
+        setMetadataDownloadState((previous) => (previous === "failed" ? "idle" : previous));
+      }, 1800);
+    }
+  };
+
   return (
     <div
       ref={containerRef}
@@ -518,6 +790,43 @@ export function Lightbox({
               <ArrowRightIcon className="h-5 w-5" />
             </button>
           ) : null}
+
+          <div
+            className="absolute bottom-4 left-4 z-30 flex items-center gap-1 rounded-full border border-white/10 bg-black/70 p-1 text-white shadow-lg backdrop-blur-md"
+            onMouseDown={(event) => event.stopPropagation()}
+            onTouchStart={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={handleZoomOut}
+              disabled={transform.scale <= 0.5}
+              className="flex h-9 w-9 items-center justify-center rounded-full text-white/80 transition hover:bg-white hover:text-black focus:outline-none focus:ring-2 focus:ring-white/30 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-white/80"
+              aria-label="Zoom out"
+              title="Zoom out"
+            >
+              <MinusIcon className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={handleResetZoom}
+              disabled={transform.scale === 1 && transform.x === 0 && transform.y === 0}
+              className="h-9 min-w-12 rounded-full px-2 text-xs font-bold tabular-nums text-white/80 transition hover:bg-white hover:text-black focus:outline-none focus:ring-2 focus:ring-white/30 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-white/80"
+              aria-label="Reset zoom"
+              title="Reset zoom"
+            >
+              {zoomPercent}%
+            </button>
+            <button
+              type="button"
+              onClick={handleZoomIn}
+              disabled={transform.scale >= 8}
+              className="flex h-9 w-9 items-center justify-center rounded-full text-white/80 transition hover:bg-white hover:text-black focus:outline-none focus:ring-2 focus:ring-white/30 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-white/80"
+              aria-label="Zoom in"
+              title="Zoom in"
+            >
+              <PlusIcon className="h-4 w-4" />
+            </button>
+          </div>
 
           {/* Mobile Close Preview Button (always visible) */}
           <button
@@ -741,6 +1050,105 @@ export function Lightbox({
               </div>
             ) : null}
 
+            <button
+              type="button"
+              onClick={handleCopyPrompt}
+              className={`mt-2 flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
+                promptCopyState === "copied"
+                  ? "border-[var(--text-primary)] bg-[var(--bg-subtle)] text-white"
+                  : promptCopyState === "failed"
+                    ? "border-red-900/60 bg-red-950/40 text-red-200"
+                    : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-white hover:border-[var(--text-muted)]"
+              }`}
+            >
+              <CopyIcon className="h-3.5 w-3.5" />
+              {promptCopyState === "copied"
+                ? "Copied"
+                : promptCopyState === "failed"
+                  ? "Copy Failed"
+                : "Copy Prompt"}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCopySetup}
+              className={`mt-2 flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
+                setupCopyState === "copied"
+                  ? "border-[var(--text-primary)] bg-[var(--bg-subtle)] text-white"
+                  : setupCopyState === "failed"
+                    ? "border-red-900/60 bg-red-950/40 text-red-200"
+                    : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-white hover:border-[var(--text-muted)]"
+              }`}
+            >
+              <SettingsIcon className="h-3.5 w-3.5" />
+              {setupCopyState === "copied"
+                ? "Copied"
+                : setupCopyState === "failed"
+                  ? "Copy Failed"
+                : "Copy Setup"}
+            </button>
+
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={handleCopySummary}
+                className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
+                  summaryCopyState === "copied"
+                    ? "border-[var(--text-primary)] bg-[var(--bg-subtle)] text-white"
+                    : summaryCopyState === "failed"
+                      ? "border-red-900/60 bg-red-950/40 text-red-200"
+                      : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-white hover:border-[var(--text-muted)]"
+                }`}
+              >
+                <LightningIcon className="h-3.5 w-3.5" />
+                {summaryCopyState === "copied"
+                  ? "Copied"
+                  : summaryCopyState === "failed"
+                    ? "Failed"
+                    : "Copy Summary"}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCopyMetadata}
+                className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
+                  metadataCopyState === "copied"
+                    ? "border-[var(--text-primary)] bg-[var(--bg-subtle)] text-white"
+                    : metadataCopyState === "failed"
+                      ? "border-red-900/60 bg-red-950/40 text-red-200"
+                      : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-white hover:border-[var(--text-muted)]"
+                }`}
+              >
+                <CopyIcon className="h-3.5 w-3.5" />
+                {metadataCopyState === "copied"
+                  ? "Copied"
+                  : metadataCopyState === "failed"
+                    ? "Failed"
+                    : "Copy JSON"}
+              </button>
+            </div>
+
+            <div className="mt-2 grid grid-cols-1 gap-2">
+              <button
+                type="button"
+                onClick={handleDownloadMetadata}
+                className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
+                  metadataDownloadState === "saved"
+                    ? "border-[var(--text-primary)] bg-[var(--bg-subtle)] text-white"
+                    : metadataDownloadState === "failed"
+                      ? "border-red-900/60 bg-red-950/40 text-red-200"
+                      : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-white hover:border-[var(--text-muted)]"
+                }`}
+              >
+                <DownloadIcon className="h-3.5 w-3.5" />
+                {metadataDownloadState === "saved"
+                  ? "Saved"
+                  : metadataDownloadState === "failed"
+                    ? "Failed"
+                    : "Save JSON"}
+              </button>
+            </div>
+
             <div className="flex gap-2 mt-2">
               {onUsePrompt ? (
                 <button
@@ -755,6 +1163,7 @@ export function Lightbox({
                         modelVariant: entry.modelVariant,
                         openAIModel: entry.openAIModel,
                         openAIQuality: entry.openAIQuality,
+                        outputFormat: entry.outputFormat,
                         aspectSelection: entry.aspectSelection,
                         qualitySelection: entry.qualitySelection,
                         aspect: entry.aspect,

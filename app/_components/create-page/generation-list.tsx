@@ -13,6 +13,7 @@ type GenerationGroupProps = {
   label: string;
   generations: Generation[];
   pendingIdSet: Set<string>;
+  retryingGenerationIds: Set<string>;
   streamingThoughts?: Map<string, (ImageThoughts | null)[]>;
   onExpand: (generationId: string, imageIndex: number) => void;
   onUsePrompt: (
@@ -34,6 +35,7 @@ export const GenerationGroup = memo(function GenerationGroup({
   label,
   generations,
   pendingIdSet,
+  retryingGenerationIds,
   streamingThoughts,
   onExpand,
   onUsePrompt,
@@ -58,6 +60,7 @@ export const GenerationGroup = memo(function GenerationGroup({
           const isInterrupted =
             !isGenerating &&
             generation.images.some((img, index) => !img && !deletedSet.has(index));
+          const isRetrying = retryingGenerationIds.has(generation.id);
 
           return (
             <div
@@ -86,6 +89,7 @@ export const GenerationGroup = memo(function GenerationGroup({
                   onDeleteGeneration={onDeleteGeneration}
                   onShareCollage={onShareCollage}
                   canDelete={!isGenerating}
+                  isRetrying={isRetrying}
                   onRetry={onRetryGeneration ? () => onRetryGeneration(generation.id) : undefined}
                 />
               </div>
@@ -185,6 +189,30 @@ type ImageTileProps = {
   isGenerating: boolean;
   provider?: string;
 };
+
+function OpenAIImageLoading() {
+  return (
+    <div className="relative flex-1 overflow-hidden bg-[#101010]">
+      <div aria-hidden="true" className="image-loading-grid" />
+      <div aria-hidden="true" className="image-loading-scan" />
+      <div aria-hidden="true" className="image-loading-frame" />
+      <div className="relative z-10 flex h-full min-h-0 items-start justify-center p-3 pt-[18%]">
+        <div className="flex min-w-0 flex-col items-center gap-2 text-center">
+          <div className="image-loading-aperture" aria-hidden="true">
+            <span />
+            <span />
+          </div>
+          <div className="max-w-full truncate text-[10px] font-bold uppercase tracking-[0.22em] text-white/80">
+            Generating
+          </div>
+          <div className="max-w-full truncate text-[9px] font-medium uppercase tracking-[0.18em] text-white/35">
+            Composing pixels
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const ImageTile = memo(function ImageTile({
   src,
@@ -338,9 +366,7 @@ const ImageTile = memo(function ImageTile({
                 )}
               </>
             ) : (
-              <div className="flex-1 flex items-center justify-center text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide">
-                Generating...
-              </div>
+              <OpenAIImageLoading />
             )}
           </div>
         ) : (

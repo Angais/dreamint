@@ -21,10 +21,33 @@ export function PlusIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function MinusIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M4 10h12" />
+    </svg>
+  );
+}
 export function LightningIcon(props: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...props}>
       <path d="M13 2 3 14h9l-1 8 10-12h-9z" />
+    </svg>
+  );
+}
+
+export function WandIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M15 4l5 5" />
+      <path d="M14 14 6 22l-4-4 8-8" />
+      <path d="m14 14 6-6" />
+      <path d="M5 3v3" />
+      <path d="M3.5 4.5h3" />
+      <path d="M19 14v3" />
+      <path d="M17.5 15.5h3" />
+      <path d="M10 2l.7 1.3L12 4l-1.3.7L10 6l-.7-1.3L8 4l1.3-.7L10 2Z" />
     </svg>
   );
 }
@@ -74,6 +97,35 @@ export function CopyIcon(props: IconProps) {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...props}>
       <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
       <rect x="2" y="2" width="13" height="13" rx="2" ry="2" />
+    </svg>
+  );
+}
+
+export function PencilIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M12 20h9" />
+      <path d="m16.5 3.5 4 4L7 21H3v-4L16.5 3.5Z" />
+    </svg>
+  );
+}
+
+export function EyeIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+export function EyeOffIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M3 3l18 18" />
+      <path d="M10.6 10.6A2 2 0 0 0 12 14a2 2 0 0 0 1.4-.6" />
+      <path d="M9.9 5.8A9.7 9.7 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.4 3.1" />
+      <path d="M6.6 7.2C4 8.9 2.5 12 2.5 12S6 18.5 12 18.5a9.9 9.9 0 0 0 4-.8" />
     </svg>
   );
 }

@@ -142,6 +142,34 @@ export function BudgetWidget({
 
     return Math.max(0, Math.floor(budgetRemainingCents / Math.max(1, batchCostCents)));
   }, [budgetRemainingCents, batchCostCents]);
+  const budgetPresetOptions = useMemo(() => {
+    const safeSpentCents = Math.max(0, spentCents);
+    const safeBatchCostCents = Math.max(1, batchCostCents);
+
+    return [5, 10, 25].map((batches) => {
+      const cents = safeSpentCents + safeBatchCostCents * batches;
+
+      return {
+        batches,
+        cents,
+        label: formatBatchLabel(batches),
+        valueLabel: formatCents(cents),
+      };
+    });
+  }, [batchCostCents, spentCents]);
+  const nextBatchBudgetCents = useMemo(() => {
+    if (budgetCents === null) {
+      return null;
+    }
+
+    return Math.max(0, budgetCents) + Math.max(1, batchCostCents);
+  }, [batchCostCents, budgetCents]);
+  const isNearBudgetLimit =
+    !isBudgetLocked &&
+    budgetRemainingCents !== null &&
+    batchCostCents > 0 &&
+    budgetRemainingCents >= batchCostCents &&
+    budgetRemainingCents < batchCostCents * 2;
 
   const collapsedSummary = useMemo(() => {
     if (budgetRemainingCents !== null) {
@@ -187,10 +215,17 @@ export function BudgetWidget({
     onBudgetClear();
   };
 
-  // New, more visible button style
-  const buttonClass = isBudgetLocked 
-    ? "border-red-500/50 text-red-200 bg-red-950/50 hover:bg-red-900/50 hover:border-red-500" 
-    : "border-[var(--border-subtle)] bg-[var(--bg-panel)] text-[var(--text-secondary)] hover:border-[var(--text-muted)] hover:text-white shadow-md";
+  const handlePresetSave = (cents: number) => {
+    setInputValue((cents / 100).toFixed(2));
+    setFormError(null);
+    onBudgetSave(cents);
+  };
+
+  const buttonClass = isBudgetLocked
+    ? "border-red-500/50 text-red-200 bg-red-950/50 hover:bg-red-900/50 hover:border-red-500"
+    : isNearBudgetLimit
+      ? "border-amber-400/40 text-amber-100 bg-amber-950/40 hover:bg-amber-900/40 hover:border-amber-400/70"
+      : "border-[var(--border-subtle)] bg-[var(--bg-panel)] text-[var(--text-secondary)] hover:border-[var(--text-muted)] hover:text-white shadow-md";
 
   return (
     <aside
@@ -209,6 +244,8 @@ export function BudgetWidget({
           <span className="font-bold">{collapsedSummary}</span>
           {isBudgetLocked ? (
             <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_2px_rgba(239,68,68,0.4)]" aria-hidden="true" />
+          ) : isNearBudgetLimit ? (
+            <span className="h-2 w-2 rounded-full bg-amber-300 shadow-[0_0_8px_2px_rgba(251,191,36,0.35)]" aria-hidden="true" />
           ) : null}
         </button>
         {isOpen ? (
@@ -228,6 +265,11 @@ export function BudgetWidget({
                   <span className="mt-2 inline-flex items-center gap-1 rounded-md bg-red-500/10 px-2 py-1 text-[10px] font-bold text-red-400 border border-red-500/20">
                     <span className="h-1.5 w-1.5 rounded-full bg-red-500" aria-hidden="true" />
                     LIMIT REACHED
+                  </span>
+                ) : isNearBudgetLimit ? (
+                  <span className="mt-2 inline-flex items-center gap-1 rounded-md border border-amber-400/20 bg-amber-400/10 px-2 py-1 text-[10px] font-bold text-amber-200">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-300" aria-hidden="true" />
+                    ONE BATCH LEFT
                   </span>
                 ) : null}
               </div>
@@ -291,6 +333,23 @@ export function BudgetWidget({
                   Each batch of {imagesPerBatch} images costs <span className="text-[var(--text-primary)] font-medium">{batchCostLabel}</span>.
                 </p>
               )}
+
+              {isNearBudgetLimit ? (
+                <div className="rounded-lg border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[11px] font-medium leading-relaxed text-amber-100">
+                  <p>
+                    This budget covers the next batch, then generation will pause until you raise or clear the limit.
+                  </p>
+                  {nextBatchBudgetCents !== null ? (
+                    <button
+                      type="button"
+                      onClick={() => handlePresetSave(nextBatchBudgetCents)}
+                      className="mt-2 rounded-md border border-amber-300/30 bg-amber-300/10 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-50 transition-colors hover:border-amber-200/60 hover:bg-amber-300/20 focus:outline-none focus:ring-2 focus:ring-amber-200/30"
+                    >
+                      Add next batch ({formatCents(nextBatchBudgetCents)})
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
               
               <div className="flex items-baseline justify-between px-2 text-[var(--text-secondary)]">
                 <span>Spent so far</span>
@@ -353,6 +412,24 @@ export function BudgetWidget({
               {formError ? (
                 <p className="text-[11px] text-red-400 font-medium animate-pulse">{formError}</p>
               ) : null}
+              <div className="grid grid-cols-3 gap-2 pt-2">
+                {budgetPresetOptions.map((option) => (
+                  <button
+                    key={option.batches}
+                    type="button"
+                    onClick={() => handlePresetSave(option.cents)}
+                    className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2.5 py-2 text-left transition-colors hover:border-[var(--text-muted)] hover:bg-[var(--bg-subtle)] hover:text-white"
+                    aria-label={`Set budget for ${option.label}`}
+                  >
+                    <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                      {option.label}
+                    </span>
+                    <span className="mt-1 block text-xs font-semibold text-[var(--text-primary)]">
+                      {option.valueLabel}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </form>
             
             <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
