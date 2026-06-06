@@ -115,13 +115,46 @@ export function GenerationDetailsCard({
       : getAspectDescription(generation.aspect).replace(/\s/g, "")
     : null;
 
-  const deletedSet = new Set(generation?.deletedImages ?? []);
-  const isInterrupted =
-    !isGenerating &&
-    generation?.images.some((img, index) => !img && !deletedSet.has(index));
-  const hasShareTargets = generation
-    ? generation.images.some((img, index) => Boolean(img) && !deletedSet.has(index))
-    : false;
+  const imageSummary = useMemo(() => {
+    if (!generation) {
+      return {
+        hasMissingImage: false,
+        hasShareTargets: false,
+        enhancedPromptCount: 0,
+      };
+    }
+
+    const deletedSet = new Set(generation.deletedImages ?? []);
+    let hasMissingImage = false;
+    let hasShareTargets = false;
+
+    generation.images.forEach((img, index) => {
+      if (deletedSet.has(index)) {
+        return;
+      }
+      if (img) {
+        hasShareTargets = true;
+      } else {
+        hasMissingImage = true;
+      }
+    });
+
+    let enhancedPromptCount = 0;
+    generation.enhancedPrompts?.forEach((value) => {
+      if (typeof value === "string" && value.trim().length > 0) {
+        enhancedPromptCount += 1;
+      }
+    });
+
+    return {
+      hasMissingImage,
+      hasShareTargets,
+      enhancedPromptCount,
+    };
+  }, [generation]);
+  const isInterrupted = !isGenerating && imageSummary.hasMissingImage;
+  const hasShareTargets = imageSummary.hasShareTargets;
+  const enhancedPromptCount = imageSummary.enhancedPromptCount;
   const canShare =
     Boolean(onShareCollage) &&
     Boolean(generation) &&
@@ -417,9 +450,16 @@ export function GenerationDetailsCard({
         ) : null}
 
         {generation && !isInterrupted ? (
-          <p className="text-xs leading-relaxed text-[var(--text-primary)] opacity-90 font-normal max-h-32 overflow-y-auto">
-            {generation.prompt}
-          </p>
+          <div className="space-y-2">
+            {enhancedPromptCount > 0 ? (
+              <div className="inline-flex items-center rounded bg-white/8 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                {enhancedPromptCount} improved prompts
+              </div>
+            ) : null}
+            <p className="text-xs leading-relaxed text-[var(--text-primary)] opacity-90 font-normal max-h-32 overflow-y-auto">
+              {generation.prompt}
+            </p>
+          </div>
         ) : !generation ? (
           <p className="text-xs italic text-[var(--text-muted)]">
             Waiting for prompt...
@@ -466,6 +506,11 @@ export function GenerationDetailsCard({
             {generation.useGoogleSearch ? (
               <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
                 Search
+              </span>
+            ) : null}
+            {enhancedPromptCount > 0 ? (
+              <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
+                GPT-5.5
               </span>
             ) : null}
           </div>

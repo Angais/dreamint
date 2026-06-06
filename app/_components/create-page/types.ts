@@ -1,4 +1,4 @@
-import type { SeedreamGeneration } from "../../lib/generate-seedream";
+import type { PromptEnhancementState, SeedreamGeneration } from "../../lib/generate-seedream";
 import type {
   OpenAIEstimatedCostBreakdown,
   OpenAIUsageBreakdown,
@@ -37,6 +37,7 @@ export type Generation = SeedreamGeneration & {
   deletedImages?: number[];
   thumbnails?: string[];
   thoughts?: (ImageThoughts | null)[]; // Chain of thought per image
+  promptEnhancements?: (PromptEnhancementState | null)[];
   aspectSelection?: AspectSelection;
   qualitySelection?: QualitySelection;
 };
@@ -46,6 +47,7 @@ export type GalleryEntry = {
   imageIndex: number;
   src: string;
   prompt: string;
+  usedPrompt?: string;
   aspect: AspectKey | "custom";
   quality: QualityKey;
   durationMs?: number;
@@ -61,6 +63,7 @@ export type GalleryEntry = {
   size: { width: number; height: number };
   inputImages: Generation["inputImages"];
   useGoogleSearch?: boolean;
+  promptEnhancement?: Generation["promptEnhancement"];
 };
 
 export type ReusePromptOptions = {

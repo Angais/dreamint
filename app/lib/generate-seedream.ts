@@ -68,12 +68,20 @@ export type GenerateSeedreamArgs = {
   sizeOverride?: { width: number; height: number };
   inputImages?: InputImage[];
   useGoogleSearch?: boolean;
+  improvePrompt?: boolean;
   onThoughtsUpdate?: (imageIndex: number, thoughts: ImageThoughts) => void;
+  onPromptEnhancementUpdate?: (imageIndex: number, update: PromptEnhancementState) => void;
 };
 
 export type ImageThoughts = {
   text?: string[];
   images?: string[]; // Interim thought images (base64 data URLs)
+};
+
+export type PromptEnhancementState = {
+  status: "queued" | "enhancing" | "done" | "error";
+  prompt?: string;
+  error?: string;
 };
 
 export type SeedreamGeneration = {
@@ -93,6 +101,12 @@ export type SeedreamGeneration = {
   estimatedOpenAICost?: OpenAIEstimatedCostBreakdown;
   openAIUsage?: OpenAIUsageBreakdown | null;
   thoughts?: (ImageThoughts | null)[]; // Chain of thought per image
+  enhancedPrompts?: string[];
+  promptEnhancement?: {
+    enabled: boolean;
+    model: "gpt-5.5";
+    reasoningEffort: "medium";
+  };
 };
 
 async function fetchWithTimeout(
@@ -109,6 +123,85 @@ async function fetchWithTimeout(
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+function combineOpenAIUsage(usages: Array<OpenAIUsageBreakdown | null>): OpenAIUsageBreakdown | null {
+  const presentUsages = usages.filter((usage): usage is OpenAIUsageBreakdown => usage !== null);
+  if (presentUsages.length === 0) {
+    return null;
+  }
+
+  const sumNullable = (selector: (usage: OpenAIUsageBreakdown) => number | null) => {
+    let sawValue = false;
+    const total = presentUsages.reduce((sum, usage) => {
+      const value = selector(usage);
+      if (value === null) {
+        return sum;
+      }
+      sawValue = true;
+      return sum + value;
+    }, 0);
+    return sawValue ? total : null;
+  };
+
+  return {
+    inputTokens: sumNullable((usage) => usage.inputTokens),
+    outputTokens: sumNullable((usage) => usage.outputTokens),
+    totalTokens: sumNullable((usage) => usage.totalTokens),
+    inputTextTokens: sumNullable((usage) => usage.inputTextTokens),
+    inputImageTokens: sumNullable((usage) => usage.inputImageTokens),
+    cachedInputTokens: sumNullable((usage) => usage.cachedInputTokens),
+    cachedTextTokens: sumNullable((usage) => usage.cachedTextTokens),
+    cachedImageTokens: sumNullable((usage) => usage.cachedImageTokens),
+  };
+}
+
+async function improveOpenAIImagePrompt(args: {
+  apiKey: string;
+  prompt: string;
+  imageIndex: number;
+  totalImages: number;
+  model: OpenAIModel;
+  quality: OpenAIQuality;
+  size: { width: number; height: number };
+  inputImages: InputImage[];
+}): Promise<string> {
+  const response = await fetchWithTimeout(
+    "/api/openai/prompts/improve",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(args),
+      cache: "no-store",
+    },
+    DEFAULT_REQUEST_TIMEOUT_MS,
+  );
+
+  const responseText = await response.text();
+  if (!response.ok) {
+    try {
+      const errorJson = JSON.parse(responseText) as { error?: { message?: string } };
+      if (errorJson.error?.message) {
+        throw new Error(`OpenAI Prompt Improvement Error: ${errorJson.error.message}`);
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("OpenAI Prompt Improvement Error")) {
+        throw error;
+      }
+    }
+
+    throw new Error(`OpenAI Prompt Improvement Error (${response.status}): ${responseText}`);
+  }
+
+  const json = JSON.parse(responseText) as { prompt?: string };
+  const improvedPrompt = typeof json.prompt === "string" ? json.prompt.trim() : "";
+  if (!improvedPrompt) {
+    throw new Error("OpenAI Prompt Improvement Error: No improved prompt returned.");
+  }
+
+  return improvedPrompt;
 }
 
 export async function generateSeedream({
@@ -128,7 +221,9 @@ export async function generateSeedream({
   sizeOverride,
   inputImages = [],
   useGoogleSearch = false,
+  improvePrompt = false,
   onThoughtsUpdate,
+  onPromptEnhancementUpdate,
 }: GenerateSeedreamArgs): Promise<SeedreamGeneration> {
   const trimmedPrompt = prompt.trim();
 
@@ -383,49 +478,85 @@ export async function generateSeedream({
       throw new Error("Missing OpenAI API key. Add one in settings.");
     }
 
-    const response = await fetchWithTimeout(
-      "/api/openai/images",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+    const callOpenAIImageApi = async (imagePrompt: string, count: number) => {
+      const response = await fetchWithTimeout(
+        "/api/openai/images",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            apiKey: resolvedApiKey,
+            prompt: imagePrompt,
+            model: openAIModel,
+            quality: openAIQuality,
+            outputFormat,
+            numImages: count,
+            size,
+            inputImages: effectiveInputImages,
+          }),
+          cache: "no-store",
         },
-        body: JSON.stringify({
-          apiKey: resolvedApiKey,
-          prompt: trimmedPrompt,
-          model: openAIModel,
-          quality: openAIQuality,
-          outputFormat,
-          numImages: validNumImages,
-          size,
-          inputImages: effectiveInputImages,
-        }),
-        cache: "no-store",
-      },
-      DEFAULT_REQUEST_TIMEOUT_MS,
-    );
+        DEFAULT_REQUEST_TIMEOUT_MS,
+      );
 
-    if (!response.ok) {
-      const errorText = await response.text();
+      if (!response.ok) {
+        const errorText = await response.text();
 
-      try {
-        const errorJson = JSON.parse(errorText) as { error?: { message?: string } };
-        if (errorJson.error?.message) {
-          throw new Error(`OpenAI Image API Error: ${errorJson.error.message}`);
+        try {
+          const errorJson = JSON.parse(errorText) as { error?: { message?: string } };
+          if (errorJson.error?.message) {
+            throw new Error(`OpenAI Image API Error: ${errorJson.error.message}`);
+          }
+        } catch (error) {
+          if (error instanceof Error && error.message.startsWith("OpenAI Image API Error")) {
+            throw error;
+          }
         }
-      } catch (error) {
-        if (error instanceof Error && error.message.startsWith("OpenAI Image API Error")) {
-          throw error;
-        }
+
+        throw new Error(`OpenAI Image API Error (${response.status}): ${errorText}`);
       }
 
-      throw new Error(`OpenAI Image API Error (${response.status}): ${errorText}`);
+      return (await response.json()) as {
+        data?: Array<{ b64_json?: string; url?: string }>;
+        usage?: unknown;
+      };
+    };
+
+    let promptsForImages = Array(validNumImages).fill(trimmedPrompt) as string[];
+    let enhancedPrompts: string[] | undefined;
+
+    if (improvePrompt) {
+      enhancedPrompts = await Promise.all(
+        promptsForImages.map(async (_imagePrompt, imageIndex) => {
+          onPromptEnhancementUpdate?.(imageIndex, { status: "enhancing" });
+          try {
+            const improved = await improveOpenAIImagePrompt({
+              apiKey: resolvedApiKey,
+              prompt: trimmedPrompt,
+              imageIndex,
+              totalImages: validNumImages,
+              model: openAIModel,
+              quality: openAIQuality,
+              size,
+              inputImages: effectiveInputImages,
+            });
+            onPromptEnhancementUpdate?.(imageIndex, { status: "done", prompt: improved });
+            return improved;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Prompt improvement failed.";
+            onPromptEnhancementUpdate?.(imageIndex, { status: "error", error: message });
+            throw error;
+          }
+        }),
+      );
+      promptsForImages = enhancedPrompts;
     }
 
-    const json = (await response.json()) as {
-      data?: Array<{ b64_json?: string; url?: string }>;
-      usage?: unknown;
-    };
+    const imagePayloads = improvePrompt
+      ? await Promise.all(promptsForImages.map((imagePrompt) => callOpenAIImageApi(imagePrompt, 1)))
+      : [await callOpenAIImageApi(trimmedPrompt, validNumImages)];
 
     const mimeType =
       outputFormat === "jpeg"
@@ -433,7 +564,8 @@ export async function generateSeedream({
         : outputFormat === "webp"
         ? "image/webp"
         : "image/png";
-    const images = (json.data ?? [])
+    const images = imagePayloads
+      .flatMap((json) => json.data ?? [])
       .map((item) => {
         if (typeof item?.b64_json === "string" && item.b64_json.length > 0) {
           return `data:${mimeType};base64,${item.b64_json}`;
@@ -461,7 +593,15 @@ export async function generateSeedream({
       size,
       images,
       inputImages: effectiveInputImages,
-      openAIUsage: normalizeOpenAIUsage(json.usage),
+      openAIUsage: combineOpenAIUsage(imagePayloads.map((payload) => normalizeOpenAIUsage(payload.usage))),
+      enhancedPrompts,
+      promptEnhancement: improvePrompt
+        ? {
+            enabled: true,
+            model: "gpt-5.5",
+            reasoningEffort: "medium",
+          }
+        : undefined,
     };
   }
 

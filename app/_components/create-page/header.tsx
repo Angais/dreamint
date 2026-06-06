@@ -1579,6 +1579,9 @@ export function Header({
                         </div>
                         <div className="text-[10px] text-[var(--text-muted)]">
                           {estimatedOpenAICost.promptTextTokens.toLocaleString()} tokens
+                          {estimatedOpenAICost.imageRequestCount > 1
+                            ? ` across ${estimatedOpenAICost.imageRequestCount} requests`
+                            : ""}
                         </div>
                         <div className="mt-2 flex items-center justify-between gap-2">
                           <span>Images</span>
@@ -1588,6 +1591,9 @@ export function Header({
                         </div>
                         <div className="text-[10px] text-[var(--text-muted)]">
                           {estimatedOpenAICost.inputImageTokens.toLocaleString()} tokens
+                          {estimatedOpenAICost.imageRequestCount > 1
+                            ? ` across ${estimatedOpenAICost.imageRequestCount} requests`
+                            : ""}
                         </div>
                       </div>
                     </div>
