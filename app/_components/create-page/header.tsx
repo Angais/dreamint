@@ -27,7 +27,7 @@ import {
   type Provider,
 } from "../../lib/seedream-options";
 import type { OpenAIEstimatedCostBreakdown } from "../../lib/openai-image-costs";
-import { LightningIcon, MagnifyingGlassIcon, PlusIcon, SettingsIcon } from "./icons";
+import { LightningIcon, MagnifyingGlassIcon, PlusIcon, SettingsIcon, SparklesIcon } from "./icons";
 import { AttachmentPreviewList } from "./attachment-preview";
 import type { PromptAttachment } from "./types";
 import { resizeTextarea } from "./utils";
@@ -51,6 +51,7 @@ type HeaderProps = {
   estimatedOpenAICost: OpenAIEstimatedCostBreakdown | null;
   flashReasoningLevel: FlashReasoningLevel;
   useGoogleSearch: boolean;
+  improvePrompts: boolean;
   imageCount: number;
   apiKey: string;
   geminiApiKey: string;
@@ -73,6 +74,7 @@ type HeaderProps = {
   onOpenAICustomHeightChange: (value: string) => void;
   onFlashReasoningLevelChange: (value: FlashReasoningLevel) => void;
   onToggleGoogleSearch: (value: boolean) => void;
+  onToggleImprovePrompts: (value: boolean) => void;
   onImageCountChange: (value: number) => void;
   onApiKeyChange: (value: string) => void;
   onGeminiApiKeyChange: (value: string) => void;
@@ -104,6 +106,7 @@ export function Header({
   estimatedOpenAICost,
   flashReasoningLevel,
   useGoogleSearch,
+  improvePrompts,
   imageCount,
   apiKey,
   geminiApiKey,
@@ -126,6 +129,7 @@ export function Header({
   onOpenAICustomHeightChange,
   onFlashReasoningLevelChange,
   onToggleGoogleSearch,
+  onToggleImprovePrompts,
   onImageCountChange,
   onApiKeyChange,
   onGeminiApiKeyChange,
@@ -203,6 +207,12 @@ export function Header({
       return;
     }
     onToggleGoogleSearch(!useGoogleSearch);
+  };
+  const handleImprovePromptsToggle = () => {
+    if (!isOpenAIProvider) {
+      return;
+    }
+    onToggleImprovePrompts(!improvePrompts);
   };
   const handleModelChange = (value: string) => {
     if (isOpenAIProvider) {
@@ -676,6 +686,23 @@ export function Header({
                 </button>
               ) : null}
 
+              {isOpenAIProvider ? (
+                <button
+                  type="button"
+                  onClick={handleImprovePromptsToggle}
+                  title="Improve each prompt with GPT-5.5 medium"
+                  aria-label="Improve prompts with GPT-5.5 medium"
+                  aria-pressed={improvePrompts}
+                  className={`shrink-0 flex h-7 w-7 items-center justify-center rounded-lg border transition-all ${
+                    improvePrompts
+                      ? "border-white bg-white text-black shadow-[0_0_18px_-6px_rgba(255,255,255,0.9)]"
+                      : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:border-[var(--text-muted)] hover:text-white"
+                  }`}
+                >
+                  <SparklesIcon className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+
               {/* Settings Toggle */}
               <button
                 ref={toggleButtonRef}
@@ -745,6 +772,9 @@ export function Header({
                         </div>
                         <div className="text-[10px] text-[var(--text-muted)]">
                           {estimatedOpenAICost.promptTextTokens.toLocaleString()} tokens
+                          {estimatedOpenAICost.imageRequestCount > 1
+                            ? ` across ${estimatedOpenAICost.imageRequestCount} requests`
+                            : ""}
                         </div>
                         <div className="mt-2 flex items-center justify-between gap-2">
                           <span>Images</span>
@@ -754,6 +784,9 @@ export function Header({
                         </div>
                         <div className="text-[10px] text-[var(--text-muted)]">
                           {estimatedOpenAICost.inputImageTokens.toLocaleString()} tokens
+                          {estimatedOpenAICost.imageRequestCount > 1
+                            ? ` across ${estimatedOpenAICost.imageRequestCount} requests`
+                            : ""}
                         </div>
                       </div>
                     </div>

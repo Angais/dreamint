@@ -3,7 +3,7 @@ import { memo, useMemo, useState } from "react";
 
 import { type AspectKey } from "../../lib/seedream-options";
 import { GenerationDetailsCard } from "./generation-details-card";
-import { CopyIcon, DownloadIcon, InfoIcon } from "./icons";
+import { CopyIcon, DownloadIcon, InfoIcon, SparklesIcon } from "./icons";
 import { debugLog } from "./logger";
 import type { Generation, ImageThoughts, ReusePromptOptions } from "./types";
 import { useResolvedImageSource } from "./use-resolved-image-source";
@@ -146,6 +146,7 @@ const GenerationGallery = memo(function GenerationGallery({
               src={src}
               className={layout.tileClass}
               prompt={generation.prompt}
+              usedPrompt={generation.enhancedPrompts?.[index]?.trim() || generation.prompt}
               onExpand={() => onExpand(generation.id, index)}
               onDelete={() => onDeleteImage(generation.id, index)}
               onDownload={() => onDownloadImage(generation.id, index)}
@@ -159,6 +160,7 @@ const GenerationGallery = memo(function GenerationGallery({
               isInterrupted={isInterrupted}
               isGenerating={isGenerating}
               provider={generation.provider}
+              promptEnhancement={generation.promptEnhancements?.[index] ?? null}
             />
           );
         })}
@@ -171,6 +173,7 @@ type ImageTileProps = {
   src: string;
   className: string;
   prompt: string;
+  usedPrompt: string;
   onExpand: () => void;
   onDelete: () => void;
   onDownload: () => Promise<boolean>;
@@ -184,12 +187,14 @@ type ImageTileProps = {
   isInterrupted: boolean;
   isGenerating: boolean;
   provider?: string;
+  promptEnhancement?: NonNullable<Generation["promptEnhancements"]>[number] | null;
 };
 
 const ImageTile = memo(function ImageTile({
   src,
   className,
   prompt,
+  usedPrompt,
   onExpand,
   onDelete,
   onDownload,
@@ -203,6 +208,7 @@ const ImageTile = memo(function ImageTile({
   isInterrupted,
   isGenerating,
   provider,
+  promptEnhancement,
 }: ImageTileProps) {
   const [flashAction, setFlashAction] = useState<"copy" | "download" | null>(null);
   const triggerFlash = (action: "copy" | "download") => {
@@ -338,9 +344,7 @@ const ImageTile = memo(function ImageTile({
                 )}
               </>
             ) : (
-              <div className="flex-1 flex items-center justify-center text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide">
-                Generating...
-              </div>
+              <PromptPlaceholder promptEnhancement={promptEnhancement} usedPrompt={usedPrompt} />
             )}
           </div>
         ) : (
@@ -438,7 +442,7 @@ const ImageTile = memo(function ImageTile({
       ) : null}
       <Image
         src={resolvedSource}
-        alt={prompt}
+        alt={usedPrompt || prompt}
         width={width}
         height={height}
         draggable={false}
@@ -472,6 +476,68 @@ const ImageTile = memo(function ImageTile({
     </button>
   );
 });
+
+function PromptPlaceholder({
+  promptEnhancement,
+  usedPrompt,
+}: {
+  promptEnhancement?: NonNullable<Generation["promptEnhancements"]>[number] | null;
+  usedPrompt: string;
+}) {
+  const status = promptEnhancement?.status;
+  const isImproving = status === "queued" || status === "enhancing";
+  const isDone = status === "done";
+  const label = isImproving
+    ? "Improving prompt"
+    : isDone
+    ? "Rendering image"
+    : status === "error"
+    ? "Prompt failed"
+    : "Rendering image";
+  const promptPreview = promptEnhancement?.prompt?.trim() || usedPrompt;
+
+  return (
+    <div className="prompt-work-card absolute inset-0 flex flex-col justify-between overflow-hidden bg-[#090a0c] p-4">
+      <div className="prompt-work-grid" />
+      <div className="prompt-work-sheen" />
+      <div className="relative z-10 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <span className="prompt-work-icon flex h-8 w-8 items-center justify-center rounded-full border border-white/15 bg-white/8 text-white shadow-[0_0_24px_-12px_rgba(255,255,255,0.95)]">
+            <SparklesIcon className="h-4 w-4" />
+          </span>
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-white/80">
+              {label}
+            </div>
+            <div className="mt-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-white/35">
+              GPT-5.5 medium
+            </div>
+          </div>
+        </div>
+        <div className="flex gap-1">
+          <span className="prompt-work-dot" />
+          <span className="prompt-work-dot [animation-delay:160ms]" />
+          <span className="prompt-work-dot [animation-delay:320ms]" />
+        </div>
+      </div>
+
+      <div className="relative z-10 my-4 min-h-0 flex-1 rounded-xl border border-white/10 bg-black/25 p-3 shadow-inner">
+        <div className="mb-2 flex items-center gap-2">
+          <span className={`h-1.5 w-8 rounded-full ${isDone ? "bg-emerald-300/70" : "bg-white/45"}`} />
+          <span className="h-1.5 w-12 rounded-full bg-white/15" />
+        </div>
+        <p className="prompt-work-preview max-h-full overflow-hidden text-[11px] leading-relaxed text-white/54">
+          {promptPreview}
+        </p>
+      </div>
+
+      <div className="relative z-10 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.18em] text-white/35">
+        <span>{isImproving ? "Composing details" : "Image request queued"}</span>
+        <span>{isDone ? "Ready" : "Working"}</span>
+      </div>
+    </div>
+  );
+}
 
 const GRID_CLASS_MAP: Record<AspectKey, string> = {
   "square-1-1": "grid grid-cols-2 gap-0.5",

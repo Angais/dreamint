@@ -6,6 +6,13 @@ const STORE_NAME = "state";
 const GENERATIONS_KEY = "seedream:generations";
 const PENDING_KEY = "seedream:pending_generations";
 
+type PersistedGenerationCacheEntry = {
+  source: Generation;
+  persisted: Generation;
+};
+
+const persistedGenerationCache = new Map<string, PersistedGenerationCacheEntry>();
+
 // Initialize localforage
 const store = typeof window !== "undefined" 
   ? localforage.createInstance({
@@ -53,6 +60,29 @@ export async function resolveStoredAssetBlob(value: string): Promise<Blob | null
     return (await store.getItem<Blob>(getRefKey(value))) ?? null;
   } catch (error) {
     console.error("Failed to resolve stored asset blob", error);
+    return null;
+  }
+}
+
+export async function resolveAssetBlob(value: string): Promise<Blob | null> {
+  const source = typeof value === "string" ? value.trim() : "";
+  if (!source) {
+    return null;
+  }
+
+  if (isRef(source)) {
+    return resolveStoredAssetBlob(source);
+  }
+
+  try {
+    const response = await fetch(source);
+    if (!response.ok) {
+      return null;
+    }
+
+    return await response.blob();
+  } catch (error) {
+    console.error("Failed to resolve asset blob", error);
     return null;
   }
 }
@@ -286,8 +316,20 @@ export async function cacheGenerationAssets(generation: Generation): Promise<Gen
 export async function persistGenerations(generations: Generation[]) {
   if (!store) return;
 
+  const currentGenerationIds = new Set(generations.map((generation) => generation.id));
+  persistedGenerationCache.forEach((_, generationId) => {
+    if (!currentGenerationIds.has(generationId)) {
+      persistedGenerationCache.delete(generationId);
+    }
+  });
+
   const persistedGenerations = await Promise.all(
     generations.map(async (gen) => {
+      const cached = persistedGenerationCache.get(gen.id);
+      if (cached?.source === gen) {
+        return cached.persisted;
+      }
+
       // Handle Output Images
       const outputResults: Array<{ image: string; thumbnail: string }> = [];
 
@@ -374,12 +416,19 @@ export async function persistGenerations(generations: Generation[]) {
         })
       );
 
-      return {
+      const persistedGeneration = {
         ...gen,
         images,
         thumbnails,
         inputImages
       };
+
+      persistedGenerationCache.set(gen.id, {
+        source: gen,
+        persisted: persistedGeneration,
+      });
+
+      return persistedGeneration;
     })
   );
 
@@ -669,6 +718,7 @@ export async function loadPending(): Promise<Generation[]> {
 
 export async function deleteGenerationData(generationId: string, generation?: Generation) {
   if (!store) return;
+  persistedGenerationCache.delete(generationId);
 
   const [storedGenerations, storedPending] = await Promise.all([
     store.getItem<Generation[]>(GENERATIONS_KEY),
@@ -704,6 +754,7 @@ export async function deleteGenerationData(generationId: string, generation?: Ge
 
 export async function deleteOutputImageData(generationId: string, imageIndex: number) {
   if (!store) return;
+  persistedGenerationCache.delete(generationId);
   const key = getImageKey(generationId, imageIndex, "output");
   const thumbKey = getThumbnailKey(generationId, imageIndex);
   await Promise.allSettled([store.removeItem(key), store.removeItem(thumbKey)]);

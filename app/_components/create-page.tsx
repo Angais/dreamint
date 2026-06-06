@@ -52,7 +52,7 @@ import type {
   ReusePromptOptions,
 } from "./create-page/types";
 import { ThoughtsModal } from "./create-page/thoughts-modal";
-import { cacheGenerationAssets, clearPending, loadPending, restoreGenerations, persistGenerations, savePending, deleteGenerationData, deleteOutputImageData, cleanOrphanedImages, isStoredAssetRef, resolveStoredAssetBlob, resolveStoredAssetUrl } from "./create-page/storage";
+import { cacheGenerationAssets, clearPending, loadPending, restoreGenerations, persistGenerations, savePending, deleteGenerationData, deleteOutputImageData, cleanOrphanedImages, isStoredAssetRef, resolveAssetBlob, resolveStoredAssetBlob, resolveStoredAssetUrl } from "./create-page/storage";
 import { useInfiniteScroll } from "./create-page/use-infinite-scroll";
 
 const defaultPrompt =
@@ -85,6 +85,7 @@ const STORAGE_KEYS = {
   openAIResolutionMode: "seedream:openai_resolution_mode",
   openAICustomWidth: "seedream:openai_custom_width",
   openAICustomHeight: "seedream:openai_custom_height",
+  improvePrompts: "seedream:improve_prompts",
 } as const;
 
 const MAX_ATTACHMENTS = 8;
@@ -154,6 +155,10 @@ function safePersist(key: string, value: string | null) {
   } catch (error) {
     console.error(`Unable to persist ${key} in localStorage`, error);
   }
+}
+
+function getGenerationImageKey(generationId: string, imageIndex: number): string {
+  return `${generationId}:${imageIndex}`;
 }
 
 function parseStoredCents(value: string | null): number | null {
@@ -284,6 +289,7 @@ export function CreatePage() {
     useState<OpenAIResolutionMode>(defaultOpenAIResolutionMode);
   const [openAICustomWidth, setOpenAICustomWidth] = useState("");
   const [openAICustomHeight, setOpenAICustomHeight] = useState("");
+  const [improvePrompts, setImprovePrompts] = useState(false);
   const [useGoogleSearch, setUseGoogleSearch] = useState(false);
   const [attachments, setAttachments] = useState<PromptAttachment[]>([]);
   const [attachmentPreview, setAttachmentPreview] = useState<PromptAttachment | null>(null);
@@ -472,6 +478,7 @@ export function CreatePage() {
         size: draftSize.size,
         quality: openAIQuality,
         imageCount,
+        imageRequestCount: improvePrompts ? imageCount : 1,
         inputImages: attachmentInputImages,
       });
     } catch {
@@ -480,6 +487,7 @@ export function CreatePage() {
   }, [
     attachmentInputImages,
     imageCount,
+    improvePrompts,
     isOpenAIProvider,
     openAIQuality,
     prompt,
@@ -662,6 +670,11 @@ export function CreatePage() {
           setUseGoogleSearch(true);
         }
 
+        const storedImprovePrompts = window.localStorage.getItem(STORAGE_KEYS.improvePrompts);
+        if (storedImprovePrompts === "true") {
+          setImprovePrompts(true);
+        }
+
         let generationData: Generation[] | null = null;
         let pendingData: Generation[] | null = null;
 
@@ -833,6 +846,7 @@ export function CreatePage() {
     safePersist(STORAGE_KEYS.openAIResolutionMode, openAIResolutionMode);
     safePersist(STORAGE_KEYS.openAICustomWidth, openAICustomWidth.trim().length > 0 ? openAICustomWidth.trim() : null);
     safePersist(STORAGE_KEYS.openAICustomHeight, openAICustomHeight.trim().length > 0 ? openAICustomHeight.trim() : null);
+    safePersist(STORAGE_KEYS.improvePrompts, improvePrompts ? "true" : null);
 
   }, [
     aspect,
@@ -850,6 +864,7 @@ export function CreatePage() {
     openAIResolutionMode,
     openAICustomWidth,
     openAICustomHeight,
+    improvePrompts,
     useGoogleSearch,
   ]);
 
@@ -986,20 +1001,46 @@ export function CreatePage() {
   const groupedGenerations = useMemo(() => groupByDate(visibleFeed), [visibleFeed]);
   const pendingIdSet = useMemo(() => new Set(pendingGenerations.map((generation) => generation.id)), [pendingGenerations]);
 
-  const galleryEntries = useMemo<GalleryEntry[]>(() => {
+  const completedGenerationById = useMemo(() => {
+    const map = new Map<string, Generation>();
+    generations.forEach((generation) => {
+      map.set(generation.id, generation);
+    });
+    return map;
+  }, [generations]);
+
+  const generationById = useMemo(() => {
+    const map = new Map<string, Generation>();
+    pendingGenerations.forEach((generation) => {
+      map.set(generation.id, generation);
+    });
+    generations.forEach((generation) => {
+      map.set(generation.id, generation);
+    });
+    return map;
+  }, [generations, pendingGenerations]);
+
+  const { entries: galleryEntries, indexByKey: galleryEntryIndexByKey } = useMemo<{
+    entries: GalleryEntry[];
+    indexByKey: Map<string, number>;
+  }>(() => {
     const entries: GalleryEntry[] = [];
+    const indexByKey = new Map<string, number>();
 
     generations.forEach((generation) => {
       generation.images.forEach((src, imageIndex) => {
         if (!src) {
           return;
         }
+        const usedPrompt = generation.enhancedPrompts?.[imageIndex]?.trim() || generation.prompt;
 
+        indexByKey.set(getGenerationImageKey(generation.id, imageIndex), entries.length);
         entries.push({
           generationId: generation.id,
           imageIndex,
           src,
           prompt: generation.prompt,
+          usedPrompt,
           aspect: generation.aspect,
           quality: generation.quality,
           durationMs: generation.durationMs,
@@ -1015,11 +1056,12 @@ export function CreatePage() {
           size: generation.size,
           inputImages: generation.inputImages ?? [],
           useGoogleSearch: generation.useGoogleSearch,
+          promptEnhancement: generation.promptEnhancement,
         });
       });
     });
 
-    return entries;
+    return { entries, indexByKey };
   }, [generations]);
 
   const lightboxIndex = useMemo(() => {
@@ -1027,12 +1069,12 @@ export function CreatePage() {
       return -1;
     }
 
-    return galleryEntries.findIndex(
-      (entry) =>
-        entry.generationId === lightboxSelection.generationId &&
-        entry.imageIndex === lightboxSelection.imageIndex,
+    return (
+      galleryEntryIndexByKey.get(
+        getGenerationImageKey(lightboxSelection.generationId, lightboxSelection.imageIndex),
+      ) ?? -1
     );
-  }, [galleryEntries, lightboxSelection]);
+  }, [galleryEntryIndexByKey, lightboxSelection]);
 
   useEffect(() => {
     if (galleryEntries.length === 0) {
@@ -1202,6 +1244,7 @@ export function CreatePage() {
       quality,
       provider,
       imageCount,
+      improvePrompts: provider === "openai" && improvePrompts,
       pendingGenerations: pendingGenerations.length,
       attachments: attachmentInputImages.map((image) => ({
         id: image.id,
@@ -1228,6 +1271,7 @@ export function CreatePage() {
             size: pendingSize,
             quality: openAIQuality,
             imageCount,
+            imageRequestCount: improvePrompts ? imageCount : 1,
             inputImages: inputImageSnapshot,
           })
         : null;
@@ -1278,6 +1322,18 @@ export function CreatePage() {
       createdAt: new Date(target.startedAtMs).toISOString(),
       inputImages: inputImageSnapshot,
       images: Array(imageCount).fill(""),
+      promptEnhancements:
+        provider === "openai" && improvePrompts
+          ? Array.from({ length: imageCount }, () => ({ status: "queued" as const }))
+          : undefined,
+      promptEnhancement:
+        provider === "openai" && improvePrompts
+          ? {
+              enabled: true,
+              model: "gpt-5.5",
+              reasoningEffort: "medium",
+            }
+          : undefined,
     }));
 
     setIsSettingsOpen(false);
@@ -1311,6 +1367,7 @@ export function CreatePage() {
       openAIModel: provider === "openai" ? openAIModel : null,
       openAIModelsRequested: requestedOpenAIModels,
       openAIQuality: provider === "openai" ? openAIQuality : null,
+      improvePrompts: provider === "openai" && improvePrompts,
       size: pendingSize,
     });
 
@@ -1377,7 +1434,34 @@ export function CreatePage() {
           openAIApiKey: trimmedOpenAIApiKey.length > 0 ? trimmedOpenAIApiKey : undefined,
           sizeOverride: draftSize.sizeOverride,
           useGoogleSearch: enableGoogleSearch,
+          improvePrompt: provider === "openai" && improvePrompts,
           inputImages: requestInputImages,
+          onPromptEnhancementUpdate: (imageIndex, update) => {
+            setPendingGenerations((previous) =>
+              previous.map((generation) => {
+                if (generation.id !== target.pendingId) {
+                  return generation;
+                }
+                const currentEnhancements =
+                  generation.promptEnhancements ?? Array.from({ length: imageCount }, () => null);
+                const nextEnhancements = [...currentEnhancements];
+                nextEnhancements[imageIndex] = update;
+                const completedPrompt = update.prompt ?? "";
+                return {
+                  ...generation,
+                  promptEnhancements: nextEnhancements,
+                  enhancedPrompts:
+                    update.status === "done" && completedPrompt
+                      ? Array.from({ length: imageCount }, (_, index) =>
+                          index === imageIndex
+                            ? completedPrompt
+                            : generation.enhancedPrompts?.[index] ?? "",
+                        )
+                      : generation.enhancedPrompts,
+                };
+              }),
+            );
+          },
           onThoughtsUpdate: (imageIndex, thoughts) => {
             setStreamingThoughts((prev) => {
               const next = new Map(prev);
@@ -1474,7 +1558,7 @@ export function CreatePage() {
   const handleDownload = useCallback(async (entry: GalleryEntry): Promise<boolean> => {
     setIsDownloading(true);
     try {
-      const blob = await resolveStoredAssetBlob(entry.src);
+      const blob = await resolveAssetBlob(entry.src);
       if (!blob) {
         throw new Error("Download failed.");
       }
@@ -1506,9 +1590,7 @@ export function CreatePage() {
   }, [setIsDownloading, setError]);
 
   const getEntryForImage = useCallback((generationId: string, imageIndex: number): GalleryEntry | null => {
-    const generation =
-      generations.find((gen) => gen.id === generationId) ??
-      pendingGenerations.find((gen) => gen.id === generationId);
+    const generation = generationById.get(generationId);
 
     if (!generation) return null;
     const src = generation.images[imageIndex];
@@ -1519,6 +1601,7 @@ export function CreatePage() {
       imageIndex,
       src,
       prompt: generation.prompt,
+      usedPrompt: generation.enhancedPrompts?.[imageIndex]?.trim() || generation.prompt,
       aspect: generation.aspect,
       quality: generation.quality,
       durationMs: generation.durationMs,
@@ -1534,8 +1617,9 @@ export function CreatePage() {
       size: generation.size,
       inputImages: generation.inputImages ?? [],
       useGoogleSearch: generation.useGoogleSearch,
+      promptEnhancement: generation.promptEnhancement,
     };
-  }, [generations, pendingGenerations]);
+  }, [generationById]);
 
   const handleDownloadImage = useCallback(async (generationId: string, imageIndex: number): Promise<boolean> => {
     const entry = getEntryForImage(generationId, imageIndex);
@@ -1552,7 +1636,7 @@ export function CreatePage() {
         throw new Error("Clipboard is not supported in this browser.");
       }
 
-      const blob = await resolveStoredAssetBlob(entry.src);
+      const blob = await resolveAssetBlob(entry.src);
       if (!blob) {
         throw new Error("Copy failed.");
       }
@@ -1649,7 +1733,7 @@ export function CreatePage() {
   }, [getEntryForImage, setError]);
 
   const handleShareCollage = useCallback(async (generationId: string): Promise<boolean> => {
-    const generation = generations.find((gen) => gen.id === generationId);
+    const generation = completedGenerationById.get(generationId);
     if (!generation) {
       return false;
     }
@@ -1752,7 +1836,7 @@ export function CreatePage() {
         }
       });
     }
-  }, [generations, setError]);
+  }, [completedGenerationById, setError]);
 
   const handleCloseLightbox = () => {
     setLightboxSelection(null);
@@ -1806,7 +1890,7 @@ export function CreatePage() {
 
   const handleLightboxEdit = useCallback(
     async (entry: GalleryEntry) => {
-      const added = await handleAddAttachmentFromUrl(entry.src, entry.prompt || "Generated image");
+      const added = await handleAddAttachmentFromUrl(entry.src, entry.usedPrompt || entry.prompt || "Generated image");
       if (added) {
         setLightboxSelection(null);
         setIsSettingsOpen(false);
@@ -1819,7 +1903,7 @@ export function CreatePage() {
 
   const handleRetryGeneration = useCallback(
     (generationId: string) => {
-      const generation = generations.find((gen) => gen.id === generationId);
+      const generation = completedGenerationById.get(generationId);
       if (!generation) {
         return;
       }
@@ -1841,12 +1925,26 @@ export function CreatePage() {
           : generation.provider === "fal"
           ? generation.modelVariant ?? DEFAULT_GEMINI_MODEL_VARIANT
           : undefined;
+      const shouldImprovePrompts =
+        generation.provider === "openai" &&
+        Boolean(generation.promptEnhancement?.enabled || generation.enhancedPrompts?.some(Boolean));
       const startedAtMs = Date.now();
 
       const pendingGeneration: Generation = {
         ...generation,
         id: pendingId,
         images: Array(numImages).fill(""),
+        enhancedPrompts: undefined,
+        promptEnhancements: shouldImprovePrompts
+          ? Array.from({ length: numImages }, () => ({ status: "queued" as const }))
+          : undefined,
+        promptEnhancement: shouldImprovePrompts
+          ? {
+              enabled: true,
+              model: "gpt-5.5",
+              reasoningEffort: "medium",
+            }
+          : undefined,
         createdAt: new Date(startedAtMs).toISOString(),
         durationMs: undefined,
         inputImages: inputImageSnapshot,
@@ -1871,6 +1969,7 @@ export function CreatePage() {
         openAIModel: generation.openAIModel ?? DEFAULT_OPENAI_MODEL,
         openAIQuality: generation.openAIQuality ?? DEFAULT_OPENAI_QUALITY,
         inputImages: inputImageSnapshot.length,
+        improvePrompts: shouldImprovePrompts,
       });
 
       setGenerations((previous) => previous.filter((gen) => gen.id !== generationId));
@@ -1902,7 +2001,34 @@ export function CreatePage() {
           openAIApiKey: openAIApiKey.trim() || undefined,
           sizeOverride: generation.aspect === "custom" ? generation.size : undefined,
           useGoogleSearch: enableGoogleSearch,
+          improvePrompt: shouldImprovePrompts,
           inputImages: requestInputImages,
+          onPromptEnhancementUpdate: (imageIndex, update) => {
+            setPendingGenerations((previous) =>
+              previous.map((pending) => {
+                if (pending.id !== pendingId) {
+                  return pending;
+                }
+                const currentEnhancements =
+                  pending.promptEnhancements ?? Array.from({ length: numImages }, () => null);
+                const nextEnhancements = [...currentEnhancements];
+                nextEnhancements[imageIndex] = update;
+                const completedPrompt = update.prompt ?? "";
+                return {
+                  ...pending,
+                  promptEnhancements: nextEnhancements,
+                  enhancedPrompts:
+                    update.status === "done" && completedPrompt
+                      ? Array.from({ length: numImages }, (_, index) =>
+                          index === imageIndex
+                            ? completedPrompt
+                            : pending.enhancedPrompts?.[index] ?? "",
+                        )
+                      : pending.enhancedPrompts,
+                };
+              }),
+            );
+          },
         }),
       );
 
@@ -1966,14 +2092,12 @@ export function CreatePage() {
           });
         });
     },
-    [apiKey, flashReasoningLevel, geminiApiKey, generations, openAIApiKey],
+    [apiKey, completedGenerationById, flashReasoningLevel, geminiApiKey, openAIApiKey],
   );
 
   const handleDeleteGeneration = useCallback(
     (generationId: string) => {
-      const generationToDelete =
-        generations.find((generation) => generation.id === generationId) ??
-        pendingGenerations.find((generation) => generation.id === generationId);
+      const generationToDelete = generationById.get(generationId);
 
       void deleteGenerationData(generationId, generationToDelete);
 
@@ -1983,7 +2107,7 @@ export function CreatePage() {
         selection && selection.generationId === generationId ? null : selection,
       );
     },
-    [generations, pendingGenerations, setLightboxSelection],
+    [generationById, setLightboxSelection],
   );
 
   const handleDeleteImage = useCallback((generationId: string, imageIndex: number) => {
@@ -2022,7 +2146,9 @@ export function CreatePage() {
     if (items.length === 0) return;
     void Promise.allSettled(items.map((item) => deleteOutputImageData(item.generationId, item.imageIndex)));
 
+    const deletedKeys = new Set<string>();
     const grouped = items.reduce<Record<string, number[]>>((acc, item) => {
+      deletedKeys.add(getGenerationImageKey(item.generationId, item.imageIndex));
       (acc[item.generationId] ??= []).push(item.imageIndex);
       return acc;
     }, {});
@@ -2047,11 +2173,7 @@ export function CreatePage() {
 
     setLightboxSelection((selection) =>
       selection &&
-        items.some(
-          (item) =>
-            item.generationId === selection.generationId &&
-            item.imageIndex === selection.imageIndex,
-        )
+        deletedKeys.has(getGenerationImageKey(selection.generationId, selection.imageIndex))
         ? null
         : selection,
     );
@@ -2283,6 +2405,7 @@ export function CreatePage() {
               estimatedOpenAICost={estimatedOpenAICost}
               flashReasoningLevel={flashReasoningLevel}
               useGoogleSearch={useGoogleSearch}
+              improvePrompts={improvePrompts}
               imageCount={imageCount}
               apiKey={apiKey}
               geminiApiKey={geminiApiKey}
@@ -2305,6 +2428,7 @@ export function CreatePage() {
               onOpenAICustomHeightChange={setOpenAICustomHeight}
               onFlashReasoningLevelChange={setFlashReasoningLevel}
               onToggleGoogleSearch={setUseGoogleSearch}
+              onToggleImprovePrompts={setImprovePrompts}
               onImageCountChange={setImageCount}
               onApiKeyChange={setApiKey}
               onGeminiApiKeyChange={setGeminiApiKey}
@@ -2336,8 +2460,8 @@ export function CreatePage() {
           onEdit={() => { void handleLightboxEdit(lightboxEntry); }}
           onDelete={() => handleDeleteImage(lightboxEntry.generationId, lightboxEntry.imageIndex)}
           canDelete={
-            !generations
-              .find((gen) => gen.id === lightboxEntry.generationId)
+            !completedGenerationById
+              .get(lightboxEntry.generationId)
               ?.deletedImages?.includes(lightboxEntry.imageIndex)
           }
           onUsePrompt={handleLightboxUsePrompt}

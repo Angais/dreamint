@@ -110,6 +110,8 @@ export function Lightbox({
   const hasReferences = entry.inputImages && entry.inputImages.length > 0;
   const { resolvedSource, isResolving } = useResolvedImageSource(entry.src);
   const actualOpenAICost = calculateOpenAIActualCost(entry.openAIUsage ?? null);
+  const usedPrompt = entry.usedPrompt?.trim() || entry.prompt;
+  const hasEnhancedPrompt = usedPrompt.trim() !== entry.prompt.trim();
 
   useEffect(() => {
     setIsCompareMode(false);
@@ -479,7 +481,7 @@ export function Lightbox({
                   original={entry.inputImages[selectedReferenceIndex].url}
                   generated={entry.src}
                   originalAlt="Reference image"
-                  generatedAlt={entry.prompt}
+                  generatedAlt={usedPrompt}
                   position={compareSliderPosition}
                   onPositionChange={setCompareSliderPosition}
                   isPannable={transform.scale > 1}
@@ -489,7 +491,7 @@ export function Lightbox({
               resolvedSource ? (
                 <Image
                   src={resolvedSource}
-                  alt={entry.prompt}
+                  alt={usedPrompt}
                   width={entry.size.width}
                   height={entry.size.height}
                   className="max-h-full w-auto max-w-full select-none object-contain shadow-lg"
@@ -569,9 +571,14 @@ export function Lightbox({
           </div>
 
           <div className="flex-1 overflow-y-auto pr-2">
-            <p className="text-sm leading-relaxed text-[var(--text-primary)] font-medium mb-4 max-h-32 overflow-y-auto">
-              {entry.prompt}
-            </p>
+            {hasEnhancedPrompt ? (
+              <div className="mb-4 space-y-3">
+                <PromptBlock label="Original Prompt" text={entry.prompt} compact />
+                <PromptBlock label="Used Prompt" text={usedPrompt} />
+              </div>
+            ) : (
+              <PromptBlock label="Prompt" text={entry.prompt} className="mb-4" />
+            )}
 
             <div className="grid grid-cols-2 gap-3 text-xs text-[var(--text-secondary)] mb-3 md:mb-6">
               <div className="min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
@@ -616,6 +623,14 @@ export function Lightbox({
                   {getProviderModelLabel(entry.provider, entry.modelVariant, entry.openAIModel)}
                 </div>
               </div>
+              {entry.promptEnhancement?.enabled ? (
+                <div className="col-span-2 min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
+                  <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Prompt</span>
+                  <div className="text-base leading-snug font-medium text-[var(--text-primary)]">
+                    GPT-5.5 medium
+                  </div>
+                </div>
+              ) : null}
               {entry.provider === "openai" && entry.openAIUsage ? (
                 <div className="col-span-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
                   <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Cost</span>
@@ -747,7 +762,7 @@ export function Lightbox({
                   type="button"
                   onClick={() =>
                     onUsePrompt(
-                      entry.prompt,
+                      usedPrompt,
                       entry.inputImages,
                       {
                         provider: entry.provider,
@@ -783,6 +798,33 @@ export function Lightbox({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function PromptBlock({
+  label,
+  text,
+  compact = false,
+  className = "",
+}: {
+  label: string;
+  text: string;
+  compact?: boolean;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-muted)]">
+        {label}
+      </div>
+      <p
+        className={`rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2 text-xs leading-relaxed text-[var(--text-primary)] ${
+          compact ? "max-h-24" : "max-h-56"
+        } overflow-y-auto whitespace-pre-wrap`}
+      >
+        {text}
+      </p>
     </div>
   );
 }

@@ -116,10 +116,102 @@ button:disabled {
   100% { transform: scale(1) rotate(0deg); }
 }
 
+@keyframes prompt-work-border {
+  0% { transform: translateX(-55%); opacity: 0; }
+  18% { opacity: 0.9; }
+  55% { opacity: 0.45; }
+  100% { transform: translateX(55%); opacity: 0; }
+}
+
+@keyframes prompt-work-sheen {
+  0% { transform: translateX(-130%) rotate(8deg); opacity: 0; }
+  24% { opacity: 0.35; }
+  58% { opacity: 0.2; }
+  100% { transform: translateX(130%) rotate(8deg); opacity: 0; }
+}
+
+@keyframes prompt-work-grid {
+  0% { transform: translateY(0); opacity: 0.26; }
+  50% { opacity: 0.42; }
+  100% { transform: translateY(22px); opacity: 0.26; }
+}
+
+@keyframes prompt-work-dot {
+  0%, 100% { transform: translateY(0); opacity: 0.35; }
+  45% { transform: translateY(-3px); opacity: 1; }
+}
+
+@keyframes prompt-work-icon {
+  0%, 100% { transform: scale(1); filter: brightness(1); }
+  50% { transform: scale(1.06); filter: brightness(1.4); }
+}
+
 .download-nudge {
   animation: download-nudge 180ms ease-out;
 }
 
 .copy-wiggle {
   animation: copy-wiggle 180ms ease-out;
+}
+
+.prompt-work-card {
+  isolation: isolate;
+}
+
+.prompt-work-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.24), transparent),
+    linear-gradient(120deg, rgba(34, 211, 238, 0.16), transparent 35%, rgba(244, 114, 182, 0.12));
+  animation: prompt-work-border 2.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.prompt-work-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.055) 1px, transparent 1px);
+  background-size: 22px 22px;
+  mask-image: linear-gradient(to bottom, transparent, black 18%, black 82%, transparent);
+  animation: prompt-work-grid 3.4s linear infinite;
+  pointer-events: none;
+}
+
+.prompt-work-sheen {
+  position: absolute;
+  inset: -25% -45%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
+  animation: prompt-work-sheen 3.1s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.prompt-work-icon {
+  animation: prompt-work-icon 1.8s ease-in-out infinite;
+}
+
+.prompt-work-dot {
+  display: block;
+  height: 4px;
+  width: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  animation: prompt-work-dot 1s ease-in-out infinite;
+}
+
+.prompt-work-preview {
+  mask-image: linear-gradient(to bottom, black 64%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prompt-work-card::before,
+  .prompt-work-grid,
+  .prompt-work-sheen,
+  .prompt-work-icon,
+  .prompt-work-dot {
+    animation: none;
+  }
 }

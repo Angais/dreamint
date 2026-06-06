@@ -5,7 +5,7 @@ import { useCallback, useMemo, useState } from "react";
 import JSZip from "jszip";
 import { convertBlobToOutputFormat, extensionFromMimeType } from "./download-utils";
 import { CopyIcon, DownloadIcon, MagnifyingGlassIcon } from "./icons";
-import { isStoredAssetRef, resolveStoredAssetBlob } from "./storage";
+import { resolveAssetBlob } from "./storage";
 import type { Generation } from "./types";
 import { useInfiniteScroll } from "./use-infinite-scroll";
 import { useResolvedImageSource } from "./use-resolved-image-source";
@@ -18,23 +18,6 @@ type GalleryViewProps = {
   onDownloadImage: (generationId: string, imageIndex: number) => Promise<boolean>;
   onCopyImage: (generationId: string, imageIndex: number) => Promise<boolean>;
 };
-
-async function sourceToBlob(source: string): Promise<Blob | null> {
-  if (isStoredAssetRef(source)) {
-    return resolveStoredAssetBlob(source);
-  }
-
-  try {
-    const response = await fetch(source);
-    if (!response.ok) {
-      return null;
-    }
-
-    return await response.blob();
-  } catch {
-    return null;
-  }
-}
 
 export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteImage, onDownloadImage, onCopyImage }: GalleryViewProps) {
   const [search, setSearch] = useState("");
@@ -56,13 +39,16 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
           const fullSrc = src;
           const thumbSrc = gen.thumbnails?.[index] || fullSrc;
 
+          const imagePrompt = gen.enhancedPrompts?.[index]?.trim() || gen.prompt;
+
           return {
             id: gen.id,
             index,
             src: thumbSrc,
             fullSrc,
             outputFormat: gen.outputFormat,
-            prompt: gen.prompt,
+            prompt: imagePrompt,
+            searchText: imagePrompt.toLowerCase(),
             aspect: gen.aspect,
             createdAt: gen.createdAt,
             deleted: deletedSet.has(index),
@@ -75,8 +61,8 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
   // Filter based on search
   const filteredImages = useMemo(() => {
     if (!search.trim()) return allImages;
-    const lowerSearch = search.toLowerCase();
-    return allImages.filter((img) => img.prompt.toLowerCase().includes(lowerSearch));
+    const lowerSearch = search.trim().toLowerCase();
+    return allImages.filter((img) => img.searchText.includes(lowerSearch));
   }, [allImages, search]);
 
   const visibleImages = useMemo(() => filteredImages.slice(0, limit), [filteredImages, limit]);
@@ -139,7 +125,7 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
       await Promise.all(
         selectedItems.map(async (item, i) => {
           try {
-            const blob = await sourceToBlob(item.fullSrc);
+            const blob = await resolveAssetBlob(item.fullSrc);
             if (!blob) return;
             const downloadBlob = item.outputFormat
               ? await convertBlobToOutputFormat(blob, item.outputFormat)

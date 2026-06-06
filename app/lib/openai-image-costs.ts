@@ -29,6 +29,7 @@ export type OpenAIEstimatedCostBreakdown = {
   size: { width: number; height: number };
   quality: OpenAIQuality;
   imageCount: number;
+  imageRequestCount: number;
   promptTextTokens: number;
   inputImageTokens: number;
   outputTokensPerImage: number;
@@ -133,10 +134,11 @@ export function estimateOpenAIImageRequestCost(args: {
   size: { width: number; height: number };
   quality: OpenAIQuality;
   imageCount: number;
+  imageRequestCount?: number;
   inputImages: Array<{ width?: number | null; height?: number | null }>;
 }): OpenAIEstimatedCostBreakdown {
-  const promptTextTokens = estimateOpenAITextTokens(args.prompt);
-  const inputImageTokens = args.inputImages.reduce((total, image) => {
+  const promptTextTokensPerRequest = estimateOpenAITextTokens(args.prompt);
+  const inputImageTokensPerRequest = args.inputImages.reduce((total, image) => {
     if (!image.width || !image.height) {
       return total;
     }
@@ -145,6 +147,9 @@ export function estimateOpenAIImageRequestCost(args: {
   }, 0);
   const outputTokensPerImage = estimateGptImage2OutputTokens(args.size, args.quality);
   const imageCount = Math.max(1, Math.round(args.imageCount));
+  const imageRequestCount = Math.max(1, Math.round(args.imageRequestCount ?? 1));
+  const promptTextTokens = promptTextTokensPerRequest * imageRequestCount;
+  const inputImageTokens = inputImageTokensPerRequest * imageRequestCount;
   const outputTokensTotal = outputTokensPerImage * imageCount;
   const inputTextCostUsd =
     (promptTextTokens / 1_000_000) * OPENAI_GPT_IMAGE_2_PRICING.textInputPerMillion;
@@ -157,6 +162,7 @@ export function estimateOpenAIImageRequestCost(args: {
     size: args.size,
     quality: args.quality,
     imageCount,
+    imageRequestCount,
     promptTextTokens,
     inputImageTokens,
     outputTokensPerImage,
@@ -257,4 +263,3 @@ export function calculateOpenAIActualCost(usage: OpenAIUsageBreakdown | null): O
       inputCostUsd !== null && outputCostUsd !== null ? inputCostUsd + outputCostUsd : null,
   };
 }
-
