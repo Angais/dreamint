@@ -423,8 +423,20 @@ function resolveGalleryLayout(generation: Generation): GalleryLayout {
     };
   }
 
+  // Portrait batches get more, narrower columns so tall images don't take
+  // over the feed: four 9:16 outputs render as one row of four on desktop.
+  const isPortrait = ratio < 0.9;
+
   let gridClass = DEFAULT_GRID_CLASS;
-  if (imageCount === 1) {
+  if (isPortrait) {
+    if (imageCount === 1) {
+      gridClass = "grid grid-cols-2 gap-0.5 lg:grid-cols-3";
+    } else if (imageCount === 3) {
+      gridClass = "grid grid-cols-2 gap-0.5 lg:grid-cols-3";
+    } else {
+      gridClass = "grid grid-cols-2 gap-0.5 lg:grid-cols-4";
+    }
+  } else if (imageCount === 1) {
     gridClass = "grid grid-cols-1 lg:grid-cols-2";
   } else if (imageCount === 2 && ratio > 1.1) {
     gridClass = "grid grid-cols-1 gap-0.5 lg:grid-cols-2";
