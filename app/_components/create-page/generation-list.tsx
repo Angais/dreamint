@@ -171,19 +171,11 @@ function ImageLoading() {
   return (
     <div className="relative flex-1 overflow-hidden bg-[#101010]">
       <div aria-hidden="true" className="image-loading-grid" />
-      <div aria-hidden="true" className="image-loading-scan" />
-      <div aria-hidden="true" className="image-loading-frame" />
-      <div className="relative z-10 flex h-full min-h-0 items-start justify-center p-3 pt-[18%]">
-        <div className="flex min-w-0 flex-col items-center gap-2 text-center">
-          <div className="image-loading-aperture" aria-hidden="true">
-            <span />
-            <span />
-          </div>
-          <div className="max-w-full truncate text-[10px] font-bold uppercase tracking-[0.22em] text-white/80">
+      <div className="relative z-10 flex h-full min-h-0 items-center justify-center p-3">
+        <div className="flex min-w-0 flex-col items-center gap-5 text-center">
+          <div className="stack-loader" aria-hidden="true" />
+          <div className="max-w-full truncate text-[10px] font-bold uppercase tracking-[0.22em] text-white/70">
             Generating
-          </div>
-          <div className="max-w-full truncate text-[9px] font-medium uppercase tracking-[0.18em] text-white/35">
-            Composing pixels
           </div>
         </div>
       </div>

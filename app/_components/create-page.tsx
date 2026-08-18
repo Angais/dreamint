@@ -55,7 +55,6 @@ const APP_VERSION = "2.0.0";
 
 const STORAGE_KEYS = {
   prompt: "dreamint:prompt",
-  promptHistory: "dreamint:prompt_history",
   aspectRatio: "dreamint:aspect_ratio",
   resolution: "dreamint:resolution",
   quality: "dreamint:quality",
@@ -74,7 +73,6 @@ const STORAGE_KEYS = {
 // Direct renames from the pre-OpenRouter "seedream:" prefix.
 const LEGACY_KEY_RENAMES: Record<string, string> = {
   "seedream:prompt": STORAGE_KEYS.prompt,
-  "seedream:prompt_history": STORAGE_KEYS.promptHistory,
   "seedream:output_format": STORAGE_KEYS.outputFormat,
   "seedream:image_count": STORAGE_KEYS.imageCount,
   "seedream:budget_cents": STORAGE_KEYS.budgetCents,
@@ -127,6 +125,7 @@ function migrateLegacyLocalStorage() {
       }
     }
     legacyKeys.forEach((key) => window.localStorage.removeItem(key));
+    window.localStorage.removeItem("dreamint:prompt_history");
   } catch (error) {
     console.error("Legacy localStorage migration failed", error);
   }
@@ -134,7 +133,6 @@ function migrateLegacyLocalStorage() {
 
 const MAX_ATTACHMENTS = 8;
 const MAX_IMAGE_COUNT = 4;
-const MAX_PROMPT_HISTORY = 5;
 const ATTACHMENT_LIMIT_MESSAGE = `Maximum of ${MAX_ATTACHMENTS} images allowed.`;
 const ATTACHMENT_TYPE_MESSAGE = "Only image files can be used for editing.";
 const ATTACHMENT_READ_MESSAGE = "Unable to load one of the images you pasted or uploaded.";
@@ -378,7 +376,6 @@ export function CreatePage() {
   const [view, setView] = useState<"create" | "gallery">("create");
   const [viewportHeight, setViewportHeight] = useState("100dvh");
   const [prompt, setPrompt] = useState(defaultPrompt);
-  const [promptHistory, setPromptHistory] = useState<string[]>([]);
   const [aspectRatio, setAspectRatio] = useState<string>(DEFAULT_ASPECT_RATIO);
   const [resolution, setResolution] = useState<string>(DEFAULT_RESOLUTION);
   const [quality, setQuality] = useState<string>(DEFAULT_QUALITY);
@@ -670,14 +667,6 @@ export function CreatePage() {
           setPrompt(storedPrompt);
         }
 
-        const storedPromptHistory = parseStoredStringList(
-          window.localStorage.getItem(STORAGE_KEYS.promptHistory),
-          MAX_PROMPT_HISTORY,
-        );
-        if (storedPromptHistory.length > 0) {
-          setPromptHistory(storedPromptHistory);
-        }
-
         const storedAspectRatio = window.localStorage.getItem(STORAGE_KEYS.aspectRatio);
         if (storedAspectRatio === AUTO_OPTION || /^\d+:\d+$/.test(storedAspectRatio ?? "")) {
           setAspectRatio(storedAspectRatio as string);
@@ -866,14 +855,6 @@ export function CreatePage() {
 
     return () => window.clearTimeout(timeoutId);
   }, [prompt]);
-
-  useEffect(() => {
-    if (!storageHydratedRef.current || typeof window === "undefined") {
-      return;
-    }
-
-    safePersist(STORAGE_KEYS.promptHistory, JSON.stringify(promptHistory));
-  }, [promptHistory]);
 
   useEffect(() => {
     if (!reuseNotice || typeof window === "undefined") {
@@ -1239,18 +1220,6 @@ export function CreatePage() {
     [attachments, clearAttachmentError, setError],
   );
 
-  const handleDeletePromptHistoryItem = useCallback((historyItem: string) => {
-    setPromptHistory((previous) => previous.filter((item) => item !== historyItem));
-  }, []);
-
-  const handleClearPromptHistory = useCallback(() => {
-    setPromptHistory([]);
-  }, []);
-
-  const handleRestorePromptHistory = useCallback((historyItems: string[]) => {
-    setPromptHistory(historyItems.slice(0, MAX_PROMPT_HISTORY));
-  }, []);
-
   const resolvePendingSize = useCallback((): { width: number; height: number } => {
     if (aspectRatio === AUTO_OPTION && referenceAspectSource) {
       const estimated = estimateImageSize(
@@ -1278,12 +1247,6 @@ export function CreatePage() {
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmedPrompt = prompt.trim();
-    if (trimmedPrompt.length > 0) {
-      setPromptHistory((previous) => [
-        trimmedPrompt,
-        ...previous.filter((item) => item !== trimmedPrompt),
-      ].slice(0, MAX_PROMPT_HISTORY));
-    }
 
     const trimmedApiKey = apiKey.trim();
     if (!trimmedApiKey) {
@@ -2233,7 +2196,6 @@ export function CreatePage() {
           <div className="mx-auto w-full max-w-4xl pointer-events-auto">
             <Header
               prompt={prompt}
-              promptHistory={promptHistory}
               aspectRatio={aspectRatio}
               aspectRatioOptions={supportedAspectRatios}
               resolution={resolution}
@@ -2258,9 +2220,6 @@ export function CreatePage() {
               isSettingsOpen={isSettingsOpen}
               onSubmit={handleSubmit}
               onPromptChange={setPrompt}
-              onDeletePromptHistoryItem={handleDeletePromptHistoryItem}
-              onClearPromptHistory={handleClearPromptHistory}
-              onRestorePromptHistory={handleRestorePromptHistory}
               onAspectRatioChange={setAspectRatio}
               onResolutionChange={setResolution}
               onQualityChange={setQuality}

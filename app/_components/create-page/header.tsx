@@ -33,7 +33,6 @@ export type ModelEndpointsState = Record<
 
 type HeaderProps = {
   prompt: string;
-  promptHistory: string[];
   aspectRatio: string;
   aspectRatioOptions: string[];
   resolution: string;
@@ -58,9 +57,6 @@ type HeaderProps = {
   isSettingsOpen: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onPromptChange: (value: string) => void;
-  onDeletePromptHistoryItem: (value: string) => void;
-  onClearPromptHistory: () => void;
-  onRestorePromptHistory: (values: string[]) => void;
   onAspectRatioChange: (value: string) => void;
   onResolutionChange: (value: string) => void;
   onQualityChange: (value: string) => void;
@@ -84,7 +80,6 @@ type HeaderProps = {
 
 export function Header({
   prompt,
-  promptHistory,
   aspectRatio,
   aspectRatioOptions,
   resolution,
@@ -109,9 +104,6 @@ export function Header({
   isSettingsOpen,
   onSubmit,
   onPromptChange,
-  onDeletePromptHistoryItem,
-  onClearPromptHistory,
-  onRestorePromptHistory,
   onAspectRatioChange,
   onResolutionChange,
   onQualityChange,
@@ -138,22 +130,12 @@ export function Header({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const dragCounterRef = useRef(0);
-  const clearHistoryTimeoutRef = useRef<number | null>(null);
-  const deleteHistoryItemTimeoutRef = useRef<number | null>(null);
   const clearApiKeyTimeoutRef = useRef<number | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [historyIndex, setHistoryIndex] = useState<number | null>(null);
   const [apiKeyCopyState, setApiKeyCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [isApiKeyVisible, setIsApiKeyVisible] = useState(false);
   const [clearedApiKey, setClearedApiKey] = useState<string | null>(null);
-  const [clearedPromptHistory, setClearedPromptHistory] = useState<string[] | null>(null);
   const [modelSearch, setModelSearch] = useState("");
-  const [deletedPromptHistory, setDeletedPromptHistory] = useState<{
-    label: string;
-    snapshot: string[];
-  } | null>(null);
-  const historyDraftRef = useRef("");
-  const historyNavigationRef = useRef(false);
 
   const enabledModels = useMemo(() => {
     if (!modelCatalog) {
@@ -214,7 +196,6 @@ export function Header({
         ? "Full"
         : `${remainingAttachmentSlots} ref${remainingAttachmentSlots === 1 ? "" : "s"} left`;
   const generateDisabled = trimmedPrompt.length === 0 || isBudgetLocked || !selectedModelId;
-  const visiblePromptHistory = promptHistory.filter((historyItem) => historyItem !== trimmedPrompt);
   const formatApiKeyUpdatedAt = () => {
     if (!apiKeyUpdatedAt) {
       return null;
@@ -300,34 +281,6 @@ export function Header({
     }
   };
 
-  const clearHistoryUndoTimer = () => {
-    if (clearHistoryTimeoutRef.current === null) {
-      return;
-    }
-
-    window.clearTimeout(clearHistoryTimeoutRef.current);
-    clearHistoryTimeoutRef.current = null;
-  };
-
-  const dismissClearedPromptHistory = () => {
-    clearHistoryUndoTimer();
-    setClearedPromptHistory(null);
-  };
-
-  const clearDeleteHistoryItemUndoTimer = () => {
-    if (deleteHistoryItemTimeoutRef.current === null) {
-      return;
-    }
-
-    window.clearTimeout(deleteHistoryItemTimeoutRef.current);
-    deleteHistoryItemTimeoutRef.current = null;
-  };
-
-  const dismissDeletedPromptHistory = () => {
-    clearDeleteHistoryItemUndoTimer();
-    setDeletedPromptHistory(null);
-  };
-
   const clearApiKeyUndoTimer = () => {
     if (clearApiKeyTimeoutRef.current === null) {
       return;
@@ -348,57 +301,6 @@ export function Header({
     }
 
     onApiKeyChange(value);
-  };
-
-  const handleClearPromptHistory = () => {
-    if (promptHistory.length === 0) {
-      return;
-    }
-
-    dismissDeletedPromptHistory();
-    clearHistoryUndoTimer();
-    setClearedPromptHistory(promptHistory);
-    onClearPromptHistory();
-    clearHistoryTimeoutRef.current = window.setTimeout(() => {
-      setClearedPromptHistory(null);
-      clearHistoryTimeoutRef.current = null;
-    }, 7000);
-  };
-
-  const handleUndoClearPromptHistory = () => {
-    if (clearedPromptHistory === null) {
-      return;
-    }
-
-    const historyToRestore = clearedPromptHistory;
-    dismissClearedPromptHistory();
-    onRestorePromptHistory(historyToRestore);
-    window.requestAnimationFrame(() => {
-      promptTextareaRef.current?.focus();
-    });
-  };
-
-  const handleDeletePromptHistoryItem = (historyItem: string) => {
-    clearDeleteHistoryItemUndoTimer();
-    setDeletedPromptHistory({ label: historyItem, snapshot: promptHistory });
-    onDeletePromptHistoryItem(historyItem);
-    deleteHistoryItemTimeoutRef.current = window.setTimeout(() => {
-      setDeletedPromptHistory(null);
-      deleteHistoryItemTimeoutRef.current = null;
-    }, 7000);
-  };
-
-  const handleUndoDeletePromptHistoryItem = () => {
-    if (deletedPromptHistory === null) {
-      return;
-    }
-
-    const historyToRestore = deletedPromptHistory.snapshot;
-    dismissDeletedPromptHistory();
-    onRestorePromptHistory(historyToRestore);
-    window.requestAnimationFrame(() => {
-      promptTextareaRef.current?.focus();
-    });
   };
 
   const handleClearApiKey = () => {
@@ -449,79 +351,10 @@ export function Header({
     void onAddAttachments(clipboardFiles);
   };
 
-  const movePromptCaretToEnd = () => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    window.requestAnimationFrame(() => {
-      const textarea = promptTextareaRef.current;
-      if (!textarea) {
-        return;
-      }
-      const end = textarea.value.length;
-      textarea.setSelectionRange(end, end);
-    });
-  };
-
   const handlePromptKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     const nativeEvent = event.nativeEvent as { isComposing?: boolean };
     if (nativeEvent.isComposing) {
       return;
-    }
-
-    const isArrowKey = event.key === "ArrowUp" || event.key === "ArrowDown";
-    if (isArrowKey && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
-      const value = event.currentTarget.value;
-      const selectionStart = event.currentTarget.selectionStart ?? 0;
-      const selectionEnd = event.currentTarget.selectionEnd ?? selectionStart;
-      const isOnFirstLine = !value.slice(0, selectionStart).includes("\n");
-      const isOnLastLine = !value.slice(selectionEnd).includes("\n");
-
-      if (event.key === "ArrowUp" && isOnFirstLine) {
-        if (promptHistory.length === 0) {
-          return;
-        }
-        event.preventDefault();
-        let nextIndex: number | null = null;
-        let nextValue: string | null = null;
-
-        if (historyIndex === null) {
-          historyDraftRef.current = prompt;
-          nextIndex = 0;
-          nextValue = promptHistory[0];
-        } else if (historyIndex < promptHistory.length - 1) {
-          nextIndex = historyIndex + 1;
-          nextValue = promptHistory[nextIndex];
-        }
-
-        if (nextValue !== null && nextIndex !== null) {
-          historyNavigationRef.current = true;
-          setHistoryIndex(nextIndex);
-          onPromptChange(nextValue);
-          movePromptCaretToEnd();
-        }
-        return;
-      }
-
-      if (event.key === "ArrowDown" && isOnLastLine) {
-        if (historyIndex === null) {
-          return;
-        }
-        event.preventDefault();
-        if (historyIndex <= 0) {
-          historyNavigationRef.current = true;
-          setHistoryIndex(null);
-          onPromptChange(historyDraftRef.current);
-        } else {
-          const nextIndex = historyIndex - 1;
-          historyNavigationRef.current = true;
-          setHistoryIndex(nextIndex);
-          onPromptChange(promptHistory[nextIndex]);
-        }
-        movePromptCaretToEnd();
-        return;
-      }
     }
 
     if (event.key === "Enter" && !event.shiftKey) {
@@ -620,22 +453,6 @@ export function Header({
   }, [apiKeyCopyState]);
 
   useEffect(() => {
-    if (historyNavigationRef.current) {
-      historyNavigationRef.current = false;
-      return;
-    }
-    setHistoryIndex(null);
-    historyDraftRef.current = prompt;
-  }, [prompt]);
-
-  useEffect(() => {
-    if (promptHistory.length > 0 && clearedPromptHistory !== null) {
-      clearHistoryUndoTimer();
-      setClearedPromptHistory(null);
-    }
-  }, [clearedPromptHistory, promptHistory.length]);
-
-  useEffect(() => {
     const handleResize = () => {
       resizeTextarea(promptTextareaRef.current);
     };
@@ -683,8 +500,6 @@ export function Header({
 
   useEffect(
     () => () => {
-      clearHistoryUndoTimer();
-      clearDeleteHistoryItemUndoTimer();
       clearApiKeyUndoTimer();
     },
     [],
@@ -759,78 +574,6 @@ export function Header({
                 onClear={onClearAttachments}
                 isAutoAspectActive={aspectRatio === AUTO_OPTION}
               />
-            </div>
-          ) : null}
-
-          {visiblePromptHistory.length > 0 ? (
-            <div className="flex items-center gap-2 overflow-x-auto px-4 pb-2 text-xs [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
-              <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--text-muted)]">
-                Recent
-              </span>
-              {visiblePromptHistory.map((historyItem) => (
-                <div
-                  key={historyItem}
-                  className="group/recent flex max-w-[18rem] shrink-0 items-center rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors hover:border-[var(--border-highlight)] hover:text-white"
-                  title={historyItem}
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onPromptChange(historyItem);
-                      promptTextareaRef.current?.focus();
-                    }}
-                    className="min-w-0 truncate py-1.5 pl-3 pr-2 text-left font-medium"
-                  >
-                    {historyItem}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDeletePromptHistoryItem(historyItem)}
-                    className="mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-white/10 hover:text-white"
-                    aria-label="Delete recent prompt"
-                    title="Delete recent prompt"
-                  >
-                    <XIcon className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={handleClearPromptHistory}
-                className="shrink-0 rounded-full border border-transparent px-2 py-1.5 font-semibold text-[var(--text-muted)] transition-colors hover:text-white"
-              >
-                Clear
-              </button>
-            </div>
-          ) : null}
-
-          {deletedPromptHistory !== null ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-2 text-[10px] text-[var(--text-muted)]">
-              <span className="min-w-0 truncate font-semibold uppercase tracking-[0.2em]" title={deletedPromptHistory.label}>
-                Recent prompt removed
-              </span>
-              <button
-                type="button"
-                onClick={handleUndoDeletePromptHistoryItem}
-                className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2.5 py-1 font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)] transition-colors hover:border-[var(--border-highlight)] hover:text-white"
-              >
-                Undo
-              </button>
-            </div>
-          ) : null}
-
-          {visiblePromptHistory.length === 0 && clearedPromptHistory !== null ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-2 text-[10px] text-[var(--text-muted)]">
-              <span className="font-semibold uppercase tracking-[0.2em]">
-                Recent prompts cleared
-              </span>
-              <button
-                type="button"
-                onClick={handleUndoClearPromptHistory}
-                className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2.5 py-1 font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)] transition-colors hover:border-[var(--border-highlight)] hover:text-white"
-              >
-                Undo
-              </button>
             </div>
           ) : null}
 
