@@ -502,12 +502,12 @@ export function Lightbox({
         aria-label="Close image"
         onClick={onClose}
       />
-      <div className="relative z-10 w-full max-w-6xl h-full md:h-auto md:max-h-[90vh] rounded-none md:rounded-2xl border-0 md:border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-0 md:p-2 shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col md:flex-row overflow-hidden">
+      <div className="relative z-10 w-full max-w-[1700px] h-full md:h-[92vh] rounded-none md:rounded-2xl border-0 md:border border-[var(--border-subtle)] bg-[var(--bg-panel)] p-0 md:p-2 shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col md:flex-row overflow-hidden">
 
         {/* Image Container */}
         <div
           ref={imageContainerRef}
-          className="relative flex-1 bg-black/50 md:rounded-xl overflow-hidden flex items-center justify-center min-h-0 md:min-h-[70vh]"
+          className="relative flex-1 bg-black/50 md:rounded-xl overflow-hidden flex items-center justify-center min-h-0"
           style={{ touchAction: "none" }}
           onWheel={handleWheel}
           onMouseDown={handleMouseDown}
@@ -559,7 +559,7 @@ export function Lightbox({
                   alt={entry.prompt}
                   width={entry.size.width}
                   height={entry.size.height}
-                  className="max-h-full w-auto max-w-full select-none object-contain shadow-lg"
+                  className="h-full w-full select-none object-contain"
                   draggable={false}
                   priority
                   unoptimized={resolvedSource.startsWith("blob:") || resolvedSource.startsWith("data:")}
@@ -677,53 +677,53 @@ export function Lightbox({
               {entry.prompt}
             </p>
 
-            <div className="grid grid-cols-2 gap-3 text-xs text-[var(--text-secondary)] mb-3 md:mb-6">
-              <div className="min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
-                <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Aspect</span>
-                <div className="text-base leading-tight font-medium text-[var(--text-primary)]">
+            <div className="grid grid-cols-2 gap-2 text-xs text-[var(--text-secondary)] mb-3 md:mb-4">
+              <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2">
+                <span className="mb-0.5 block text-[10px] uppercase tracking-wide opacity-60">Aspect</span>
+                <div className="text-sm leading-tight font-medium text-[var(--text-primary)]">
                   {aspectLabel}
                 </div>
               </div>
-              <div className="min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
-                <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Size</span>
-                <div className="text-base leading-tight font-medium text-[var(--text-primary)]">
+              <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2">
+                <span className="mb-0.5 block text-[10px] uppercase tracking-wide opacity-60">Size</span>
+                <div className="text-sm leading-tight font-medium text-[var(--text-primary)]">
                   {formatResolution(entry.size)}
                 </div>
               </div>
               {entry.resolution ? (
-                <div className="min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
-                  <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Resolution</span>
-                  <div className="text-base leading-tight font-medium text-[var(--text-primary)]">
+                <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2">
+                  <span className="mb-0.5 block text-[10px] uppercase tracking-wide opacity-60">Resolution</span>
+                  <div className="text-sm leading-tight font-medium text-[var(--text-primary)]">
                     {entry.resolution}
                   </div>
                 </div>
               ) : null}
               {entry.quality ? (
-                <div className="min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
-                  <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Quality</span>
-                  <div className="text-base leading-tight font-medium text-[var(--text-primary)]">
+                <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2">
+                  <span className="mb-0.5 block text-[10px] uppercase tracking-wide opacity-60">Quality</span>
+                  <div className="text-sm leading-tight font-medium text-[var(--text-primary)]">
                     {getQualityLabel(entry.quality)}
                   </div>
                 </div>
               ) : null}
               {typeof entry.durationMs === "number" && entry.durationMs >= 0 ? (
-                <div className="min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
-                  <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Time</span>
-                  <div className="text-base leading-tight font-medium text-[var(--text-primary)]">
+                <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2">
+                  <span className="mb-0.5 block text-[10px] uppercase tracking-wide opacity-60">Time</span>
+                  <div className="text-sm leading-tight font-medium text-[var(--text-primary)]">
                     {formatGenerationDuration(entry.durationMs)}
                   </div>
                 </div>
               ) : null}
-              <div className="col-span-2 min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
-                <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Model</span>
-                <div className="text-base leading-snug font-medium text-[var(--text-primary)] break-all">
+              <div className="col-span-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2">
+                <span className="mb-0.5 block text-[10px] uppercase tracking-wide opacity-60">Model</span>
+                <div className="text-sm leading-snug font-medium text-[var(--text-primary)] break-all">
                   {modelLabel}
                 </div>
                 <div className="mt-1 text-[11px] text-[var(--text-muted)] break-all">{entry.model}</div>
               </div>
               {entry.usage ? (
-                <div className="col-span-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
-                  <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Cost</span>
+                <div className="col-span-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2">
+                  <span className="mb-0.5 block text-[10px] uppercase tracking-wide opacity-60">Cost</span>
                   <div className="space-y-1 text-[13px] text-[var(--text-secondary)]">
                     {entry.usage.costUsd !== null ? (
                       <div className="flex items-center justify-between gap-2">

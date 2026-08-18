@@ -126,7 +126,7 @@ const GenerationGallery = memo(function GenerationGallery({
   });
 
   return (
-    <article className="glass-panel w-full rounded-3xl p-1 shadow-2xl transition-all duration-300 hover:shadow-[0_0_30px_-10px_rgba(99,102,241,0.15)]">
+    <article className={`glass-panel w-full ${layout.containerClass} rounded-3xl p-1 shadow-2xl transition-all duration-300 hover:shadow-[0_0_30px_-10px_rgba(99,102,241,0.15)]`}>
       <div className={`${layout.gridClass} overflow-hidden rounded-[20px] bg-[rgba(0,0,0,0.3)]`}>
         {generation.images.map((src, index) => (
           <ImageTile
@@ -396,71 +396,98 @@ const DEFAULT_TILE_CLASS = "relative aspect-square overflow-hidden";
 
 type GalleryLayout = {
   gridClass: string;
+  containerClass: string;
   tileClass: string;
   ratio: number | null;
 };
+
+function resolveTileClass(ratio: number): string {
+  if (ratio >= 2.2) {
+    return "relative aspect-[21/9] overflow-hidden";
+  }
+  if (ratio >= 1.7) {
+    return "relative aspect-[16/9] overflow-hidden";
+  }
+  if (ratio >= 1.3) {
+    return "relative aspect-[3/2] overflow-hidden";
+  }
+  if (ratio >= 0.9) {
+    return "relative aspect-square overflow-hidden";
+  }
+  if (ratio >= 0.7) {
+    return "relative aspect-[4/5] overflow-hidden";
+  }
+  return "relative aspect-[9/16] overflow-hidden";
+}
 
 function resolveGalleryLayout(generation: Generation): GalleryLayout {
   const imageCount = generation.images.length;
   const width = Number(generation.size?.width ?? 0);
   const height = Number(generation.size?.height ?? 0);
-
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    return {
-      gridClass: DEFAULT_GRID_CLASS,
-      tileClass: DEFAULT_TILE_CLASS,
-      ratio: null,
-    };
-  }
-
-  const ratio = width / height;
+  const ratio = width > 0 && height > 0 ? width / height : NaN;
 
   if (!Number.isFinite(ratio) || ratio <= 0) {
     return {
       gridClass: DEFAULT_GRID_CLASS,
+      containerClass: "",
       tileClass: DEFAULT_TILE_CLASS,
       ratio: null,
     };
   }
 
-  // Portrait batches get more, narrower columns so tall images don't take
-  // over the feed: four 9:16 outputs render as one row of four on desktop.
+  const tileClass = resolveTileClass(ratio);
   const isPortrait = ratio < 0.9;
 
-  let gridClass = DEFAULT_GRID_CLASS;
+  // Instead of leaving empty grid cells, the card hugs its content: singles
+  // get an orientation-based max width, and portrait batches spread across
+  // more, narrower columns so tall images don't take over the feed.
+  if (imageCount === 1) {
+    const containerClass =
+      ratio >= 1.9
+        ? "lg:max-w-2xl"
+        : ratio >= 1.3
+          ? "lg:max-w-xl"
+          : ratio >= 0.9
+            ? "lg:max-w-sm"
+            : ratio >= 0.7
+              ? "lg:max-w-xs"
+              : "lg:max-w-[280px]";
+    return { gridClass: "grid grid-cols-1", containerClass, tileClass, ratio };
+  }
+
   if (isPortrait) {
-    if (imageCount === 1) {
-      gridClass = "grid grid-cols-2 gap-0.5 lg:grid-cols-3";
-    } else if (imageCount === 3) {
-      gridClass = "grid grid-cols-2 gap-0.5 lg:grid-cols-3";
-    } else {
-      gridClass = "grid grid-cols-2 gap-0.5 lg:grid-cols-4";
+    if (imageCount === 2) {
+      return {
+        gridClass: "grid grid-cols-2 gap-0.5",
+        containerClass: "lg:max-w-xl",
+        tileClass,
+        ratio,
+      };
     }
-  } else if (imageCount === 1) {
-    gridClass = "grid grid-cols-1 lg:grid-cols-2";
-  } else if (imageCount === 2 && ratio > 1.1) {
-    gridClass = "grid grid-cols-1 gap-0.5 lg:grid-cols-2";
+    if (imageCount === 3) {
+      return {
+        gridClass: "grid grid-cols-2 gap-0.5 lg:grid-cols-3",
+        containerClass: "lg:max-w-2xl",
+        tileClass,
+        ratio,
+      };
+    }
+    return {
+      gridClass: "grid grid-cols-2 gap-0.5 lg:grid-cols-4",
+      containerClass: "",
+      tileClass,
+      ratio,
+    };
   }
 
-  if (ratio >= 2.2) {
-    return { gridClass, tileClass: "relative aspect-[21/9] overflow-hidden", ratio };
+  if (imageCount === 2 && ratio > 1.1) {
+    return {
+      gridClass: "grid grid-cols-1 gap-0.5 lg:grid-cols-2",
+      containerClass: "",
+      tileClass,
+      ratio,
+    };
   }
 
-  if (ratio >= 1.7) {
-    return { gridClass, tileClass: "relative aspect-[16/9] overflow-hidden", ratio };
-  }
-
-  if (ratio >= 1.3) {
-    return { gridClass, tileClass: "relative aspect-[3/2] overflow-hidden", ratio };
-  }
-
-  if (ratio >= 0.9) {
-    return { gridClass, tileClass: "relative aspect-square overflow-hidden", ratio };
-  }
-
-  if (ratio >= 0.7) {
-    return { gridClass, tileClass: "relative aspect-[4/5] overflow-hidden", ratio };
-  }
-
-  return { gridClass, tileClass: "relative aspect-[9/16] overflow-hidden", ratio };
+  return { gridClass: DEFAULT_GRID_CLASS, containerClass: "", tileClass, ratio };
 }
