@@ -1,20 +1,17 @@
 import Image from "next/image";
 import { memo, useMemo, useState } from "react";
 
-import { type AspectKey } from "../../lib/seedream-options";
 import { GenerationDetailsCard } from "./generation-details-card";
-import { CopyIcon, DownloadIcon, InfoIcon } from "./icons";
+import { CopyIcon, DownloadIcon } from "./icons";
 import { debugLog } from "./logger";
-import type { Generation, ImageThoughts, ReusePromptOptions } from "./types";
+import type { Generation, ReusePromptOptions } from "./types";
 import { useResolvedImageSource } from "./use-resolved-image-source";
-import { parseThoughtText, renderMarkdownBold } from "./utils";
 
 type GenerationGroupProps = {
   label: string;
   generations: Generation[];
   pendingIdSet: Set<string>;
   retryingGenerationIds: Set<string>;
-  streamingThoughts?: Map<string, (ImageThoughts | null)[]>;
   onExpand: (generationId: string, imageIndex: number) => void;
   onUsePrompt: (
     prompt: string,
@@ -28,7 +25,6 @@ type GenerationGroupProps = {
   onCopyImage: (generationId: string, imageIndex: number) => Promise<boolean>;
   onShareCollage: (generationId: string) => Promise<boolean>;
   onRetryGeneration?: (generationId: string) => void;
-  onShowThoughts?: (thoughts: ImageThoughts) => void;
 };
 
 export const GenerationGroup = memo(function GenerationGroup({
@@ -36,7 +32,6 @@ export const GenerationGroup = memo(function GenerationGroup({
   generations,
   pendingIdSet,
   retryingGenerationIds,
-  streamingThoughts,
   onExpand,
   onUsePrompt,
   onPreviewInputImage,
@@ -46,7 +41,6 @@ export const GenerationGroup = memo(function GenerationGroup({
   onCopyImage,
   onShareCollage,
   onRetryGeneration,
-  onShowThoughts,
 }: GenerationGroupProps) {
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -70,12 +64,10 @@ export const GenerationGroup = memo(function GenerationGroup({
               <div className="w-full lg:flex-1 lg:min-w-0">
                 <GenerationGallery
                   generation={generation}
-                  streamingThoughts={streamingThoughts?.get(generation.id)}
                   onExpand={onExpand}
                   onDeleteImage={onDeleteImage}
                   onDownloadImage={onDownloadImage}
                   onCopyImage={onCopyImage}
-                  onShowThoughts={onShowThoughts}
                   isInterrupted={isInterrupted}
                   isGenerating={isGenerating}
                 />
@@ -103,24 +95,20 @@ export const GenerationGroup = memo(function GenerationGroup({
 
 type GenerationGalleryProps = {
   generation: Generation;
-  streamingThoughts?: (ImageThoughts | null)[];
   onExpand: (generationId: string, imageIndex: number) => void;
   onDeleteImage: (generationId: string, imageIndex: number) => void;
   onDownloadImage: (generationId: string, imageIndex: number) => Promise<boolean>;
   onCopyImage: (generationId: string, imageIndex: number) => Promise<boolean>;
-  onShowThoughts?: (thoughts: ImageThoughts) => void;
   isInterrupted: boolean;
   isGenerating: boolean;
 };
 
 const GenerationGallery = memo(function GenerationGallery({
   generation,
-  streamingThoughts,
   onExpand,
   onDeleteImage,
   onDownloadImage,
   onCopyImage,
-  onShowThoughts,
   isInterrupted,
   isGenerating,
 }: GenerationGalleryProps) {
@@ -129,11 +117,10 @@ const GenerationGallery = memo(function GenerationGallery({
 
   debugLog("gallery:render", {
     generationId: generation.id,
-    aspect: generation.aspect,
+    aspectRatio: generation.aspectRatio,
     imageCount: generation.images.length,
     tileClass: layout.tileClass,
     gridClass: layout.gridClass,
-    layoutSource: layout.source,
     ratio: layout.ratio,
     size: generation.size,
   });
@@ -141,31 +128,24 @@ const GenerationGallery = memo(function GenerationGallery({
   return (
     <article className="glass-panel w-full rounded-3xl p-1 shadow-2xl transition-all duration-300 hover:shadow-[0_0_30px_-10px_rgba(99,102,241,0.15)]">
       <div className={`${layout.gridClass} overflow-hidden rounded-[20px] bg-[rgba(0,0,0,0.3)]`}>
-        {generation.images.map((src, index) => {
-          // Use streaming thoughts if available (during generation), otherwise use static thoughts
-          const thoughts = streamingThoughts?.[index] ?? generation.thoughts?.[index] ?? null;
-          return (
-            <ImageTile
-              key={`${generation.id}-${index}`}
-              src={src}
-              className={layout.tileClass}
-              prompt={generation.prompt}
-              onExpand={() => onExpand(generation.id, index)}
-              onDelete={() => onDeleteImage(generation.id, index)}
-              onDownload={() => onDownloadImage(generation.id, index)}
-              onCopy={() => onCopyImage(generation.id, index)}
-              onShowThoughts={thoughts && onShowThoughts ? () => onShowThoughts(thoughts) : undefined}
-              thoughts={thoughts}
-              isDeleted={deletedSet.has(index)}
-              generationId={generation.id}
-              imageIndex={index}
-              size={generation.size}
-              isInterrupted={isInterrupted}
-              isGenerating={isGenerating}
-              provider={generation.provider}
-            />
-          );
-        })}
+        {generation.images.map((src, index) => (
+          <ImageTile
+            key={`${generation.id}-${index}`}
+            src={src}
+            className={layout.tileClass}
+            prompt={generation.prompt}
+            onExpand={() => onExpand(generation.id, index)}
+            onDelete={() => onDeleteImage(generation.id, index)}
+            onDownload={() => onDownloadImage(generation.id, index)}
+            onCopy={() => onCopyImage(generation.id, index)}
+            isDeleted={deletedSet.has(index)}
+            generationId={generation.id}
+            imageIndex={index}
+            size={generation.size}
+            isInterrupted={isInterrupted}
+            isGenerating={isGenerating}
+          />
+        ))}
       </div>
     </article>
   );
@@ -179,18 +159,15 @@ type ImageTileProps = {
   onDelete: () => void;
   onDownload: () => Promise<boolean>;
   onCopy: () => Promise<boolean>;
-  onShowThoughts?: () => void;
-  thoughts: ImageThoughts | null;
   isDeleted: boolean;
   generationId: string;
   imageIndex: number;
   size: { width: number; height: number };
   isInterrupted: boolean;
   isGenerating: boolean;
-  provider?: string;
 };
 
-function OpenAIImageLoading() {
+function ImageLoading() {
   return (
     <div className="relative flex-1 overflow-hidden bg-[#101010]">
       <div aria-hidden="true" className="image-loading-grid" />
@@ -222,15 +199,12 @@ const ImageTile = memo(function ImageTile({
   onDelete,
   onDownload,
   onCopy,
-  onShowThoughts,
-  thoughts,
   isDeleted,
   generationId,
   imageIndex,
   size,
   isInterrupted,
   isGenerating,
-  provider,
 }: ImageTileProps) {
   const [flashAction, setFlashAction] = useState<"copy" | "download" | null>(null);
   const triggerFlash = (action: "copy" | "download") => {
@@ -276,8 +250,6 @@ const ImageTile = memo(function ImageTile({
       ? "bg-[#1f1f1f] border border-red-700/60 text-red-300"
       : "bg-[#1f1f1f] border border-[#333]";
 
-    const isGemini = provider === "gemini";
-
     return (
       <div className={`${className} relative ${interruptedStyles} ${!isInterrupted ? "animate-pulse" : ""}`}>
         {isInterrupted ? (
@@ -302,72 +274,7 @@ const ImageTile = memo(function ImageTile({
           </div>
         ) : isGenerating ? (
           <div className="absolute inset-0 flex flex-col overflow-hidden bg-[#141414]">
-            {isGemini ? (
-              <>
-                {/* Header with thinking indicator */}
-                <div className="flex items-center gap-2.5 px-4 py-3 border-b border-white/10">
-                  <div className="relative">
-                    <div className="absolute inset-0 bg-white/20 rounded-full blur-md animate-pulse" />
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="relative h-4 w-4 text-white/70 animate-spin"
-                      style={{ animationDuration: "1.5s" }}
-                    >
-                      <path d="M12 2v4" />
-                      <path d="M12 18v4" />
-                      <path d="M4.93 4.93l2.83 2.83" />
-                      <path d="M16.24 16.24l2.83 2.83" />
-                      <path d="M2 12h4" />
-                      <path d="M18 12h4" />
-                      <path d="M4.93 19.07l2.83-2.83" />
-                      <path d="M16.24 7.76l2.83-2.83" />
-                    </svg>
-                  </div>
-                  <span className="text-xs font-medium tracking-wide text-white/70">Chain of Thought</span>
-                </div>
-
-                {/* Scrollable thoughts content */}
-                {thoughts?.text && thoughts.text.length > 0 ? (
-                  <div className="flex-1 overflow-y-auto px-4 py-3">
-                    {(() => {
-                      const latestThought = thoughts.text[thoughts.text.length - 1];
-                      const { title, body } = parseThoughtText(latestThought);
-                      return (
-                        <div className="space-y-2">
-                          {title && (
-                            <h4 className="text-xs font-semibold uppercase tracking-wider text-white/90">
-                              {title}
-                            </h4>
-                          )}
-                          {body && (
-                            <p className="text-[13px] leading-[1.7] text-white/60 font-light">
-                              {renderMarkdownBold(body, "font-medium text-white/80")}
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                ) : (
-                  <div className="flex-1 flex flex-col items-center justify-center gap-3 text-white/30">
-                    <div className="flex gap-1.5">
-                      <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                      <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                      <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-                    </div>
-                    <span className="text-xs text-white/40">Reasoning...</span>
-                  </div>
-                )}
-              </>
-            ) : (
-              <OpenAIImageLoading />
-            )}
+            <ImageLoading />
           </div>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide">
@@ -445,21 +352,6 @@ const ImageTile = memo(function ImageTile({
               className={`h-3.5 w-3.5 ${flashAction === "download" ? "download-nudge" : ""}`}
             />
           </div>
-          {onShowThoughts && thoughts && ((thoughts.text?.length ?? 0) > 0 || (thoughts.images?.length ?? 0) > 0) && (
-            <div
-              role="button"
-              tabIndex={-1}
-              onClick={(event) => {
-                event.stopPropagation();
-                onShowThoughts();
-              }}
-              className="rounded-full bg-black/70 p-1.5 text-white hover:bg-indigo-600/80 transition-colors duration-150"
-              aria-label="View chain of thought"
-              title="View chain of thought"
-            >
-              <InfoIcon className="h-3.5 w-3.5" />
-            </div>
-          )}
         </div>
       ) : null}
       <Image
@@ -499,74 +391,17 @@ const ImageTile = memo(function ImageTile({
   );
 });
 
-const GRID_CLASS_MAP: Record<AspectKey, string> = {
-  "square-1-1": "grid grid-cols-2 gap-0.5",
-  "portrait-1-2": "grid grid-cols-2 gap-0.5",
-  "portrait-1-4": "grid grid-cols-2 gap-0.5",
-  "portrait-1-8": "grid grid-cols-2 gap-0.5",
-  "portrait-2-3": "grid grid-cols-2 gap-0.5",
-  "portrait-3-4": "grid grid-cols-2 gap-0.5",
-  "portrait-4-5": "grid grid-cols-2 gap-0.5",
-  "portrait-9-16": "grid grid-cols-2 gap-0.5",
-  "landscape-2-1": "grid grid-cols-2 gap-0.5",
-  "landscape-4-1": "grid grid-cols-2 gap-0.5",
-  "landscape-8-1": "grid grid-cols-2 gap-0.5",
-  "landscape-3-2": "grid grid-cols-2 gap-0.5",
-  "landscape-4-3": "grid grid-cols-2 gap-0.5",
-  "landscape-5-4": "grid grid-cols-2 gap-0.5",
-  "landscape-16-9": "grid grid-cols-2 gap-0.5",
-  "landscape-21-9": "grid grid-cols-2 gap-0.5",
-};
-
-const TILE_CLASS_MAP: Record<AspectKey, string> = {
-  "square-1-1": "relative aspect-square overflow-hidden",
-  "portrait-1-2": "relative aspect-[1/2] overflow-hidden",
-  "portrait-1-4": "relative aspect-[1/4] overflow-hidden",
-  "portrait-1-8": "relative aspect-[1/8] overflow-hidden",
-  "portrait-2-3": "relative aspect-[2/3] overflow-hidden",
-  "portrait-3-4": "relative aspect-[3/4] overflow-hidden",
-  "portrait-4-5": "relative aspect-[4/5] overflow-hidden",
-  "portrait-9-16": "relative aspect-[9/16] overflow-hidden",
-  "landscape-2-1": "relative aspect-[2/1] overflow-hidden",
-  "landscape-4-1": "relative aspect-[4/1] overflow-hidden",
-  "landscape-8-1": "relative aspect-[8/1] overflow-hidden",
-  "landscape-3-2": "relative aspect-[3/2] overflow-hidden",
-  "landscape-4-3": "relative aspect-[4/3] overflow-hidden",
-  "landscape-5-4": "relative aspect-[5/4] overflow-hidden",
-  "landscape-16-9": "relative aspect-[16/9] overflow-hidden",
-  "landscape-21-9": "relative aspect-[21/9] overflow-hidden",
-};
-
 const DEFAULT_GRID_CLASS = "grid grid-cols-2 gap-0.5";
 const DEFAULT_TILE_CLASS = "relative aspect-square overflow-hidden";
 
 type GalleryLayout = {
   gridClass: string;
   tileClass: string;
-  source: "preset" | "custom";
   ratio: number | null;
 };
 
 function resolveGalleryLayout(generation: Generation): GalleryLayout {
   const imageCount = generation.images.length;
-
-  if (generation.aspect !== "custom") {
-    let gridClass = GRID_CLASS_MAP[generation.aspect];
-
-    if (imageCount === 1) {
-      gridClass = "grid grid-cols-1 lg:grid-cols-2";
-    } else if (imageCount === 2 && generation.aspect.startsWith("landscape")) {
-      gridClass = "grid grid-cols-1 gap-0.5 lg:grid-cols-2";
-    }
-
-    return {
-      gridClass,
-      tileClass: TILE_CLASS_MAP[generation.aspect],
-      source: "preset",
-      ratio: null,
-    };
-  }
-
   const width = Number(generation.size?.width ?? 0);
   const height = Number(generation.size?.height ?? 0);
 
@@ -574,7 +409,6 @@ function resolveGalleryLayout(generation: Generation): GalleryLayout {
     return {
       gridClass: DEFAULT_GRID_CLASS,
       tileClass: DEFAULT_TILE_CLASS,
-      source: "custom",
       ratio: null,
     };
   }
@@ -585,7 +419,6 @@ function resolveGalleryLayout(generation: Generation): GalleryLayout {
     return {
       gridClass: DEFAULT_GRID_CLASS,
       tileClass: DEFAULT_TILE_CLASS,
-      source: "custom",
       ratio: null,
     };
   }
@@ -598,54 +431,24 @@ function resolveGalleryLayout(generation: Generation): GalleryLayout {
   }
 
   if (ratio >= 2.2) {
-    return {
-      gridClass,
-      tileClass: "relative aspect-[21/9] overflow-hidden",
-      source: "custom",
-      ratio,
-    };
+    return { gridClass, tileClass: "relative aspect-[21/9] overflow-hidden", ratio };
   }
 
   if (ratio >= 1.7) {
-    return {
-      gridClass,
-      tileClass: "relative aspect-[16/9] overflow-hidden",
-      source: "custom",
-      ratio,
-    };
+    return { gridClass, tileClass: "relative aspect-[16/9] overflow-hidden", ratio };
   }
 
   if (ratio >= 1.3) {
-    return {
-      gridClass,
-      tileClass: "relative aspect-[3/2] overflow-hidden",
-      source: "custom",
-      ratio,
-    };
+    return { gridClass, tileClass: "relative aspect-[3/2] overflow-hidden", ratio };
   }
 
   if (ratio >= 0.9) {
-    return {
-      gridClass,
-      tileClass: "relative aspect-square overflow-hidden",
-      source: "custom",
-      ratio,
-    };
+    return { gridClass, tileClass: "relative aspect-square overflow-hidden", ratio };
   }
 
   if (ratio >= 0.7) {
-    return {
-      gridClass,
-      tileClass: "relative aspect-[4/5] overflow-hidden",
-      source: "custom",
-      ratio,
-    };
+    return { gridClass, tileClass: "relative aspect-[4/5] overflow-hidden", ratio };
   }
 
-  return {
-    gridClass,
-    tileClass: "relative aspect-[9/16] overflow-hidden",
-    source: "custom",
-    ratio,
-  };
+  return { gridClass, tileClass: "relative aspect-[9/16] overflow-hidden", ratio };
 }

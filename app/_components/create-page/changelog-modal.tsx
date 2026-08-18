@@ -6,6 +6,18 @@ import { XIcon } from "./icons";
 
 const CHANGELOG_ENTRIES = [
   {
+    date: "August 18, 2026",
+    changes: [
+      "Dreamint now runs entirely on OpenRouter: one API key, every image model in their catalog.",
+      "Settings has a searchable model manager — enable any OpenRouter image models and pick between them from the composer's new model selector.",
+      "Each enabled model can pin a specific provider (e.g. Google AI Studio for BYOK); with fallbacks off, requests fail instead of silently routing elsewhere.",
+      "Aspect ratio, resolution, and quality controls now adapt to whatever the selected model and provider actually support.",
+      "Budget tracking now uses the real cost OpenRouter reports per generation, including upstream BYOK costs.",
+      "The OpenAI-only prompt improver, legacy Gemini/FAL code paths, and token-based cost estimation were removed.",
+      "Existing galleries, settings, and budgets are migrated automatically.",
+    ],
+  },
+  {
     date: "May 6, 2026",
     changes: [
       "The composer can now save the current prompt setup as a Markdown file for handoff or archiving.",

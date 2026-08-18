@@ -2,14 +2,8 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
-import {
-  DEFAULT_OPENAI_QUALITY,
-  getAspectDescription,
-  getOpenAIQualityLabel,
-  getProviderModelLabel,
-  getQualityLabel,
-} from "../../lib/seedream-options";
-import { calculateOpenAIActualCost } from "../../lib/openai-image-costs";
+import { deriveAspectRatioFromSize, getQualityLabel } from "../../lib/image-options";
+import { totalUsageCostUsd } from "../../lib/openrouter";
 import { formatDisplayDate } from "./utils";
 import { useResolvedImageSource } from "./use-resolved-image-source";
 import type { Generation, ReusePromptOptions } from "./types";
@@ -51,25 +45,6 @@ function RetryIcon({ className }: { className?: string }) {
   );
 }
 
-function deriveAspectLabel(size: { width: number; height: number }): string {
-  const { width, height } = size;
-  if (!width || !height) {
-    return "Custom";
-  }
-
-  let x = Math.abs(width);
-  let y = Math.abs(height);
-  while (y) {
-    const temp = y;
-    y = x % y;
-    x = temp;
-  }
-  const divisor = x || 1;
-  const simplifiedWidth = Math.round(width / divisor);
-  const simplifiedHeight = Math.round(height / divisor);
-  return `${simplifiedWidth}:${simplifiedHeight}`;
-}
-
 type GenerationDetailsCardProps = {
   generation: Generation | null;
   isGenerating: boolean;
@@ -106,21 +81,19 @@ export function GenerationDetailsCard({
     [generation?.inputImages],
   );
 
-  // Get simple aspect ratio e.g. "16:9" from description like "16 : 9"
+  const modelLabel = generation ? generation.modelLabel ?? generation.model : null;
   const aspectLabel = generation
-    ? generation.aspectSelection === "auto"
-      ? getAspectDescription(generation.aspectSelection)
-      : generation.aspect === "custom"
-      ? deriveAspectLabel(generation.size)
-      : getAspectDescription(generation.aspect).replace(/\s/g, "")
+    ? generation.aspectRatio === "auto"
+      ? deriveAspectRatioFromSize(generation.size)
+      : generation.aspectRatio
     : null;
+  const actualCostUsd = generation ? totalUsageCostUsd(generation.usage ?? null) : null;
 
   const imageSummary = useMemo(() => {
     if (!generation) {
       return {
         hasMissingImage: false,
         hasShareTargets: false,
-        enhancedPromptCount: 0,
       };
     }
 
@@ -139,22 +112,13 @@ export function GenerationDetailsCard({
       }
     });
 
-    let enhancedPromptCount = 0;
-    generation.enhancedPrompts?.forEach((value) => {
-      if (typeof value === "string" && value.trim().length > 0) {
-        enhancedPromptCount += 1;
-      }
-    });
-
     return {
       hasMissingImage,
       hasShareTargets,
-      enhancedPromptCount,
     };
   }, [generation]);
   const isInterrupted = !isGenerating && imageSummary.hasMissingImage;
   const hasShareTargets = imageSummary.hasShareTargets;
-  const enhancedPromptCount = imageSummary.enhancedPromptCount;
   const canShare =
     Boolean(onShareCollage) &&
     Boolean(generation) &&
@@ -249,17 +213,6 @@ export function GenerationDetailsCard({
       return "";
     }
 
-    const actualCost = calculateOpenAIActualCost(generation.openAIUsage ?? null);
-    const modelLabel = getProviderModelLabel(
-      generation.provider,
-      generation.modelVariant,
-      generation.openAIModel,
-    );
-    const resolutionLabel = getQualityLabel(generation.qualitySelection ?? generation.quality);
-    const qualityLabel =
-      generation.provider === "openai"
-        ? getOpenAIQualityLabel(generation.openAIQuality ?? DEFAULT_OPENAI_QUALITY)
-        : getQualityLabel(generation.quality);
     const durationLabel =
       typeof generation.durationMs === "number"
         ? `${(generation.durationMs / 1000).toFixed(1)}s`
@@ -273,35 +226,28 @@ export function GenerationDetailsCard({
       "",
       "## Settings",
       `- Model: ${modelLabel}`,
-      `- Aspect: ${aspectLabel ?? "Custom"}`,
-      `- Resolution: ${resolutionLabel}`,
+      ...(generation.providerTag ? [`- Provider: ${generation.providerTag}`] : []),
+      `- Aspect: ${aspectLabel ?? "Auto"}`,
+      ...(generation.resolution ? [`- Resolution: ${generation.resolution}`] : []),
       `- Output size: ${generation.size.width}x${generation.size.height}`,
-      `- Quality: ${qualityLabel}`,
+      ...(generation.quality ? [`- Quality: ${getQualityLabel(generation.quality)}`] : []),
       `- Output format: ${generation.outputFormat.toUpperCase()}`,
       `- Images: ${generation.images.length}`,
       `- References: ${validInputImages.length}`,
       ...(durationLabel ? [`- Duration: ${durationLabel}`] : []),
-      ...(generation.estimatedOpenAICost
-        ? [`- Estimated cost: ${formatUsd(generation.estimatedOpenAICost.totalCostUsd)}`]
-        : []),
-      ...(actualCost.totalCostUsd !== null
-        ? [`- Actual cost: ${formatUsd(actualCost.totalCostUsd)}`]
-        : []),
-      ...(generation.openAIUsage
+      ...(actualCostUsd !== null ? [`- Cost: ${formatUsd(actualCostUsd)}`] : []),
+      ...(generation.usage
         ? [
             "",
             "## Usage",
-            ...(generation.openAIUsage.inputTokens !== null
-              ? [`- Input tokens: ${generation.openAIUsage.inputTokens.toLocaleString()}`]
+            ...(generation.usage.promptTokens !== null
+              ? [`- Prompt tokens: ${generation.usage.promptTokens.toLocaleString()}`]
               : []),
-            ...(generation.openAIUsage.outputTokens !== null
-              ? [`- Output tokens: ${generation.openAIUsage.outputTokens.toLocaleString()}`]
+            ...(generation.usage.completionTokens !== null
+              ? [`- Completion tokens: ${generation.usage.completionTokens.toLocaleString()}`]
               : []),
-            ...(generation.openAIUsage.inputTextTokens !== null
-              ? [`- Text tokens: ${generation.openAIUsage.inputTextTokens.toLocaleString()}`]
-              : []),
-            ...(generation.openAIUsage.inputImageTokens !== null
-              ? [`- Image tokens: ${generation.openAIUsage.inputImageTokens.toLocaleString()}`]
+            ...(generation.usage.upstreamCostUsd !== null
+              ? [`- Upstream (BYOK) cost: ${formatUsd(generation.usage.upstreamCostUsd)}`]
               : []),
           ]
         : []),
@@ -313,32 +259,16 @@ export function GenerationDetailsCard({
       return "";
     }
 
-    const actualCost = calculateOpenAIActualCost(generation.openAIUsage ?? null);
-    const modelLabel = getProviderModelLabel(
-      generation.provider,
-      generation.modelVariant,
-      generation.openAIModel,
-    );
-    const qualityLabel =
-      generation.provider === "openai"
-        ? getOpenAIQualityLabel(generation.openAIQuality ?? DEFAULT_OPENAI_QUALITY)
-        : getQualityLabel(generation.quality);
-    const costLabel =
-      actualCost.totalCostUsd !== null
-        ? `actual ${formatUsd(actualCost.totalCostUsd)}`
-        : generation.estimatedOpenAICost
-          ? `est. ${formatUsd(generation.estimatedOpenAICost.totalCostUsd)}`
-          : null;
     const promptPreview = generation.prompt.trim().replace(/\s+/g, " ");
 
     return [
       `"${promptPreview}"`,
       modelLabel,
       `${generation.size.width}x${generation.size.height}`,
-      qualityLabel,
+      ...(generation.quality ? [getQualityLabel(generation.quality)] : []),
       generation.outputFormat.toUpperCase(),
       `${validInputImages.length} ref${validInputImages.length === 1 ? "" : "s"}`,
-      ...(costLabel ? [costLabel] : []),
+      ...(actualCostUsd !== null ? [formatUsd(actualCostUsd)] : []),
     ].join(" | ");
   };
 
@@ -401,11 +331,7 @@ export function GenerationDetailsCard({
 
         {generation && !isGenerating && !isInterrupted ? (
           <span className="text-right text-[var(--text-secondary)]">
-            <span>
-              {generation.provider === "openai"
-                ? getOpenAIQualityLabel(generation.openAIQuality ?? DEFAULT_OPENAI_QUALITY)
-                : getQualityLabel(generation.quality)}
-            </span>
+            {actualCostUsd !== null ? <span>{formatUsd(actualCostUsd)}</span> : null}
             {typeof generation.durationMs === "number" ? (
               <span className="block text-[9px] uppercase tracking-wide text-[var(--text-muted)]">
                 {(generation.durationMs / 1000).toFixed(1)}s
@@ -450,16 +376,9 @@ export function GenerationDetailsCard({
         ) : null}
 
         {generation && !isInterrupted ? (
-          <div className="space-y-2">
-            {enhancedPromptCount > 0 ? (
-              <div className="inline-flex items-center rounded bg-white/8 px-2 py-1 text-[9px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
-                {enhancedPromptCount} improved prompts
-              </div>
-            ) : null}
-            <p className="text-xs leading-relaxed text-[var(--text-primary)] opacity-90 font-normal max-h-32 overflow-y-auto">
-              {generation.prompt}
-            </p>
-          </div>
+          <p className="text-xs leading-relaxed text-[var(--text-primary)] opacity-90 font-normal max-h-32 overflow-y-auto">
+            {generation.prompt}
+          </p>
         ) : !generation ? (
           <p className="text-xs italic text-[var(--text-muted)]">
             Waiting for prompt...
@@ -487,30 +406,27 @@ export function GenerationDetailsCard({
           {/* Tech Badges */}
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
-              {getQualityLabel(generation.qualitySelection ?? generation.quality)}
+              {modelLabel}
             </span>
-            {generation.provider === "openai" ? (
+            {generation.resolution ? (
               <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
-                {getOpenAIQualityLabel(generation.openAIQuality ?? DEFAULT_OPENAI_QUALITY)}
+                {generation.resolution}
+              </span>
+            ) : null}
+            {generation.quality ? (
+              <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
+                {getQualityLabel(generation.quality)}
               </span>
             ) : null}
             <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
-              {aspectLabel ?? "Custom"}
+              {aspectLabel}
             </span>
-            <span className="inline-flex items-center gap-1 rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
-              {generation.provider !== "openai" && generation.modelVariant === "flash" ? (
-                <LightningIcon className="h-2.5 w-2.5" />
-              ) : null}
-              {getProviderModelLabel(generation.provider, generation.modelVariant, generation.openAIModel)}
-            </span>
-            {generation.useGoogleSearch ? (
-              <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
-                Search
-              </span>
-            ) : null}
-            {enhancedPromptCount > 0 ? (
-              <span className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]">
-                GPT-5.5
+            {generation.providerTag ? (
+              <span
+                className="inline-flex items-center rounded bg-[var(--bg-input)] border border-[var(--border-subtle)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--text-secondary)]"
+                title={`Pinned provider${generation.allowFallbacks ? " (fallbacks allowed)" : " (no fallbacks)"}`}
+              >
+                {generation.providerTag.split("/")[0]}
               </span>
             ) : null}
           </div>
@@ -590,16 +506,11 @@ export function GenerationDetailsCard({
                   generation.prompt,
                   validInputImages,
                   {
-                    provider: generation.provider,
-                    useGoogleSearch: generation.useGoogleSearch,
-                    modelVariant: generation.modelVariant,
-                    openAIModel: generation.openAIModel,
-                    openAIQuality: generation.openAIQuality,
+                    model: generation.model,
+                    aspectRatio: generation.aspectRatio,
+                    resolution: generation.resolution,
+                    quality: generation.quality,
                     outputFormat: generation.outputFormat,
-                    aspectSelection: generation.aspectSelection,
-                    qualitySelection: generation.qualitySelection,
-                    aspect: generation.aspect,
-                    size: generation.size,
                   },
                 )
               }

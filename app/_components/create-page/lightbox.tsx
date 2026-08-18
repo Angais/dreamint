@@ -2,15 +2,12 @@ import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import type { WheelEvent } from "react";
 
-import { calculateOpenAIActualCost } from "../../lib/openai-image-costs";
 import {
-  DEFAULT_OPENAI_QUALITY,
+  deriveAspectRatioFromSize,
   formatResolution,
-  getAspectDescription,
-  getOpenAIQualityLabel,
-  getProviderModelLabel,
   getQualityLabel,
-} from "../../lib/seedream-options";
+} from "../../lib/image-options";
+import { totalUsageCostUsd } from "../../lib/openrouter";
 import { CompareSlider } from "./compare-slider";
 import { ArrowLeftIcon, ArrowRightIcon, CopyIcon, DownloadIcon, InfoIcon, LightningIcon, MinusIcon, PlusIcon, ReuseIcon, SettingsIcon, SpinnerIcon, XIcon } from "./icons";
 import { isStoredAssetRef, resolveStoredAssetUrl } from "./storage";
@@ -114,7 +111,10 @@ export function Lightbox({
 
   const hasReferences = entry.inputImages && entry.inputImages.length > 0;
   const { resolvedSource, isResolving } = useResolvedImageSource(entry.src);
-  const actualOpenAICost = calculateOpenAIActualCost(entry.openAIUsage ?? null);
+  const actualCostUsd = totalUsageCostUsd(entry.usage ?? null);
+  const modelLabel = entry.modelLabel ?? entry.model;
+  const aspectLabel =
+    entry.aspectRatio === "auto" ? deriveAspectRatioFromSize(entry.size) : entry.aspectRatio;
   const zoomPercent = Math.round(transform.scale * 100);
 
   const clampTransform = (scale: number, x: number, y: number) => {
@@ -519,29 +519,20 @@ export function Lightbox({
     generationId: entry.generationId,
     imageIndex: entry.imageIndex,
     prompt: entry.prompt,
-    provider: entry.provider ?? "seedream",
-    model: getProviderModelLabel(entry.provider, entry.modelVariant, entry.openAIModel),
-    aspect: getAspectDescription(entry.aspectSelection ?? entry.aspect),
-    quality: entry.provider === "openai"
-      ? getOpenAIQualityLabel(entry.openAIQuality ?? DEFAULT_OPENAI_QUALITY)
-      : getQualityLabel(entry.qualitySelection ?? entry.quality),
+    model: entry.model,
+    modelLabel,
+    aspectRatio: aspectLabel,
+    resolution: entry.resolution ?? null,
+    quality: entry.quality ?? null,
     outputFormat: entry.outputFormat ?? "png",
     size: entry.size,
     durationMs: entry.durationMs ?? null,
     referenceCount: entry.inputImages.length,
-    useGoogleSearch: entry.useGoogleSearch ?? false,
-    estimatedOpenAICostUsd: entry.estimatedOpenAICost?.totalCostUsd ?? null,
-    actualOpenAICostUsd: actualOpenAICost.totalCostUsd,
-    openAIUsage: entry.openAIUsage ?? null,
+    costUsd: actualCostUsd,
+    usage: entry.usage ?? null,
   });
 
   const buildSetupMarkdown = () => {
-    const actualCost = actualOpenAICost.totalCostUsd;
-    const modelLabel = getProviderModelLabel(entry.provider, entry.modelVariant, entry.openAIModel);
-    const qualityLabel =
-      entry.provider === "openai"
-        ? getOpenAIQualityLabel(entry.openAIQuality ?? DEFAULT_OPENAI_QUALITY)
-        : getQualityLabel(entry.qualitySelection ?? entry.quality);
     const durationLabel =
       typeof entry.durationMs === "number"
         ? formatGenerationDuration(entry.durationMs)
@@ -555,36 +546,31 @@ export function Lightbox({
       "",
       "## Settings",
       `- Model: ${modelLabel}`,
-      `- Aspect: ${getAspectDescription(entry.aspectSelection ?? entry.aspect)}`,
+      `- Aspect: ${aspectLabel}`,
+      ...(entry.resolution ? [`- Resolution: ${entry.resolution}`] : []),
       `- Output size: ${entry.size.width}x${entry.size.height}`,
-      `- Quality: ${qualityLabel}`,
+      ...(entry.quality ? [`- Quality: ${getQualityLabel(entry.quality)}`] : []),
       `- Output format: ${(entry.outputFormat ?? "png").toUpperCase()}`,
       `- Image: ${entry.imageIndex + 1}`,
       `- References: ${entry.inputImages.length}`,
       ...(durationLabel ? [`- Duration: ${durationLabel}`] : []),
-      ...(entry.estimatedOpenAICost
-        ? [`- Estimated generation cost: ${formatUsd(entry.estimatedOpenAICost.totalCostUsd)}`]
-        : []),
-      ...(actualCost !== null ? [`- Actual generation cost: ${formatUsd(actualCost)}`] : []),
+      ...(actualCostUsd !== null ? [`- Generation cost: ${formatUsd(actualCostUsd)}`] : []),
       "",
       "## Source",
       `- Generation ID: ${entry.generationId}`,
       `- Image index: ${entry.imageIndex}`,
-      ...(entry.openAIUsage
+      ...(entry.usage
         ? [
             "",
             "## Usage",
-            ...(entry.openAIUsage.inputTokens !== null
-              ? [`- Input tokens: ${entry.openAIUsage.inputTokens.toLocaleString()}`]
+            ...(entry.usage.promptTokens !== null
+              ? [`- Prompt tokens: ${entry.usage.promptTokens.toLocaleString()}`]
               : []),
-            ...(entry.openAIUsage.outputTokens !== null
-              ? [`- Output tokens: ${entry.openAIUsage.outputTokens.toLocaleString()}`]
+            ...(entry.usage.completionTokens !== null
+              ? [`- Completion tokens: ${entry.usage.completionTokens.toLocaleString()}`]
               : []),
-            ...(entry.openAIUsage.inputTextTokens !== null
-              ? [`- Text tokens: ${entry.openAIUsage.inputTextTokens.toLocaleString()}`]
-              : []),
-            ...(entry.openAIUsage.inputImageTokens !== null
-              ? [`- Image tokens: ${entry.openAIUsage.inputImageTokens.toLocaleString()}`]
+            ...(entry.usage.upstreamCostUsd !== null
+              ? [`- Upstream (BYOK) cost: ${formatUsd(entry.usage.upstreamCostUsd)}`]
               : []),
           ]
         : []),
@@ -592,28 +578,16 @@ export function Lightbox({
   };
 
   const buildSetupSummary = () => {
-    const actualCost = actualOpenAICost.totalCostUsd;
-    const modelLabel = getProviderModelLabel(entry.provider, entry.modelVariant, entry.openAIModel);
-    const qualityLabel =
-      entry.provider === "openai"
-        ? getOpenAIQualityLabel(entry.openAIQuality ?? DEFAULT_OPENAI_QUALITY)
-        : getQualityLabel(entry.qualitySelection ?? entry.quality);
-    const costLabel =
-      actualCost !== null
-        ? `actual ${formatUsd(actualCost)}`
-        : entry.estimatedOpenAICost
-          ? `est. ${formatUsd(entry.estimatedOpenAICost.totalCostUsd)}`
-          : null;
     const promptPreview = entry.prompt.trim().replace(/\s+/g, " ");
 
     return [
       `"${promptPreview}"`,
       modelLabel,
       `${entry.size.width}x${entry.size.height}`,
-      qualityLabel,
+      ...(entry.quality ? [getQualityLabel(entry.quality)] : []),
       (entry.outputFormat ?? "png").toUpperCase(),
       `${entry.inputImages.length} ref${entry.inputImages.length === 1 ? "" : "s"}`,
-      ...(costLabel ? [costLabel] : []),
+      ...(actualCostUsd !== null ? [formatUsd(actualCostUsd)] : []),
     ].join(" | ");
   };
 
@@ -886,7 +860,7 @@ export function Lightbox({
               <div className="min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
                 <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Aspect</span>
                 <div className="text-base leading-tight font-medium text-[var(--text-primary)]">
-                  {getAspectDescription(entry.aspectSelection ?? entry.aspect)}
+                  {aspectLabel}
                 </div>
               </div>
               <div className="min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
@@ -895,14 +869,22 @@ export function Lightbox({
                   {formatResolution(entry.size)}
                 </div>
               </div>
-              <div className="min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
-                <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Quality</span>
-                <div className="text-base leading-tight font-medium text-[var(--text-primary)]">
-                  {entry.provider === "openai"
-                    ? getOpenAIQualityLabel(entry.openAIQuality ?? DEFAULT_OPENAI_QUALITY)
-                    : getQualityLabel(entry.qualitySelection ?? entry.quality)}
+              {entry.resolution ? (
+                <div className="min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
+                  <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Resolution</span>
+                  <div className="text-base leading-tight font-medium text-[var(--text-primary)]">
+                    {entry.resolution}
+                  </div>
                 </div>
-              </div>
+              ) : null}
+              {entry.quality ? (
+                <div className="min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
+                  <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Quality</span>
+                  <div className="text-base leading-tight font-medium text-[var(--text-primary)]">
+                    {getQualityLabel(entry.quality)}
+                  </div>
+                </div>
+              ) : null}
               {typeof entry.durationMs === "number" && entry.durationMs >= 0 ? (
                 <div className="min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
                   <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Time</span>
@@ -911,57 +893,48 @@ export function Lightbox({
                   </div>
                 </div>
               ) : null}
-              {entry.useGoogleSearch ? (
-                <div className="min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
-                  <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Search</span>
-                  <div className="text-base leading-tight font-medium text-[var(--text-primary)]">
-                    Google
-                  </div>
-                </div>
-              ) : null}
               <div className="col-span-2 min-h-[92px] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
                 <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Model</span>
                 <div className="text-base leading-snug font-medium text-[var(--text-primary)] break-all">
-                  {getProviderModelLabel(entry.provider, entry.modelVariant, entry.openAIModel)}
+                  {modelLabel}
                 </div>
+                <div className="mt-1 text-[11px] text-[var(--text-muted)] break-all">{entry.model}</div>
               </div>
-              {entry.provider === "openai" && entry.openAIUsage ? (
+              {entry.usage ? (
                 <div className="col-span-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-3">
                   <span className="mb-2 block text-[11px] uppercase tracking-wide opacity-60">Cost</span>
                   <div className="space-y-1 text-[13px] text-[var(--text-secondary)]">
-                    <div className="flex items-center justify-between gap-2">
-                      <span>Input</span>
-                      <span className="font-medium text-[var(--text-primary)]">
-                        {formatUsd(actualOpenAICost.inputCostUsd)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span>Output</span>
-                      <span className="font-medium text-[var(--text-primary)]">
-                        {formatUsd(actualOpenAICost.outputCostUsd)}
-                      </span>
-                    </div>
+                    {entry.usage.costUsd !== null ? (
+                      <div className="flex items-center justify-between gap-2">
+                        <span>OpenRouter</span>
+                        <span className="font-medium text-[var(--text-primary)]">
+                          {formatUsd(entry.usage.costUsd)}
+                        </span>
+                      </div>
+                    ) : null}
+                    {entry.usage.upstreamCostUsd !== null && entry.usage.upstreamCostUsd > 0 ? (
+                      <div className="flex items-center justify-between gap-2">
+                        <span>Upstream (BYOK)</span>
+                        <span className="font-medium text-[var(--text-primary)]">
+                          {formatUsd(entry.usage.upstreamCostUsd)}
+                        </span>
+                      </div>
+                    ) : null}
                     <div className="flex items-center justify-between gap-2 border-t border-[var(--border-subtle)] pt-2">
                       <span>Total</span>
                       <span className="font-medium text-[var(--text-primary)]">
-                        {formatUsd(actualOpenAICost.totalCostUsd)}
+                        {formatUsd(actualCostUsd)}
                       </span>
                     </div>
                     <div className="pt-1 text-[11px] text-[var(--text-muted)]">
-                      {entry.openAIUsage.inputTokens !== null
-                        ? `${entry.openAIUsage.inputTokens.toLocaleString()} input`
+                      {entry.usage.promptTokens !== null
+                        ? `${entry.usage.promptTokens.toLocaleString()} prompt`
                         : null}
-                      {entry.openAIUsage.inputTokens !== null && entry.openAIUsage.outputTokens !== null
+                      {entry.usage.promptTokens !== null && entry.usage.completionTokens !== null
                         ? " · "
                         : null}
-                      {entry.openAIUsage.outputTokens !== null
-                        ? `${entry.openAIUsage.outputTokens.toLocaleString()} output`
-                        : null}
-                      {entry.openAIUsage.inputTextTokens !== null
-                        ? ` · ${entry.openAIUsage.inputTextTokens.toLocaleString()} text`
-                        : null}
-                      {entry.openAIUsage.inputImageTokens !== null
-                        ? ` · ${entry.openAIUsage.inputImageTokens.toLocaleString()} image`
+                      {entry.usage.completionTokens !== null
+                        ? `${entry.usage.completionTokens.toLocaleString()} completion`
                         : null}
                     </div>
                   </div>
@@ -1158,16 +1131,11 @@ export function Lightbox({
                       entry.prompt,
                       entry.inputImages,
                       {
-                        provider: entry.provider,
-                        useGoogleSearch: entry.useGoogleSearch,
-                        modelVariant: entry.modelVariant,
-                        openAIModel: entry.openAIModel,
-                        openAIQuality: entry.openAIQuality,
+                        model: entry.model,
+                        aspectRatio: entry.aspectRatio,
+                        resolution: entry.resolution,
+                        quality: entry.quality,
                         outputFormat: entry.outputFormat,
-                        aspectSelection: entry.aspectSelection,
-                        qualitySelection: entry.qualitySelection,
-                        aspect: entry.aspect,
-                        size: entry.size,
                       },
                     )
                   }

@@ -1,20 +1,23 @@
 # Dreamint
 
-Dreamint is a browser-based workspace for generating and editing images with OpenAI image models. It focuses on quick prompts, format/quality tweaks, cost visibility, and lightweight history so you can experiment without extra setup.
+Dreamint is a browser-based workspace for generating and editing images through [OpenRouter](https://openrouter.ai). One API key gives access to every image model in OpenRouter's catalog — pick the models you want, pin providers, tweak aspect/resolution/quality, and keep a local gallery with real cost tracking.
 
 > WARNING: YOU USE THIS AT YOUR OWN RISK. YOU ARE RESPONSIBLE FOR ANY API COSTS, ERRORS, OR MISBEHAVIOR.
 
 ## What’s included
-- Prompt composer with aspect presets, quality levels (1K/2K/4K), and output format selection (PNG/JPEG/WEBP).
+- Prompt composer with a model selector, aspect-ratio presets, resolution tiers (512/1K/2K/4K), quality levels, and output format selection (PNG/JPEG/WEBP) — each control adapts to what the selected model supports.
+- Searchable model manager in settings: enable any OpenRouter image models; only enabled models appear in the composer.
+- Per-model provider routing: pin a specific provider (e.g. Google AI Studio for BYOK). With fallbacks off, requests fail instead of routing to another provider.
 - Up to eight reference images for edits; drag-and-drop, paste, or file picker.
 - Batch generation (1–4 images) with local gallery, metadata chips, and one-click “Use prompt” restore.
+- Budget tracking based on the real per-generation cost OpenRouter reports, including upstream BYOK costs.
 - Lightbox with keyboard/scroll navigation, download in your selected format, and edit-from-image shortcut.
-- Interrupted request recovery: pending jobs saved locally are marked “Interrupted” after reload/close with Retry/Delete options; placeholders show an interrupted state.
-- Local-first state: prompts/settings in `localStorage`; gallery and pending items in IndexedDB via `localforage`. API keys stay in the browser only.
+- Interrupted request recovery: pending jobs saved locally are marked “Interrupted” after reload/close with Retry/Delete options.
+- Local-first state: prompts/settings in `localStorage`; gallery and pending items in IndexedDB via `localforage`. The API key stays in the browser only.
 
 ## Requirements
 - Node.js 18+
-- OpenAI API key. It is supplied in-app and stays in your browser; it is not stored on the server.
+- An [OpenRouter API key](https://openrouter.ai/keys). It is supplied in-app and stays in your browser; it is not stored on the server.
 
 ## Setup
 ```bash
@@ -26,8 +29,8 @@ npm install
 ```bash
 npm run dev
 ```
-3) Open http://localhost:3000
-4) Add your OpenAI API key in the in-app Settings. It persists in your browser storage only.
+2) Open http://localhost:3000
+3) Open Settings, add your OpenRouter API key, and enable the models you want to use.
 
 ## Access protection (optional)
 - Set `ACCESS_PASSWORD` in your deploy environment to require a one-time password on first visit.
@@ -35,20 +38,20 @@ npm run dev
 - If `ACCESS_PASSWORD` is unset, the gate is disabled.
 
 ## Using the app
-- Choose aspect, quality, and **Output Format** from the control bar.
-- Add reference images (max 8). If the first image has clear dimensions, the aspect auto-adjusts to match.
+- Pick a model, aspect, resolution, quality, and **Output Format** from the control bar; unavailable controls hide automatically per model.
+- Add reference images (max 8, capped by what the model accepts). The aspect switches to Auto to follow the first reference.
 - Click **Generate** or press Enter in the prompt box. While running, a stopwatch shows elapsed time.
-- If you close or reload mid-run, the pending items reappear as **Interrupted** with Retry/Delete buttons and non-animated placeholders.
-- Switch between **Create** and **Gallery** via the floating pill at the top; it stays visible when scrolling.
+- If you close or reload mid-run, the pending items reappear as **Interrupted** with Retry/Delete buttons.
+- Switch between **Create** and **Gallery** via the floating pill at the top.
 
-## Model
-- **OpenAI:** Uses `gpt-image-2` and shows estimated and real token-based cost details in the UI when usage data is available.
+## Provider routing and BYOK
+Each enabled model's settings row lists the providers OpenRouter can route it to. Pinning a provider sends every request for that model there. Leave **Allow fallbacks** off to make requests fail rather than fall back to another provider — useful when you have BYOK configured in OpenRouter for a specific provider and don't want silent rerouting.
 
 ## Notes and limitations
 - Everything is client-initiated; server jobs are not durable. Closing the page interrupts in-flight requests.
-- Image generation runs fully in the browser with your own API keys; the host just serves the site (and optional password gate).
+- The server only proxies requests to OpenRouter (and serves the optional password gate); your key is forwarded per-request and never stored.
 - Attachment, gallery, and API key state are stored locally in your browser; clear your browser storage to wipe state.
-- Max four outputs per request; max eight input images (UI cap; model accepts more).
+- Max four outputs per request in the UI; models that only support one image per call are batched transparently.
 
 ## Scripts
 - `npm run dev` — start Next.js with Turbopack

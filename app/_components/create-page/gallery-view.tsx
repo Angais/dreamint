@@ -3,13 +3,8 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
-import { calculateOpenAIActualCost } from "../../lib/openai-image-costs";
-import {
-  DEFAULT_OPENAI_QUALITY,
-  getOpenAIQualityLabel,
-  getProviderModelLabel,
-  getQualityLabel,
-} from "../../lib/seedream-options";
+import { getQualityLabel } from "../../lib/image-options";
+import { totalUsageCostUsd } from "../../lib/openrouter";
 import { convertBlobToOutputFormat, extensionFromMimeType } from "./download-utils";
 import { CopyIcon, DownloadIcon, MagnifyingGlassIcon, XIcon } from "./icons";
 import { isStoredAssetRef, resolveStoredAssetBlob } from "./storage";
@@ -28,7 +23,7 @@ type GalleryViewProps = {
 
 type GallerySort = "newest" | "oldest";
 type GalleryFormatFilter = "all" | "png" | "jpeg" | "webp";
-type GalleryResolutionFilter = "all" | "1k" | "2k" | "4k";
+type GalleryResolutionFilter = "all" | "512" | "1k" | "2k" | "4k";
 type GalleryOrientationFilter = "all" | "square" | "landscape" | "portrait";
 type GalleryDensity = "compact" | "comfortable";
 
@@ -40,10 +35,10 @@ type GalleryPreferences = {
   density: GalleryDensity;
 };
 
-const GALLERY_PREFERENCES_KEY = "seedream:gallery_preferences";
+const GALLERY_PREFERENCES_KEY = "dreamint:gallery_preferences";
 const GALLERY_SORT_VALUES: GallerySort[] = ["newest", "oldest"];
 const GALLERY_FORMAT_FILTER_VALUES: GalleryFormatFilter[] = ["all", "png", "jpeg", "webp"];
-const GALLERY_RESOLUTION_FILTER_VALUES: GalleryResolutionFilter[] = ["all", "1k", "2k", "4k"];
+const GALLERY_RESOLUTION_FILTER_VALUES: GalleryResolutionFilter[] = ["all", "512", "1k", "2k", "4k"];
 const GALLERY_ORIENTATION_FILTER_VALUES: GalleryOrientationFilter[] = [
   "all",
   "square",
@@ -57,35 +52,34 @@ type ZipManifestItem = {
   generationId: string;
   imageIndex: number;
   prompt: string;
-  provider: Generation["provider"];
+  model: string;
+  modelLabel: string;
   outputFormat: Generation["outputFormat"];
-  aspect: Generation["aspect"];
-  quality: NonNullable<Generation["openAIQuality"]> | Generation["quality"];
-  resolution: Generation["quality"];
+  aspectRatio: string;
+  quality: string | null;
+  resolution: string | null;
   orientation: Exclude<GalleryOrientationFilter, "all">;
   createdAt: string;
   size: { width: number; height: number };
   referenceCount: number;
-  estimatedCostUsd: number | null;
-  actualCostUsd: number | null;
-  generationEstimatedCostUsd: number | null;
-  generationActualCostUsd: number | null;
+  costUsd: number | null;
+  generationCostUsd: number | null;
 };
 
 type ZipManifestSourceItem = {
   id: string;
   index: number;
   prompt: string;
-  provider: Generation["provider"];
+  model: string;
+  modelLabel?: string;
   outputFormat: Generation["outputFormat"];
-  aspect: Generation["aspect"];
-  openAIQuality: Generation["openAIQuality"];
-  quality: Generation["quality"];
+  aspectRatio: string;
+  quality: string | null | undefined;
+  resolution: string | null | undefined;
   createdAt: string;
   size: Generation["size"];
   inputImages: Generation["inputImages"];
-  estimatedOpenAICost: Generation["estimatedOpenAICost"];
-  openAIUsage: Generation["openAIUsage"];
+  usage: Generation["usage"];
   imageCount: number;
 };
 
@@ -168,11 +162,12 @@ function getImageOrientation(size: { width: number; height: number }): Exclude<G
 function buildGallerySearchText(item: {
   id: string;
   prompt: string;
-  provider: Generation["provider"];
+  model: string;
+  modelLabel?: string;
   outputFormat?: Generation["outputFormat"];
-  quality: Generation["quality"];
-  openAIQuality: Generation["openAIQuality"];
-  aspect: Generation["aspect"];
+  resolution: string | null | undefined;
+  quality: string | null | undefined;
+  aspectRatio: string;
   size: { width: number; height: number };
   inputImages: Generation["inputImages"];
 }): string {
@@ -186,12 +181,13 @@ function buildGallerySearchText(item: {
     item.prompt,
     item.id,
     item.id.slice(0, 8),
-    item.provider,
+    item.model,
+    item.modelLabel,
     outputFormat,
     extension,
+    item.resolution,
     item.quality,
-    item.openAIQuality,
-    item.aspect,
+    item.aspectRatio,
     orientation,
     dimensions,
     `${item.size.width} ${item.size.height}`,
@@ -233,31 +229,26 @@ function buildManifestItem(
   item: ZipManifestSourceItem,
   filename: string,
 ): ZipManifestItem {
-  const actualCost = calculateOpenAIActualCost(item.openAIUsage ?? null);
-  const estimatedCostUsd = divideCost(
-    item.estimatedOpenAICost?.totalCostUsd,
-    item.estimatedOpenAICost?.imageCount ?? item.imageCount,
-  );
-  const actualCostUsd = divideCost(actualCost.totalCostUsd, item.imageCount);
+  const generationCostUsd = totalUsageCostUsd(item.usage ?? null);
+  const costUsd = divideCost(generationCostUsd, item.imageCount);
 
   return {
     filename,
     generationId: item.id,
     imageIndex: item.index,
     prompt: item.prompt,
-    provider: item.provider,
+    model: item.model,
+    modelLabel: item.modelLabel ?? item.model,
     outputFormat: item.outputFormat ?? "png",
-    aspect: item.aspect,
-    quality: item.openAIQuality ?? item.quality,
-    resolution: item.quality,
+    aspectRatio: item.aspectRatio,
+    quality: item.quality ?? null,
+    resolution: item.resolution ?? null,
     orientation: getImageOrientation(item.size),
     createdAt: item.createdAt,
     size: item.size,
     referenceCount: item.inputImages.length,
-    estimatedCostUsd,
-    actualCostUsd,
-    generationEstimatedCostUsd: item.estimatedOpenAICost?.totalCostUsd ?? null,
-    generationActualCostUsd: actualCost.totalCostUsd,
+    costUsd,
+    generationCostUsd,
   };
 }
 
@@ -278,18 +269,18 @@ function buildZipCsv(items: ZipManifestItem[]): string {
   const headers = [
     "filename",
     "prompt",
-    "provider",
+    "model",
+    "model_label",
     "format",
+    "aspect_ratio",
     "resolution",
     "quality",
     "orientation",
     "width",
     "height",
     "references",
-    "estimated_cost_usd",
-    "actual_cost_usd",
-    "generation_estimated_cost_usd",
-    "generation_actual_cost_usd",
+    "cost_usd",
+    "generation_cost_usd",
     "created_at",
     "generation_id",
     "image_index",
@@ -297,18 +288,18 @@ function buildZipCsv(items: ZipManifestItem[]): string {
   const rows = items.map((item) => [
     item.filename,
     item.prompt,
-    item.provider,
+    item.model,
+    item.modelLabel,
     item.outputFormat,
+    item.aspectRatio,
     item.resolution,
     item.quality,
     item.orientation,
     item.size.width,
     item.size.height,
     item.referenceCount,
-    item.estimatedCostUsd,
-    item.actualCostUsd,
-    item.generationEstimatedCostUsd,
-    item.generationActualCostUsd,
+    item.costUsd,
+    item.generationCostUsd,
     item.createdAt,
     item.generationId,
     item.imageIndex,
@@ -372,15 +363,15 @@ function buildMetadataMarkdown(items: ZipManifestItem[]): string {
       "",
       `- Generation ID: ${item.generationId}`,
       `- Image index: ${item.imageIndex}`,
-      `- Provider: ${item.provider}`,
+      `- Model: ${item.modelLabel} (${item.model})`,
       `- Format: ${item.outputFormat.toUpperCase()}`,
-      `- Resolution: ${item.resolution.toUpperCase()}`,
-      `- Quality: ${item.quality}`,
+      `- Aspect: ${item.aspectRatio}`,
+      ...(item.resolution ? [`- Resolution: ${item.resolution}`] : []),
+      ...(item.quality ? [`- Quality: ${item.quality}`] : []),
       `- Shape: ${item.orientation}`,
       `- Size: ${item.size.width}x${item.size.height}`,
       `- References: ${item.referenceCount}`,
-      `- Estimated cost: ${formatMarkdownCost(item.estimatedCostUsd)}`,
-      `- Actual cost: ${formatMarkdownCost(item.actualCostUsd)}`,
+      `- Cost: ${formatMarkdownCost(item.costUsd)}`,
       `- Created: ${item.createdAt}`,
       "",
     );
@@ -480,19 +471,17 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
             src: thumbSrc,
             fullSrc,
             outputFormat: gen.outputFormat,
-            provider: gen.provider,
-            modelVariant: gen.modelVariant,
-            openAIModel: gen.openAIModel,
-            openAIQuality: gen.openAIQuality,
+            model: gen.model,
+            modelLabel: gen.modelLabel,
             prompt: gen.prompt,
-            aspect: gen.aspect,
+            aspectRatio: gen.aspectRatio,
+            resolution: gen.resolution,
             quality: gen.quality,
             createdAt: gen.createdAt,
             size: gen.size,
             inputImages: gen.inputImages,
             imageCount,
-            estimatedOpenAICost: gen.estimatedOpenAICost,
-            openAIUsage: gen.openAIUsage,
+            usage: gen.usage,
             deleted: deletedSet.has(index),
           };
         })
@@ -507,8 +496,8 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
         !trimmedSearch || buildGallerySearchText(item).includes(trimmedSearch);
       const matchesFormat = (outputFormat: string | undefined) =>
         formatFilter === "all" || (outputFormat ?? "png") === formatFilter;
-      const matchesResolution = (quality: string | undefined) =>
-        resolutionFilter === "all" || quality === resolutionFilter;
+      const matchesResolution = (resolution: string | null | undefined) =>
+        resolutionFilter === "all" || (resolution ?? "").toLowerCase() === resolutionFilter;
       const matchesOrientation = (size: { width: number; height: number }) => {
         if (orientationFilter === "all") {
           return true;
@@ -521,7 +510,7 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
         (img) =>
           matchesSearch(img) &&
           matchesFormat(img.outputFormat) &&
-          matchesResolution(img.quality) &&
+          matchesResolution(img.resolution) &&
           matchesOrientation(img.size),
       );
     })();
@@ -628,23 +617,15 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
       }, {});
 
     const formats = countBy((item) => item.outputFormat);
-    const resolutions = countBy((item) => item.quality);
+    const resolutions = countBy((item) => item.resolution ?? "auto");
     const orientations = countBy((item) => getImageOrientation(item.size));
     const referenceCount = selectedItems.reduce((total, item) => total + item.inputImages.length, 0);
-    const estimatedCostUsd = selectedItems.reduce((total, item) => {
-      const cost = divideCost(
-        item.estimatedOpenAICost?.totalCostUsd,
-        item.estimatedOpenAICost?.imageCount ?? item.imageCount,
-      );
-      return total + (cost ?? 0);
-    }, 0);
     const actualCostUsd = selectedItems.reduce((total, item) => {
-      const actualCost = calculateOpenAIActualCost(item.openAIUsage ?? null);
-      const cost = divideCost(actualCost.totalCostUsd, item.imageCount);
+      const cost = divideCost(totalUsageCostUsd(item.usage ?? null), item.imageCount);
       return total + (cost ?? 0);
     }, 0);
 
-    return { actualCostUsd, estimatedCostUsd, formats, orientations, referenceCount, resolutions };
+    return { actualCostUsd, formats, orientations, referenceCount, resolutions };
   }, [selectedItems]);
 
   const toggleSelected = (generationId: string, imageIndex: number) => {
@@ -880,7 +861,7 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
       .map((item, index) =>
         [
           `${index + 1}. ${item.prompt}`,
-          `   ${item.filename} | ${item.outputFormat.toUpperCase()} | ${item.resolution.toUpperCase()} | ${item.orientation} | ${item.size.width}x${item.size.height}`,
+          `   ${item.filename} | ${item.modelLabel} | ${item.outputFormat.toUpperCase()}${item.resolution ? ` | ${item.resolution}` : ""} | ${item.orientation} | ${item.size.width}x${item.size.height}`,
         ].join("\n"),
       )
       .join("\n\n");
@@ -903,37 +884,18 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
 
     const summaryList = selectedItems
       .map((item, index) => {
-        const actualCost = calculateOpenAIActualCost(item.openAIUsage ?? null);
-        const actualCostUsd = divideCost(actualCost.totalCostUsd, item.imageCount);
-        const estimatedCostUsd = divideCost(
-          item.estimatedOpenAICost?.totalCostUsd,
-          item.estimatedOpenAICost?.imageCount ?? item.imageCount,
-        );
-        const costLabel =
-          actualCostUsd !== null
-            ? `actual ${formatUsd(actualCostUsd)}`
-            : estimatedCostUsd !== null
-              ? `est. ${formatUsd(estimatedCostUsd)}`
-              : null;
-        const modelLabel = getProviderModelLabel(
-          item.provider,
-          item.modelVariant,
-          item.openAIModel,
-        );
-        const qualityLabel =
-          item.provider === "openai"
-            ? getOpenAIQualityLabel(item.openAIQuality ?? DEFAULT_OPENAI_QUALITY)
-            : getQualityLabel(item.quality);
+        const costUsd = divideCost(totalUsageCostUsd(item.usage ?? null), item.imageCount);
+        const modelLabel = item.modelLabel ?? item.model;
         const promptPreview = item.prompt.trim().replace(/\s+/g, " ");
 
         return [
           `${index + 1}. "${promptPreview}"`,
           modelLabel,
           `${item.size.width}x${item.size.height}`,
-          qualityLabel,
+          ...(item.quality ? [getQualityLabel(item.quality)] : []),
           (item.outputFormat ?? "png").toUpperCase(),
           `${item.inputImages.length} ref${item.inputImages.length === 1 ? "" : "s"}`,
-          ...(costLabel ? [costLabel] : []),
+          ...(costUsd !== null ? [formatUsd(costUsd)] : []),
         ].join(" | ");
       })
       .join("\n");
@@ -993,7 +955,7 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
             [
               `${index + 1}. ${item.filename}`,
               `Prompt: ${item.prompt}`,
-              `Model: ${item.provider}`,
+              `Model: ${item.modelLabel} (${item.model})`,
               `Format: ${item.outputFormat.toUpperCase()}`,
               `Size: ${item.size.width}x${item.size.height}`,
               `Created: ${item.createdAt}`,
@@ -1071,6 +1033,7 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
             aria-label="Filter gallery by resolution"
           >
             <option value="all">All</option>
+            <option value="512">512</option>
             <option value="1k">1K</option>
             <option value="2k">2K</option>
             <option value="4k">4K</option>
@@ -1291,10 +1254,8 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
           <span className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-panel)] px-3 py-1.5">
             Cost{" "}
             {exportSummary.actualCostUsd > 0
-              ? `${formatUsd(exportSummary.actualCostUsd)} actual`
-              : exportSummary.estimatedCostUsd > 0
-                ? `${formatUsd(exportSummary.estimatedCostUsd)} est.`
-                : "unavailable"}
+              ? formatUsd(exportSummary.actualCostUsd)
+              : "unavailable"}
           </span>
         </div>
       ) : null}
@@ -1375,10 +1336,8 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
               </dt>
               <dd className="mt-1 text-[var(--text-secondary)]">
                 {exportSummary.actualCostUsd > 0
-                  ? `${formatUsd(exportSummary.actualCostUsd)} actual`
-                  : exportSummary.estimatedCostUsd > 0
-                    ? `${formatUsd(exportSummary.estimatedCostUsd)} est.`
-                    : "Unavailable"}
+                  ? formatUsd(exportSummary.actualCostUsd)
+                  : "Unavailable"}
               </dd>
             </div>
           </dl>
@@ -1468,7 +1427,7 @@ export function GalleryView({ generations, onExpand, onDeleteImages, onDeleteIma
               const flashDownload = flash?.key === selectionKey && flash.action === "download";
               const metadataLine = [
                 (item.outputFormat ?? "png").toUpperCase(),
-                item.quality.toUpperCase(),
+                ...(item.resolution ? [item.resolution] : []),
                 getImageOrientation(item.size),
                 `${item.size.width}x${item.size.height}`,
               ].join(" / ");

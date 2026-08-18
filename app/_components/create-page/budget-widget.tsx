@@ -4,21 +4,18 @@ type BudgetWidgetProps = {
   budgetCents: number | null;
   spentCents: number;
   budgetRemainingCents: number | null;
-  batchCostCents: number;
-  imagesPerBatch: number;
+  /** Real cost of the most recent batch, from OpenRouter usage (incl. BYOK upstream cost). */
+  lastGenerationCostCents: number | null;
   isBudgetLocked: boolean;
   onBudgetSave: (budgetCents: number) => void;
   onBudgetClear: () => void;
   onResetSpending: () => void;
 };
 
+const BUDGET_PRESETS_CENTS = [500, 1000, 2500];
+
 function formatCents(amount: number): string {
   return `$${(amount / 100).toFixed(2)}`;
-}
-
-function formatBatchLabel(count: number): string {
-  const safeCount = Math.max(0, count);
-  return `${safeCount} ${safeCount === 1 ? "batch" : "batches"}`;
 }
 
 function formatPercent(value: number): string {
@@ -40,8 +37,7 @@ export function BudgetWidget({
   budgetCents,
   spentCents,
   budgetRemainingCents,
-  batchCostCents,
-  imagesPerBatch,
+  lastGenerationCostCents,
   isBudgetLocked,
   onBudgetSave,
   onBudgetClear,
@@ -107,10 +103,9 @@ export function BudgetWidget({
     () => (budgetCents !== null ? formatCents(Math.max(0, budgetCents)) : null),
     [budgetCents],
   );
-  const batchCostLabel = useMemo(() => formatCents(batchCostCents), [batchCostCents]);
-  const perImageCostLabel = useMemo(
-    () => formatCents(batchCostCents / Math.max(1, imagesPerBatch)),
-    [batchCostCents, imagesPerBatch],
+  const lastCostLabel = useMemo(
+    () => (lastGenerationCostCents !== null ? formatCents(lastGenerationCostCents) : null),
+    [lastGenerationCostCents],
   );
   const budgetUsedPercent = useMemo(() => {
     if (budgetCents === null || budgetCents <= 0) {
@@ -119,57 +114,12 @@ export function BudgetWidget({
 
     return Math.min(100, Math.max(0, (spentCents / budgetCents) * 100));
   }, [budgetCents, spentCents]);
-  const projectedBudgetPercent = useMemo(() => {
-    if (budgetCents === null || budgetCents <= 0) {
-      return null;
-    }
-
-    return Math.min(100, Math.max(0, ((spentCents + batchCostCents) / budgetCents) * 100));
-  }, [batchCostCents, budgetCents, spentCents]);
-  const batchLabel = useMemo(
-    () => `${imagesPerBatch} ${imagesPerBatch === 1 ? "image" : "images"}`,
-    [imagesPerBatch],
-  );
-
-  const completedRuns = useMemo(
-    () => Math.floor(Math.max(0, spentCents) / Math.max(1, batchCostCents)),
-    [spentCents, batchCostCents],
-  );
-  const remainingRuns = useMemo(() => {
-    if (budgetRemainingCents === null) {
-      return null;
-    }
-
-    return Math.max(0, Math.floor(budgetRemainingCents / Math.max(1, batchCostCents)));
-  }, [budgetRemainingCents, batchCostCents]);
-  const budgetPresetOptions = useMemo(() => {
-    const safeSpentCents = Math.max(0, spentCents);
-    const safeBatchCostCents = Math.max(1, batchCostCents);
-
-    return [5, 10, 25].map((batches) => {
-      const cents = safeSpentCents + safeBatchCostCents * batches;
-
-      return {
-        batches,
-        cents,
-        label: formatBatchLabel(batches),
-        valueLabel: formatCents(cents),
-      };
-    });
-  }, [batchCostCents, spentCents]);
-  const nextBatchBudgetCents = useMemo(() => {
-    if (budgetCents === null) {
-      return null;
-    }
-
-    return Math.max(0, budgetCents) + Math.max(1, batchCostCents);
-  }, [batchCostCents, budgetCents]);
   const isNearBudgetLimit =
     !isBudgetLocked &&
     budgetRemainingCents !== null &&
-    batchCostCents > 0 &&
-    budgetRemainingCents >= batchCostCents &&
-    budgetRemainingCents < batchCostCents * 2;
+    lastGenerationCostCents !== null &&
+    lastGenerationCostCents > 0 &&
+    budgetRemainingCents < lastGenerationCostCents * 2;
 
   const collapsedSummary = useMemo(() => {
     if (budgetRemainingCents !== null) {
@@ -269,7 +219,7 @@ export function BudgetWidget({
                 ) : isNearBudgetLimit ? (
                   <span className="mt-2 inline-flex items-center gap-1 rounded-md border border-amber-400/20 bg-amber-400/10 px-2 py-1 text-[10px] font-bold text-amber-200">
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-300" aria-hidden="true" />
-                    ONE BATCH LEFT
+                    ALMOST SPENT
                   </span>
                 ) : null}
               </div>
@@ -282,7 +232,7 @@ export function BudgetWidget({
                 Close
               </button>
             </header>
-            
+
             <div className="mt-4 space-y-3 text-sm">
               <div className="flex items-baseline justify-between p-3 rounded-lg bg-[var(--bg-subtle)] border border-[var(--border-subtle)]">
                 <span className="text-[var(--text-secondary)]">Total Budget</span>
@@ -295,7 +245,7 @@ export function BudgetWidget({
                 <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] p-3">
                   <div className="mb-2 flex items-center justify-between text-[11px] font-semibold text-[var(--text-secondary)]">
                     <span>{formatPercent(budgetUsedPercent)} used</span>
-                    <span>{formatPercent(projectedBudgetPercent ?? budgetUsedPercent)} after next batch</span>
+                    {remainingLabel ? <span>{remainingLabel} left</span> : null}
                   </div>
                   <div
                     className="relative h-2 overflow-hidden rounded-full bg-black/40"
@@ -305,12 +255,6 @@ export function BudgetWidget({
                     aria-valuemax={100}
                     aria-valuenow={Math.round(budgetUsedPercent)}
                   >
-                    {projectedBudgetPercent !== null ? (
-                      <div
-                        className="absolute inset-y-0 left-0 rounded-full bg-white/15"
-                        style={{ width: `${projectedBudgetPercent}%` }}
-                      />
-                    ) : null}
                     <div
                       className={`absolute inset-y-0 left-0 rounded-full ${
                         isBudgetLocked ? "bg-red-400" : "bg-white"
@@ -320,64 +264,27 @@ export function BudgetWidget({
                   </div>
                 </div>
               ) : null}
-              
-              {budgetLabel ? (
-                <div className="flex items-baseline justify-between px-2 text-[var(--text-secondary)]">
-                  <span>Remaining</span>
-                  <span className={`text-sm font-medium ${budgetRemainingCents !== null && budgetRemainingCents < batchCostCents ? 'text-red-400 font-bold' : 'text-white'}`}>
-                    {remainingLabel} {remainingRuns !== null ? `(${formatBatchLabel(remainingRuns)})` : null}
-                  </span>
-                </div>
-              ) : (
-                <p className="text-[var(--text-muted)] text-xs leading-relaxed px-1">
-                  Each batch of {imagesPerBatch} images costs <span className="text-[var(--text-primary)] font-medium">{batchCostLabel}</span>.
-                </p>
-              )}
 
-              {isNearBudgetLimit ? (
-                <div className="rounded-lg border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[11px] font-medium leading-relaxed text-amber-100">
-                  <p>
-                    This budget covers the next batch, then generation will pause until you raise or clear the limit.
-                  </p>
-                  {nextBatchBudgetCents !== null ? (
-                    <button
-                      type="button"
-                      onClick={() => handlePresetSave(nextBatchBudgetCents)}
-                      className="mt-2 rounded-md border border-amber-300/30 bg-amber-300/10 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-50 transition-colors hover:border-amber-200/60 hover:bg-amber-300/20 focus:outline-none focus:ring-2 focus:ring-amber-200/30"
-                    >
-                      Add next batch ({formatCents(nextBatchBudgetCents)})
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
-              
               <div className="flex items-baseline justify-between px-2 text-[var(--text-secondary)]">
                 <span>Spent so far</span>
                 <span className="text-sm font-medium text-[var(--text-primary)]">
-                  {spentLabel} ({formatBatchLabel(completedRuns)})
+                  {spentLabel}
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2">
-                  <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                    Next batch
+              {lastCostLabel ? (
+                <div className="flex items-baseline justify-between px-2 text-[var(--text-secondary)]">
+                  <span>Last batch</span>
+                  <span className="text-sm font-medium text-[var(--text-primary)]">
+                    {lastCostLabel}
                   </span>
-                  <span className="mt-1 block text-sm font-semibold text-[var(--text-primary)]">
-                    {batchCostLabel}
-                  </span>
-                  <span className="text-[10px] text-[var(--text-muted)]">{batchLabel}</span>
                 </div>
-                <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2">
-                  <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                    Per image
-                  </span>
-                  <span className="mt-1 block text-sm font-semibold text-[var(--text-primary)]">
-                    {perImageCostLabel}
-                  </span>
-                  <span className="text-[10px] text-[var(--text-muted)]">estimate</span>
-                </div>
-              </div>
+              ) : null}
+
+              <p className="text-[var(--text-muted)] text-xs leading-relaxed px-1">
+                Spending is tracked from the real cost OpenRouter reports for each generation,
+                including upstream BYOK costs.
+              </p>
             </div>
 
             <form onSubmit={handleSubmit} className="mt-5 space-y-2 border-t border-[var(--border-subtle)] pt-4">
@@ -402,7 +309,7 @@ export function BudgetWidget({
                     className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] py-2 pl-6 pr-3 text-sm text-white placeholder:text-[var(--text-muted)] focus:border-[var(--accent-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent-primary)]"
                   />
                 </div>
-                 <button
+                <button
                   type="submit"
                   className="rounded-lg bg-white px-4 py-2 text-[11px] font-bold text-black transition-transform hover:scale-105 active:scale-95 shadow-sm"
                 >
@@ -413,25 +320,25 @@ export function BudgetWidget({
                 <p className="text-[11px] text-red-400 font-medium animate-pulse">{formError}</p>
               ) : null}
               <div className="grid grid-cols-3 gap-2 pt-2">
-                {budgetPresetOptions.map((option) => (
+                {BUDGET_PRESETS_CENTS.map((presetCents) => (
                   <button
-                    key={option.batches}
+                    key={presetCents}
                     type="button"
-                    onClick={() => handlePresetSave(option.cents)}
+                    onClick={() => handlePresetSave(Math.max(0, spentCents) + presetCents)}
                     className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2.5 py-2 text-left transition-colors hover:border-[var(--text-muted)] hover:bg-[var(--bg-subtle)] hover:text-white"
-                    aria-label={`Set budget for ${option.label}`}
+                    aria-label={`Add ${formatCents(presetCents)} of headroom`}
                   >
                     <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                      {option.label}
+                      +{formatCents(presetCents)}
                     </span>
                     <span className="mt-1 block text-xs font-semibold text-[var(--text-primary)]">
-                      {option.valueLabel}
+                      {formatCents(Math.max(0, spentCents) + presetCents)}
                     </span>
                   </button>
                 ))}
               </div>
             </form>
-            
+
             <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
               <button
                 type="button"

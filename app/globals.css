@@ -116,24 +116,6 @@ button:disabled {
   100% { transform: scale(1) rotate(0deg); }
 }
 
-@keyframes prompt-improve-sweep {
-  0% { transform: translateX(-115%) skewX(-16deg); opacity: 0; }
-  18% { opacity: 1; }
-  62% { opacity: 0.9; }
-  100% { transform: translateX(115%) skewX(-16deg); opacity: 0; }
-}
-
-@keyframes prompt-improve-lines {
-  0% { transform: translateX(-18px); }
-  100% { transform: translateX(18px); }
-}
-
-@keyframes prompt-wand {
-  0%, 100% { transform: rotate(0deg) scale(1); }
-  35% { transform: rotate(-8deg) scale(1.08); }
-  70% { transform: rotate(5deg) scale(0.98); }
-}
-
 @keyframes image-grid-drift {
   0% { background-position: 0 0; }
   100% { background-position: 24px 24px; }
@@ -167,51 +149,6 @@ button:disabled {
 
 .copy-wiggle {
   animation: copy-wiggle 180ms ease-out;
-}
-
-.prompt-improve-active {
-  box-shadow:
-    0 28px 80px -44px rgba(255, 255, 255, 0.5),
-    0 20px 60px -30px rgba(0, 0, 0, 0.75);
-}
-
-.prompt-improve-sweep {
-  position: absolute;
-  inset: -30% -20%;
-  background:
-    linear-gradient(
-      100deg,
-      transparent 0%,
-      transparent 36%,
-      rgba(255, 255, 255, 0.08) 44%,
-      rgba(255, 255, 255, 0.28) 50%,
-      rgba(255, 255, 255, 0.08) 56%,
-      transparent 64%,
-      transparent 100%
-    );
-  animation: prompt-improve-sweep 1.8s ease-in-out infinite;
-}
-
-.prompt-improve-lines {
-  position: absolute;
-  inset: 1px;
-  border-radius: 23px;
-  background:
-    repeating-linear-gradient(
-      90deg,
-      rgba(255, 255, 255, 0.08) 0,
-      rgba(255, 255, 255, 0.08) 1px,
-      transparent 1px,
-      transparent 18px
-    );
-  mask-image: linear-gradient(90deg, transparent, #000 20%, #000 80%, transparent);
-  opacity: 0.26;
-  animation: prompt-improve-lines 1.4s linear infinite alternate;
-}
-
-.prompt-wand {
-  animation: prompt-wand 1s ease-in-out infinite;
-  transform-origin: 60% 45%;
 }
 
 .image-loading-grid {
@@ -291,9 +228,6 @@ button:disabled {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .prompt-improve-sweep,
-  .prompt-improve-lines,
-  .prompt-wand,
   .image-loading-grid,
   .image-loading-scan,
   .image-loading-frame,

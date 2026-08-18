@@ -4,40 +4,33 @@ import NextImage from "next/image";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { debugLog } from "./create-page/logger";
-import { generateSeedream } from "../lib/generate-seedream";
-import { calculateOpenAIActualCost, estimateOpenAIImageRequestCost } from "../lib/openai-image-costs";
+import { generateImage } from "../lib/generate-image";
 import {
-  type AspectSelection,
-  DEFAULT_GEMINI_MODEL_VARIANT,
-  DEFAULT_FLASH_REASONING_LEVEL,
-  DEFAULT_OPENAI_MODEL,
-  DEFAULT_OPENAI_QUALITY,
-  calculateOpenAIImageSize,
-  calculateOpenAIImageSizeFromReferenceRatio,
-  calculateOpenAIImageSizeForLongEdge,
-  calculateImageSize,
-  calculateImageSizeFromReferenceRatio,
-  getAspectOptionsForModel,
-  getOpenAIImageSizeError,
-  isFlashOnlyAspect,
-  normalizeOpenAIReferenceSize,
-  supportsOpenAIAspect,
-  type AspectKey,
-  type FlashReasoningLevel,
-  type GeminiModelVariant,
-  type OpenAIModel,
-  type OpenAIModelSelection,
-  type OpenAIQuality,
-  type OpenAIResolutionMode,
-  type QualitySelection,
-  type QualityKey,
-  type Provider,
+  fetchImageModels,
+  fetchModelEndpoints,
+  getRangeMax,
+  totalUsageCostUsd,
+  type ImageModel,
   type OutputFormat,
-} from "../lib/seedream-options";
+  type ProviderPreference,
+} from "../lib/openrouter";
+import {
+  AUTO_OPTION,
+  DEFAULT_ASPECT_RATIO,
+  DEFAULT_QUALITY,
+  DEFAULT_RESOLUTION,
+  LEGACY_ASPECT_RATIO_BY_KEY,
+  estimateImageSize,
+  getSupportedAspectRatios,
+  getSupportedOutputFormats,
+  getSupportedQualities,
+  getSupportedResolutions,
+  resolveActiveParameters,
+} from "../lib/image-options";
 import { EmptyState } from "./create-page/empty-state";
 import { GenerationGroup } from "./create-page/generation-list";
 import { GalleryView } from "./create-page/gallery-view";
-import { Header } from "./create-page/header";
+import { Header, type ModelEndpointsState } from "./create-page/header";
 import { Lightbox } from "./create-page/lightbox";
 import { AttachmentLightbox } from "./create-page/attachment-lightbox";
 import { BudgetWidget } from "./create-page/budget-widget";
@@ -49,52 +42,99 @@ import { createId, groupByDate, normalizeImages } from "./create-page/utils";
 import type {
   GalleryEntry,
   Generation,
-  ImageThoughts,
   PromptAttachment,
   ReusePromptOptions,
 } from "./create-page/types";
-import { ThoughtsModal } from "./create-page/thoughts-modal";
 import { cacheGenerationAssets, clearPending, loadPending, restoreGenerations, persistGenerations, savePending, deleteGenerationData, deleteOutputImageData, cleanOrphanedImages, isStoredAssetRef, resolveStoredAssetBlob, resolveStoredAssetUrl } from "./create-page/storage";
 import { useInfiniteScroll } from "./create-page/use-infinite-scroll";
 
 const defaultPrompt =
   "Cinematic shot of a futuristic city at night, neon lights, rain reflections, highly detailed, 8k resolution";
-const defaultAspectKey: AspectKey = "portrait-9-16";
-const defaultAspect: AspectSelection = defaultAspectKey;
-const defaultQualityKey: QualityKey = "2k";
-const defaultQuality: QualitySelection = defaultQualityKey;
 const defaultOutputFormat: OutputFormat = "png";
-const defaultOpenAIResolutionMode: OpenAIResolutionMode = "preset";
-const APP_VERSION = "1.2.1";
+const APP_VERSION = "2.0.0";
 
 const STORAGE_KEYS = {
-  prompt: "seedream:prompt",
-  promptHistory: "seedream:prompt_history",
-  promptSnippets: "seedream:prompt_snippets",
-  aspect: "seedream:aspect",
-  quality: "seedream:quality",
-  provider: "seedream:provider",
-  outputFormat: "seedream:output_format",
-  imageCount: "seedream:image_count",
-  apiKey: "seedream:api_key",
-  budgetCents: "seedream:budget_cents",
-  spentCents: "seedream:spent_cents",
-  geminiApiKey: "seedream:gemini_api_key",
-  geminiModelVariant: "seedream:gemini_model_variant",
-  flashReasoningLevel: "seedream:flash_reasoning_level",
-  googleSearchEnabled: "seedream:google_search_enabled",
-  openAIApiKey: "seedream:openai_api_key",
-  openAIApiKeyUpdatedAt: "seedream:openai_api_key_updated_at",
-  openAIModel: "seedream:openai_model",
-  openAIQuality: "seedream:openai_quality",
-  openAIResolutionMode: "seedream:openai_resolution_mode",
-  openAICustomWidth: "seedream:openai_custom_width",
-  openAICustomHeight: "seedream:openai_custom_height",
+  prompt: "dreamint:prompt",
+  promptHistory: "dreamint:prompt_history",
+  aspectRatio: "dreamint:aspect_ratio",
+  resolution: "dreamint:resolution",
+  quality: "dreamint:quality",
+  outputFormat: "dreamint:output_format",
+  imageCount: "dreamint:image_count",
+  budgetCents: "dreamint:budget_cents",
+  spentCents: "dreamint:spent_cents",
+  apiKey: "dreamint:openrouter_api_key",
+  apiKeyUpdatedAt: "dreamint:openrouter_api_key_updated_at",
+  enabledModels: "dreamint:enabled_models",
+  selectedModel: "dreamint:selected_model",
+  providerPrefs: "dreamint:model_providers",
+  galleryPreferences: "dreamint:gallery_preferences",
 } as const;
 
+// Direct renames from the pre-OpenRouter "seedream:" prefix.
+const LEGACY_KEY_RENAMES: Record<string, string> = {
+  "seedream:prompt": STORAGE_KEYS.prompt,
+  "seedream:prompt_history": STORAGE_KEYS.promptHistory,
+  "seedream:output_format": STORAGE_KEYS.outputFormat,
+  "seedream:image_count": STORAGE_KEYS.imageCount,
+  "seedream:budget_cents": STORAGE_KEYS.budgetCents,
+  "seedream:spent_cents": STORAGE_KEYS.spentCents,
+  "seedream:openai_quality": STORAGE_KEYS.quality,
+  "seedream:gallery_preferences": STORAGE_KEYS.galleryPreferences,
+};
+
+const LEGACY_RESOLUTION_BY_QUALITY: Record<string, string> = {
+  "1k": "1K",
+  "2k": "2K",
+  "4k": "4K",
+};
+
+function migrateLegacyLocalStorage() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    for (const [legacyKey, nextKey] of Object.entries(LEGACY_KEY_RENAMES)) {
+      const value = window.localStorage.getItem(legacyKey);
+      if (value !== null && window.localStorage.getItem(nextKey) === null) {
+        window.localStorage.setItem(nextKey, value);
+      }
+    }
+
+    const legacyAspect = window.localStorage.getItem("seedream:aspect");
+    if (legacyAspect !== null && window.localStorage.getItem(STORAGE_KEYS.aspectRatio) === null) {
+      const migratedAspect =
+        legacyAspect === AUTO_OPTION ? AUTO_OPTION : LEGACY_ASPECT_RATIO_BY_KEY[legacyAspect];
+      if (migratedAspect) {
+        window.localStorage.setItem(STORAGE_KEYS.aspectRatio, migratedAspect);
+      }
+    }
+
+    const legacyQuality = window.localStorage.getItem("seedream:quality");
+    if (legacyQuality !== null && window.localStorage.getItem(STORAGE_KEYS.resolution) === null) {
+      const migratedResolution = LEGACY_RESOLUTION_BY_QUALITY[legacyQuality];
+      if (migratedResolution) {
+        window.localStorage.setItem(STORAGE_KEYS.resolution, migratedResolution);
+      }
+    }
+
+    const legacyKeys: string[] = [];
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (key?.startsWith("seedream:")) {
+        legacyKeys.push(key);
+      }
+    }
+    legacyKeys.forEach((key) => window.localStorage.removeItem(key));
+  } catch (error) {
+    console.error("Legacy localStorage migration failed", error);
+  }
+}
+
 const MAX_ATTACHMENTS = 8;
+const MAX_IMAGE_COUNT = 4;
 const MAX_PROMPT_HISTORY = 5;
-const MAX_PROMPT_SNIPPETS = 6;
 const ATTACHMENT_LIMIT_MESSAGE = `Maximum of ${MAX_ATTACHMENTS} images allowed.`;
 const ATTACHMENT_TYPE_MESSAGE = "Only image files can be used for editing.";
 const ATTACHMENT_READ_MESSAGE = "Unable to load one of the images you pasted or uploaded.";
@@ -110,48 +150,6 @@ const ATTACHMENT_ERROR_MESSAGES = new Set([
   ATTACHMENT_DUPLICATES_MESSAGE,
   ATTACHMENT_PARTIAL_LIMIT_MESSAGE,
 ]);
-
-const ASPECT_VALUES: AspectKey[] = [
-  "square-1-1",
-  "portrait-1-2",
-  "portrait-1-4",
-  "portrait-1-8",
-  "portrait-2-3",
-  "portrait-3-4",
-  "portrait-4-5",
-  "portrait-9-16",
-  "landscape-2-1",
-  "landscape-4-1",
-  "landscape-8-1",
-  "landscape-3-2",
-  "landscape-4-3",
-  "landscape-5-4",
-  "landscape-16-9",
-  "landscape-21-9",
-];
-const ASPECT_SELECTION_VALUES: AspectSelection[] = ["auto", ...ASPECT_VALUES];
-const QUALITY_VALUES: QualityKey[] = ["1k", "2k", "4k"];
-const QUALITY_SELECTION_VALUES: QualitySelection[] = ["auto", ...QUALITY_VALUES];
-
-function isAspectKey(value: string | null): value is AspectKey {
-  return typeof value === "string" && (ASPECT_VALUES as string[]).includes(value);
-}
-
-function isAspectSelection(value: string | null): value is AspectSelection {
-  return typeof value === "string" && (ASPECT_SELECTION_VALUES as string[]).includes(value);
-}
-
-function isQualitySelection(value: string | null): value is QualitySelection {
-  return typeof value === "string" && (QUALITY_SELECTION_VALUES as string[]).includes(value);
-}
-
-function normalizeStoredOpenAIModel(value: string | null): OpenAIModelSelection | null {
-  if (value === "gpt-image-2") {
-    return value;
-  }
-
-  return null;
-}
 
 function safePersist(key: string, value: string | null) {
   if (typeof window === "undefined") {
@@ -178,6 +176,86 @@ function parseStoredCents(value: string | null): number | null {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+function parseStoredStringList(value: string | null, maxItems: number): string[] {
+  if (value === null) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    const seen = new Set<string>();
+    const items: string[] = [];
+
+    for (const item of parsed) {
+      if (typeof item !== "string") {
+        continue;
+      }
+
+      const trimmedItem = item.trim();
+      if (!trimmedItem || seen.has(trimmedItem)) {
+        continue;
+      }
+
+      seen.add(trimmedItem);
+      items.push(trimmedItem);
+
+      if (items.length >= maxItems) {
+        break;
+      }
+    }
+
+    return items;
+  } catch {
+    return [];
+  }
+}
+
+function parseStoredProviderPrefs(value: string | null): Record<string, ProviderPreference> {
+  if (value === null) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+
+    const prefs: Record<string, ProviderPreference> = {};
+    for (const [modelId, pref] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!pref || typeof pref !== "object") {
+        continue;
+      }
+
+      const record = pref as { providerTag?: unknown; allowFallbacks?: unknown };
+      if (typeof record.providerTag !== "string" || record.providerTag.length === 0) {
+        continue;
+      }
+
+      prefs[modelId] = {
+        providerTag: record.providerTag,
+        allowFallbacks: record.allowFallbacks === true,
+      };
+    }
+
+    return prefs;
+  } catch {
+    return {};
+  }
+}
+
+function dollarsToCents(value: number | null | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return 0;
+  }
+
+  return Math.max(1, Math.round(value * 100));
+}
+
 function getAttachmentAddNotice({
   skippedDuplicates,
   skippedForLimit,
@@ -198,90 +276,6 @@ function getAttachmentAddNotice({
   }
 
   return null;
-}
-
-function parseStoredPromptHistory(value: string | null): string[] {
-  if (value === null) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(value);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    const seen = new Set<string>();
-    const history: string[] = [];
-
-    for (const item of parsed) {
-      if (typeof item !== "string") {
-        continue;
-      }
-
-      const trimmedItem = item.trim();
-      if (!trimmedItem || seen.has(trimmedItem)) {
-        continue;
-      }
-
-      seen.add(trimmedItem);
-      history.push(trimmedItem);
-
-      if (history.length >= MAX_PROMPT_HISTORY) {
-        break;
-      }
-    }
-
-    return history;
-  } catch {
-    return [];
-  }
-}
-
-function parseStoredPromptSnippets(value: string | null): string[] {
-  if (value === null) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(value);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    const seen = new Set<string>();
-    const snippets: string[] = [];
-
-    for (const item of parsed) {
-      if (typeof item !== "string") {
-        continue;
-      }
-
-      const trimmedItem = item.trim();
-      if (!trimmedItem || seen.has(trimmedItem)) {
-        continue;
-      }
-
-      seen.add(trimmedItem);
-      snippets.push(trimmedItem);
-
-      if (snippets.length >= MAX_PROMPT_SNIPPETS) {
-        break;
-      }
-    }
-
-    return snippets;
-  } catch {
-    return [];
-  }
-}
-
-function dollarsToCents(value: number | null | undefined): number {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    return 0;
-  }
-
-  return Math.max(1, Math.round(value * 100));
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {
@@ -380,46 +374,24 @@ async function resolveImageSourceBlob(source: string): Promise<Blob | null> {
   }
 }
 
-function parseDimensionInput(value: string): number | null {
-  const trimmedValue = value.trim();
-  if (!trimmedValue) {
-    return null;
-  }
-
-  const parsedValue = Number.parseInt(trimmedValue, 10);
-  if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
-    return null;
-  }
-
-  return parsedValue;
-}
-
 export function CreatePage() {
   const [view, setView] = useState<"create" | "gallery">("create");
   const [viewportHeight, setViewportHeight] = useState("100dvh");
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [promptHistory, setPromptHistory] = useState<string[]>([]);
-  const [promptSnippets, setPromptSnippets] = useState<string[]>([]);
-  const [aspect, setAspect] = useState<AspectSelection>(defaultAspect);
-  const [quality, setQuality] = useState<QualitySelection>(defaultQuality);
+  const [aspectRatio, setAspectRatio] = useState<string>(DEFAULT_ASPECT_RATIO);
+  const [resolution, setResolution] = useState<string>(DEFAULT_RESOLUTION);
+  const [quality, setQuality] = useState<string>(DEFAULT_QUALITY);
   const [outputFormat, setOutputFormat] = useState<OutputFormat>(defaultOutputFormat);
-  const [provider, setProvider] = useState<Provider>("openai");
-  const [geminiModelVariant, setGeminiModelVariant] =
-    useState<GeminiModelVariant>(DEFAULT_GEMINI_MODEL_VARIANT);
-  const [flashReasoningLevel, setFlashReasoningLevel] =
-    useState<FlashReasoningLevel>(DEFAULT_FLASH_REASONING_LEVEL);
   const [imageCount, setImageCount] = useState<number>(4);
   const [apiKey, setApiKey] = useState("");
-  const [geminiApiKey, setGeminiApiKey] = useState("");
-  const [openAIApiKey, setOpenAIApiKey] = useState("");
-  const [openAIApiKeyUpdatedAt, setOpenAIApiKeyUpdatedAt] = useState<string | null>(null);
-  const [openAIModel, setOpenAIModel] = useState<OpenAIModelSelection>(DEFAULT_OPENAI_MODEL);
-  const [openAIQuality, setOpenAIQuality] = useState<OpenAIQuality>(DEFAULT_OPENAI_QUALITY);
-  const [openAIResolutionMode, setOpenAIResolutionMode] =
-    useState<OpenAIResolutionMode>(defaultOpenAIResolutionMode);
-  const [openAICustomWidth, setOpenAICustomWidth] = useState("");
-  const [openAICustomHeight, setOpenAICustomHeight] = useState("");
-  const [useGoogleSearch, setUseGoogleSearch] = useState(false);
+  const [apiKeyUpdatedAt, setApiKeyUpdatedAt] = useState<string | null>(null);
+  const [modelCatalog, setModelCatalog] = useState<ImageModel[] | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [enabledModelIds, setEnabledModelIds] = useState<string[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+  const [providerPrefs, setProviderPrefs] = useState<Record<string, ProviderPreference>>({});
+  const [modelEndpoints, setModelEndpoints] = useState<ModelEndpointsState>({});
   const [attachments, setAttachments] = useState<PromptAttachment[]>([]);
   const [attachmentPreview, setAttachmentPreview] = useState<PromptAttachment | null>(null);
   const [generations, setGenerations] = useState<Generation[]>([]);
@@ -432,35 +404,169 @@ export function CreatePage() {
   const [isChangelogOpen, setIsChangelogOpen] = useState(false);
   const [budgetCents, setBudgetCents] = useState<number | null>(null);
   const [spentCents, setSpentCents] = useState(0);
+  const [lastGenerationCostCents, setLastGenerationCostCents] = useState<number | null>(null);
   const [lightboxSelection, setLightboxSelection] = useState<{ generationId: string; imageIndex: number } | null>(null);
-  const [thoughtsToShow, setThoughtsToShow] = useState<ImageThoughts | null>(null);
-  const [streamingThoughts, setStreamingThoughts] = useState<Map<string, (ImageThoughts | null)[]>>(new Map());
   const storageHydratedRef = useRef(false);
   const pendingHydratedRef = useRef(false);
   const pendingReconciledRef = useRef(false);
   const cleanupRanRef = useRef(false);
-  const isOpenAIProvider = provider === "openai";
-  const parsedOpenAICustomWidth = parseDimensionInput(openAICustomWidth);
-  const parsedOpenAICustomHeight = parseDimensionInput(openAICustomHeight);
-  const openAICustomSizeError = useMemo(() => {
-    if (!isOpenAIProvider || openAIResolutionMode !== "custom") {
+  const endpointsRequestedRef = useRef<Set<string>>(new Set());
+
+  const selectedModel = useMemo(
+    () => modelCatalog?.find((model) => model.id === selectedModelId) ?? null,
+    [modelCatalog, selectedModelId],
+  );
+  const selectedProviderPref = selectedModelId ? providerPrefs[selectedModelId] ?? null : null;
+  const pinnedEndpoint = useMemo(() => {
+    if (!selectedModelId || !selectedProviderPref?.providerTag) {
       return null;
     }
 
-    if (parsedOpenAICustomWidth === null || parsedOpenAICustomHeight === null) {
-      return "Enter width and height in pixels.";
+    const entry = modelEndpoints[selectedModelId];
+    if (entry?.status !== "loaded") {
+      return null;
     }
 
-    return getOpenAIImageSizeError({
-      width: parsedOpenAICustomWidth,
-      height: parsedOpenAICustomHeight,
-    });
+    return (
+      entry.endpoints.find(
+        (endpoint) => endpoint.provider_tag === selectedProviderPref.providerTag,
+      ) ?? null
+    );
+  }, [modelEndpoints, selectedModelId, selectedProviderPref]);
+  const activeParameters = useMemo(
+    () => resolveActiveParameters(selectedModel, pinnedEndpoint),
+    [pinnedEndpoint, selectedModel],
+  );
+  const supportedAspectRatios = useMemo(
+    () => getSupportedAspectRatios(activeParameters),
+    [activeParameters],
+  );
+  const supportedResolutions = useMemo(
+    () => getSupportedResolutions(activeParameters),
+    [activeParameters],
+  );
+  const supportedQualities = useMemo(
+    () => getSupportedQualities(activeParameters),
+    [activeParameters],
+  );
+  const referenceLimit = selectedModel
+    ? getRangeMax(activeParameters ?? undefined, "input_references", 0)
+    : null;
+
+  const loadModelEndpoints = useCallback((modelId: string) => {
+    if (endpointsRequestedRef.current.has(modelId)) {
+      return;
+    }
+
+    endpointsRequestedRef.current.add(modelId);
+    setModelEndpoints((previous) => ({
+      ...previous,
+      [modelId]: { status: "loading", endpoints: [] },
+    }));
+
+    fetchModelEndpoints(modelId)
+      .then((endpoints) => {
+        setModelEndpoints((previous) => ({
+          ...previous,
+          [modelId]: { status: "loaded", endpoints },
+        }));
+      })
+      .catch((endpointsError) => {
+        console.error(`Unable to load providers for ${modelId}`, endpointsError);
+        endpointsRequestedRef.current.delete(modelId);
+        setModelEndpoints((previous) => ({
+          ...previous,
+          [modelId]: { status: "error", endpoints: [] },
+        }));
+      });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchImageModels()
+      .then((models) => {
+        if (!cancelled) {
+          setModelCatalog(models);
+          setCatalogError(null);
+        }
+      })
+      .catch((fetchError) => {
+        if (!cancelled) {
+          setCatalogError(
+            fetchError instanceof Error
+              ? fetchError.message
+              : "Unable to load the OpenRouter model catalog.",
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (selectedModelId) {
+      loadModelEndpoints(selectedModelId);
+    }
+  }, [loadModelEndpoints, selectedModelId]);
+
+  // Keep the selected model inside the enabled list.
+  useEffect(() => {
+    if (enabledModelIds.length === 0) {
+      if (selectedModelId !== null) {
+        setSelectedModelId(null);
+      }
+      return;
+    }
+
+    if (!selectedModelId || !enabledModelIds.includes(selectedModelId)) {
+      setSelectedModelId(enabledModelIds[0]);
+    }
+  }, [enabledModelIds, selectedModelId]);
+
+  // Clamp aspect/resolution/quality to what the active model (and pinned provider) supports.
+  useEffect(() => {
+    if (!selectedModel) {
+      return;
+    }
+
+    if (
+      supportedAspectRatios.length > 0 &&
+      aspectRatio !== AUTO_OPTION &&
+      !supportedAspectRatios.includes(aspectRatio)
+    ) {
+      setAspectRatio(
+        supportedAspectRatios.includes(DEFAULT_ASPECT_RATIO)
+          ? DEFAULT_ASPECT_RATIO
+          : supportedAspectRatios[0],
+      );
+    }
+
+    if (supportedResolutions.length > 0 && !supportedResolutions.includes(resolution)) {
+      setResolution(
+        supportedResolutions.includes(DEFAULT_RESOLUTION)
+          ? DEFAULT_RESOLUTION
+          : supportedResolutions[supportedResolutions.length - 1],
+      );
+    }
+
+    if (supportedQualities.length > 0 && !supportedQualities.includes(quality)) {
+      setQuality(
+        supportedQualities.includes(DEFAULT_QUALITY) ? DEFAULT_QUALITY : supportedQualities[0],
+      );
+    }
   }, [
-    isOpenAIProvider,
-    openAIResolutionMode,
-    parsedOpenAICustomHeight,
-    parsedOpenAICustomWidth,
+    aspectRatio,
+    quality,
+    resolution,
+    selectedModel,
+    supportedAspectRatios,
+    supportedQualities,
+    supportedResolutions,
   ]);
+
   const attachmentInputImages = useMemo(
     () =>
       attachments.map((attachment) => ({
@@ -494,167 +600,12 @@ export function CreatePage() {
       height: firstReference.height,
     };
   }, [attachmentInputImages]);
-  const canUseAutoQuality =
-    isOpenAIProvider &&
-    openAIResolutionMode !== "custom" &&
-    aspect === "auto" &&
-    referenceAspectSource !== null;
-  const openAIPresetSizeLabel = useMemo(() => {
-    try {
-      if (aspect === "auto") {
-        if (!referenceAspectSource) {
-          return "Upload an image";
-        }
 
-        const resolvedSize =
-          quality === "auto"
-            ? normalizeOpenAIReferenceSize(referenceAspectSource)
-            : calculateOpenAIImageSizeFromReferenceRatio(referenceAspectSource, quality);
-        return `${resolvedSize.width}×${resolvedSize.height}`;
-      }
-
-      const presetSize = calculateOpenAIImageSize(aspect, quality === "auto" ? defaultQualityKey : quality);
-      return `${presetSize.width}×${presetSize.height}`;
-    } catch {
-      const fallbackSize = calculateOpenAIImageSize(defaultAspectKey, defaultQualityKey);
-      return `${fallbackSize.width}×${fallbackSize.height}`;
-    }
-  }, [aspect, quality, referenceAspectSource]);
-
-  const resolveDraftSize = useCallback(() => {
-    if (aspect === "auto") {
-      if (!referenceAspectSource) {
-        throw new Error("Upload an image to use Auto aspect.");
-      }
-
-      if (provider === "openai") {
-        const size =
-          quality === "auto"
-            ? normalizeOpenAIReferenceSize(referenceAspectSource)
-            : calculateOpenAIImageSizeFromReferenceRatio(referenceAspectSource, quality);
-
-        return {
-          aspect: "custom" as const,
-          size,
-          sizeOverride: size,
-        };
-      }
-
-      if (quality === "auto") {
-        throw new Error("Auto quality is only available with OpenAI when Auto aspect is selected.");
-      }
-
-      const size = calculateImageSizeFromReferenceRatio(referenceAspectSource, quality);
-      return {
-        aspect: "custom" as const,
-        size,
-        sizeOverride: size,
-      };
-    }
-
-    if (provider === "openai") {
-      if (openAIResolutionMode === "custom") {
-        if (parsedOpenAICustomWidth === null || parsedOpenAICustomHeight === null) {
-          throw new Error("Enter width and height in pixels.");
-        }
-
-        const size = {
-          width: parsedOpenAICustomWidth,
-          height: parsedOpenAICustomHeight,
-        };
-        const sizeError = getOpenAIImageSizeError(size);
-        if (sizeError) {
-          throw new Error(sizeError);
-        }
-
-        return {
-          aspect: "custom" as const,
-          size,
-          sizeOverride: size,
-        };
-      }
-
-      const presetSize = calculateOpenAIImageSize(aspect, quality === "auto" ? defaultQualityKey : quality);
-      return {
-        aspect,
-        size: presetSize,
-        sizeOverride: undefined,
-      };
-    }
-
-    if (quality === "auto") {
-      throw new Error("Auto quality is only available with OpenAI when Auto aspect is selected.");
-    }
-
-    return {
-      aspect,
-      size: calculateImageSize(aspect, quality),
-      sizeOverride: undefined,
-    };
-  }, [
-    aspect,
-    openAIResolutionMode,
-    parsedOpenAICustomHeight,
-    parsedOpenAICustomWidth,
-    provider,
-    quality,
-    referenceAspectSource,
-  ]);
-  const estimatedOpenAICost = useMemo(() => {
-    if (!isOpenAIProvider) {
-      return null;
-    }
-
-    try {
-      const draftSize = resolveDraftSize();
-      return estimateOpenAIImageRequestCost({
-        prompt,
-        size: draftSize.size,
-        quality: openAIQuality,
-        imageCount,
-        inputImages: attachmentInputImages,
-      });
-    } catch {
-      return null;
-    }
-  }, [
-    attachmentInputImages,
-    imageCount,
-    isOpenAIProvider,
-    openAIQuality,
-    prompt,
-    resolveDraftSize,
-  ]);
-  const batchCostCents = useMemo(
-    () => dollarsToCents(estimatedOpenAICost?.totalCostUsd),
-    [estimatedOpenAICost],
-  );
   const budgetRemainingCents = useMemo(
     () => (budgetCents !== null ? Math.max(0, budgetCents - spentCents) : null),
     [budgetCents, spentCents],
   );
-  const isBudgetLocked = useMemo(() => {
-    if (budgetCents === null) {
-      return false;
-    }
-
-    if (spentCents >= budgetCents) {
-      return true;
-    }
-
-    return batchCostCents > 0 && spentCents + batchCostCents > budgetCents;
-  }, [batchCostCents, budgetCents, spentCents]);
-
-  const applyAttachmentSizing = useCallback(
-    () => {
-      setAspect("auto");
-      if (provider === "openai") {
-        setOpenAIResolutionMode("preset");
-        setQuality("auto");
-      }
-    },
-    [provider],
-  );
+  const isBudgetLocked = budgetCents !== null && spentCents >= budgetCents;
 
   useEffect(() => {
     if (!window.visualViewport) return;
@@ -712,44 +663,34 @@ export function CreatePage() {
 
     const loadState = async () => {
       try {
+        migrateLegacyLocalStorage();
+
         const storedPrompt = window.localStorage.getItem(STORAGE_KEYS.prompt);
         if (storedPrompt !== null) {
           setPrompt(storedPrompt);
         }
 
-        const storedPromptHistory = parseStoredPromptHistory(
+        const storedPromptHistory = parseStoredStringList(
           window.localStorage.getItem(STORAGE_KEYS.promptHistory),
+          MAX_PROMPT_HISTORY,
         );
         if (storedPromptHistory.length > 0) {
           setPromptHistory(storedPromptHistory);
         }
 
-        const storedPromptSnippets = parseStoredPromptSnippets(
-          window.localStorage.getItem(STORAGE_KEYS.promptSnippets),
-        );
-        if (storedPromptSnippets.length > 0) {
-          setPromptSnippets(storedPromptSnippets);
+        const storedAspectRatio = window.localStorage.getItem(STORAGE_KEYS.aspectRatio);
+        if (storedAspectRatio === AUTO_OPTION || /^\d+:\d+$/.test(storedAspectRatio ?? "")) {
+          setAspectRatio(storedAspectRatio as string);
         }
 
-        const storedAspect = window.localStorage.getItem(STORAGE_KEYS.aspect);
-        if (isAspectSelection(storedAspect)) {
-          setAspect(storedAspect);
+        const storedResolution = window.localStorage.getItem(STORAGE_KEYS.resolution);
+        if (storedResolution !== null && storedResolution.length > 0) {
+          setResolution(storedResolution);
         }
 
         const storedQuality = window.localStorage.getItem(STORAGE_KEYS.quality);
-        if (isQualitySelection(storedQuality)) {
+        if (storedQuality !== null && storedQuality.length > 0) {
           setQuality(storedQuality);
-        }
-
-        setProvider("openai");
-
-        const storedGeminiModelVariant = window.localStorage.getItem(STORAGE_KEYS.geminiModelVariant);
-        if (storedGeminiModelVariant === "pro" || storedGeminiModelVariant === "flash") {
-          setGeminiModelVariant(storedGeminiModelVariant);
-        }
-        const storedFlashReasoningLevel = window.localStorage.getItem(STORAGE_KEYS.flashReasoningLevel);
-        if (storedFlashReasoningLevel === "minimal" || storedFlashReasoningLevel === "high") {
-          setFlashReasoningLevel(storedFlashReasoningLevel);
         }
 
         const storedOutputFormat = window.localStorage.getItem(STORAGE_KEYS.outputFormat);
@@ -760,14 +701,9 @@ export function CreatePage() {
         const storedImageCount = window.localStorage.getItem(STORAGE_KEYS.imageCount);
         if (storedImageCount !== null) {
           const count = parseInt(storedImageCount, 10);
-          if (Number.isFinite(count) && count >= 1 && count <= 4) {
+          if (Number.isFinite(count) && count >= 1 && count <= MAX_IMAGE_COUNT) {
             setImageCount(count);
           }
-        }
-
-        const storedApiKey = window.localStorage.getItem(STORAGE_KEYS.apiKey);
-        if (storedApiKey !== null) {
-          setApiKey(storedApiKey);
         }
 
         const storedBudgetCents = parseStoredCents(window.localStorage.getItem(STORAGE_KEYS.budgetCents));
@@ -776,50 +712,32 @@ export function CreatePage() {
         const storedSpentCents = parseStoredCents(window.localStorage.getItem(STORAGE_KEYS.spentCents));
         setSpentCents(storedSpentCents ?? 0);
 
-        const storedGeminiApiKey = window.localStorage.getItem(STORAGE_KEYS.geminiApiKey);
-        if (storedGeminiApiKey !== null) {
-          setGeminiApiKey(storedGeminiApiKey);
+        const storedApiKey = window.localStorage.getItem(STORAGE_KEYS.apiKey);
+        if (storedApiKey !== null) {
+          setApiKey(storedApiKey);
         }
 
-        const storedOpenAIApiKey = window.localStorage.getItem(STORAGE_KEYS.openAIApiKey);
-        if (storedOpenAIApiKey !== null) {
-          setOpenAIApiKey(storedOpenAIApiKey);
+        const storedApiKeyUpdatedAt = window.localStorage.getItem(STORAGE_KEYS.apiKeyUpdatedAt);
+        if (storedApiKeyUpdatedAt !== null && !Number.isNaN(Date.parse(storedApiKeyUpdatedAt))) {
+          setApiKeyUpdatedAt(storedApiKeyUpdatedAt);
         }
 
-        const storedOpenAIApiKeyUpdatedAt = window.localStorage.getItem(STORAGE_KEYS.openAIApiKeyUpdatedAt);
-        if (storedOpenAIApiKeyUpdatedAt !== null && !Number.isNaN(Date.parse(storedOpenAIApiKeyUpdatedAt))) {
-          setOpenAIApiKeyUpdatedAt(storedOpenAIApiKeyUpdatedAt);
+        const storedEnabledModels = parseStoredStringList(
+          window.localStorage.getItem(STORAGE_KEYS.enabledModels),
+          200,
+        );
+        if (storedEnabledModels.length > 0) {
+          setEnabledModelIds(storedEnabledModels);
         }
 
-        const storedOpenAIModel = normalizeStoredOpenAIModel(window.localStorage.getItem(STORAGE_KEYS.openAIModel));
-        if (storedOpenAIModel) {
-          setOpenAIModel(storedOpenAIModel);
+        const storedSelectedModel = window.localStorage.getItem(STORAGE_KEYS.selectedModel);
+        if (storedSelectedModel !== null && storedSelectedModel.length > 0) {
+          setSelectedModelId(storedSelectedModel);
         }
 
-        const storedOpenAIQuality = window.localStorage.getItem(STORAGE_KEYS.openAIQuality);
-        if (storedOpenAIQuality === "low" || storedOpenAIQuality === "medium" || storedOpenAIQuality === "high") {
-          setOpenAIQuality(storedOpenAIQuality);
-        }
-
-        const storedOpenAIResolutionMode = window.localStorage.getItem(STORAGE_KEYS.openAIResolutionMode);
-        if (storedOpenAIResolutionMode === "preset" || storedOpenAIResolutionMode === "custom") {
-          setOpenAIResolutionMode(storedOpenAIResolutionMode);
-        }
-
-        const storedOpenAICustomWidth = window.localStorage.getItem(STORAGE_KEYS.openAICustomWidth);
-        if (storedOpenAICustomWidth !== null) {
-          setOpenAICustomWidth(storedOpenAICustomWidth);
-        }
-
-        const storedOpenAICustomHeight = window.localStorage.getItem(STORAGE_KEYS.openAICustomHeight);
-        if (storedOpenAICustomHeight !== null) {
-          setOpenAICustomHeight(storedOpenAICustomHeight);
-        }
-
-        const storedGoogleSearch = window.localStorage.getItem(STORAGE_KEYS.googleSearchEnabled);
-        if (storedGoogleSearch === "true") {
-          setUseGoogleSearch(true);
-        }
+        setProviderPrefs(
+          parseStoredProviderPrefs(window.localStorage.getItem(STORAGE_KEYS.providerPrefs)),
+        );
 
         let generationData: Generation[] | null = null;
         let pendingData: Generation[] | null = null;
@@ -848,12 +766,6 @@ export function CreatePage() {
               generationData.map((generation) => ({
                 ...generation,
                 outputFormat: generation.outputFormat ?? defaultOutputFormat,
-                modelVariant:
-                  generation.provider === "openai"
-                    ? generation.modelVariant
-                    : generation.modelVariant ?? DEFAULT_GEMINI_MODEL_VARIANT,
-                openAIModel: generation.openAIModel ?? DEFAULT_OPENAI_MODEL,
-                openAIQuality: generation.openAIQuality ?? DEFAULT_OPENAI_QUALITY,
               })),
             );
           }
@@ -862,18 +774,12 @@ export function CreatePage() {
               pendingData.map((pending) => ({
                 ...pending,
                 outputFormat: pending.outputFormat ?? defaultOutputFormat,
-                modelVariant:
-                  pending.provider === "openai"
-                    ? pending.modelVariant
-                    : pending.modelVariant ?? DEFAULT_GEMINI_MODEL_VARIANT,
-                openAIModel: pending.openAIModel ?? DEFAULT_OPENAI_MODEL,
-                openAIQuality: pending.openAIQuality ?? DEFAULT_OPENAI_QUALITY,
               })),
             );
           }
         }
       } catch (error) {
-        console.error("Unable to restore Seedream state", error);
+        console.error("Unable to restore Dreamint state", error);
       } finally {
         if (!cancelled) {
           storageHydratedRef.current = true;
@@ -902,11 +808,7 @@ export function CreatePage() {
       return;
     }
 
-    const noKeys =
-      apiKey.trim().length === 0 &&
-      geminiApiKey.trim().length === 0 &&
-      openAIApiKey.trim().length === 0;
-    if (noKeys) {
+    if (apiKey.trim().length === 0) {
       debugLog("pending:cleared-no-keys", {
         count: pendingGenerations.length,
       });
@@ -932,7 +834,7 @@ export function CreatePage() {
     setPendingGenerations([]);
     pendingReconciledRef.current = true;
     pendingHydratedRef.current = false;
-  }, [pendingGenerations, apiKey, geminiApiKey, openAIApiKey]);
+  }, [pendingGenerations, apiKey]);
 
   const activeFeed = useMemo(
     () => [...pendingGenerations, ...generations],
@@ -974,14 +876,6 @@ export function CreatePage() {
   }, [promptHistory]);
 
   useEffect(() => {
-    if (!storageHydratedRef.current || typeof window === "undefined") {
-      return;
-    }
-
-    safePersist(STORAGE_KEYS.promptSnippets, JSON.stringify(promptSnippets));
-  }, [promptSnippets]);
-
-  useEffect(() => {
     if (!reuseNotice || typeof window === "undefined") {
       return;
     }
@@ -998,98 +892,34 @@ export function CreatePage() {
       return;
     }
 
-    safePersist(STORAGE_KEYS.aspect, aspect);
+    safePersist(STORAGE_KEYS.aspectRatio, aspectRatio);
+    safePersist(STORAGE_KEYS.resolution, resolution);
     safePersist(STORAGE_KEYS.quality, quality);
     safePersist(STORAGE_KEYS.outputFormat, outputFormat);
-    safePersist(STORAGE_KEYS.provider, provider);
-    safePersist(STORAGE_KEYS.geminiModelVariant, geminiModelVariant);
-    safePersist(STORAGE_KEYS.flashReasoningLevel, flashReasoningLevel);
     safePersist(STORAGE_KEYS.imageCount, String(imageCount));
-    safePersist(STORAGE_KEYS.googleSearchEnabled, useGoogleSearch ? "true" : null);
 
     const normalizedApiKey = apiKey.trim();
     safePersist(STORAGE_KEYS.apiKey, normalizedApiKey.length > 0 ? normalizedApiKey : null);
+    safePersist(STORAGE_KEYS.apiKeyUpdatedAt, normalizedApiKey.length > 0 ? apiKeyUpdatedAt : null);
 
-    const normalizedGeminiApiKey = geminiApiKey.trim();
-    safePersist(STORAGE_KEYS.geminiApiKey, normalizedGeminiApiKey.length > 0 ? normalizedGeminiApiKey : null);
-
-    const normalizedOpenAIApiKey = openAIApiKey.trim();
-    safePersist(STORAGE_KEYS.openAIApiKey, normalizedOpenAIApiKey.length > 0 ? normalizedOpenAIApiKey : null);
-    safePersist(STORAGE_KEYS.openAIApiKeyUpdatedAt, normalizedOpenAIApiKey.length > 0 ? openAIApiKeyUpdatedAt : null);
-    safePersist(STORAGE_KEYS.openAIModel, openAIModel);
-    safePersist(STORAGE_KEYS.openAIQuality, openAIQuality);
-    safePersist(STORAGE_KEYS.openAIResolutionMode, openAIResolutionMode);
-    safePersist(STORAGE_KEYS.openAICustomWidth, openAICustomWidth.trim().length > 0 ? openAICustomWidth.trim() : null);
-    safePersist(STORAGE_KEYS.openAICustomHeight, openAICustomHeight.trim().length > 0 ? openAICustomHeight.trim() : null);
-
+    safePersist(STORAGE_KEYS.enabledModels, JSON.stringify(enabledModelIds));
+    safePersist(STORAGE_KEYS.selectedModel, selectedModelId);
+    safePersist(
+      STORAGE_KEYS.providerPrefs,
+      Object.keys(providerPrefs).length > 0 ? JSON.stringify(providerPrefs) : null,
+    );
   }, [
-    aspect,
+    aspectRatio,
+    resolution,
     quality,
     outputFormat,
-    provider,
-    geminiModelVariant,
-    flashReasoningLevel,
     imageCount,
     apiKey,
-    geminiApiKey,
-    openAIApiKey,
-    openAIApiKeyUpdatedAt,
-    openAIModel,
-    openAIQuality,
-    openAIResolutionMode,
-    openAICustomWidth,
-    openAICustomHeight,
-    useGoogleSearch,
+    apiKeyUpdatedAt,
+    enabledModelIds,
+    selectedModelId,
+    providerPrefs,
   ]);
-
-  useEffect(() => {
-    if (aspect === "auto") {
-      return;
-    }
-
-    const flashCompatible = provider === "gemini" && geminiModelVariant === "flash";
-
-    if (provider === "openai") {
-      if (supportsOpenAIAspect(aspect)) {
-        return;
-      }
-
-      const fallbackAspect = getAspectOptionsForModel(provider, geminiModelVariant)
-        .find((option) => option.value === defaultAspectKey)?.value ?? defaultAspectKey;
-      setAspect(fallbackAspect);
-      return;
-    }
-
-    if (flashCompatible) {
-      return;
-    }
-
-    if (!isFlashOnlyAspect(aspect)) {
-      return;
-    }
-
-    const fallbackAspect = getAspectOptionsForModel(provider, geminiModelVariant)
-      .find((option) => option.value === defaultAspectKey)?.value ?? defaultAspectKey;
-    setAspect(fallbackAspect);
-  }, [provider, geminiModelVariant, aspect]);
-
-  useEffect(() => {
-    if (provider === "openai" && openAIResolutionMode === "custom" && (aspect === "auto" || quality === "auto")) {
-      setOpenAIResolutionMode("preset");
-    }
-  }, [aspect, openAIResolutionMode, provider, quality]);
-
-  useEffect(() => {
-    if (quality !== "auto") {
-      return;
-    }
-
-    if (canUseAutoQuality) {
-      return;
-    }
-
-    setQuality(defaultQuality);
-  }, [canUseAutoQuality, quality]);
 
   useEffect(() => {
     if (!storageHydratedRef.current || typeof window === "undefined") {
@@ -1128,54 +958,36 @@ export function CreatePage() {
     }, 0);
   }, [generations]);
 
-  const handleAspectSelect = useCallback(
-    (value: string) => {
-      if (!isAspectSelection(value)) {
-        return;
-      }
-
-      if (value === "auto") {
-        if (provider === "openai") {
-          setOpenAIResolutionMode("preset");
-        }
-        setAspect("auto");
-        return;
-      }
-
-      if (provider === "openai" && openAIResolutionMode === "custom") {
-          const currentWidth = parseDimensionInput(openAICustomWidth);
-          const currentHeight = parseDimensionInput(openAICustomHeight);
-          const fallbackSize = calculateOpenAIImageSize(
-            value,
-            quality === "auto" ? defaultQualityKey : quality,
-          );
-          const currentLongEdge =
-            currentWidth !== null && currentHeight !== null
-              ? Math.max(currentWidth, currentHeight)
-              : Math.max(fallbackSize.width, fallbackSize.height);
-
-          try {
-            const recalculatedSize = calculateOpenAIImageSizeForLongEdge(value, currentLongEdge);
-            setOpenAICustomWidth(String(recalculatedSize.width));
-            setOpenAICustomHeight(String(recalculatedSize.height));
-          } catch {
-            setOpenAICustomWidth(String(fallbackSize.width));
-            setOpenAICustomHeight(String(fallbackSize.height));
-          }
-        }
-
-        if (quality === "auto") {
-          setQuality(defaultQualityKey);
-        }
-        setAspect(value);
-    },
-    [openAICustomHeight, openAICustomWidth, openAIResolutionMode, provider, quality],
-  );
-
-  const handleOpenAIApiKeyChange = useCallback((value: string) => {
-    setOpenAIApiKey(value);
-    setOpenAIApiKeyUpdatedAt(value.trim().length > 0 ? new Date().toISOString() : null);
+  const handleApiKeyChange = useCallback((value: string) => {
+    setApiKey(value);
+    setApiKeyUpdatedAt(value.trim().length > 0 ? new Date().toISOString() : null);
   }, []);
+
+  const handleToggleModelEnabled = useCallback((modelId: string) => {
+    setEnabledModelIds((previous) =>
+      previous.includes(modelId)
+        ? previous.filter((id) => id !== modelId)
+        : [...previous, modelId],
+    );
+  }, []);
+
+  const handleProviderPrefChange = useCallback(
+    (modelId: string, pref: ProviderPreference | null) => {
+      setProviderPrefs((previous) => {
+        if (pref === null || pref.providerTag === null) {
+          if (!(modelId in previous)) {
+            return previous;
+          }
+          const next = { ...previous };
+          delete next[modelId];
+          return next;
+        }
+
+        return { ...previous, [modelId]: pref };
+      });
+    },
+    [],
+  );
 
   const groupedGenerations = useMemo(() => groupByDate(visibleFeed), [visibleFeed]);
   const pendingIdSet = useMemo(() => new Set(pendingGenerations.map((generation) => generation.id)), [pendingGenerations]);
@@ -1194,21 +1006,16 @@ export function CreatePage() {
           imageIndex,
           src,
           prompt: generation.prompt,
-          aspect: generation.aspect,
+          model: generation.model,
+          modelLabel: generation.modelLabel,
+          aspectRatio: generation.aspectRatio,
+          resolution: generation.resolution,
           quality: generation.quality,
-          durationMs: generation.durationMs,
-          aspectSelection: generation.aspectSelection,
-          qualitySelection: generation.qualitySelection,
-          provider: generation.provider,
-          modelVariant: generation.modelVariant,
-          openAIModel: generation.openAIModel,
-          openAIQuality: generation.openAIQuality,
-          estimatedOpenAICost: generation.estimatedOpenAICost,
-          openAIUsage: generation.openAIUsage,
           outputFormat: generation.outputFormat,
           size: generation.size,
+          durationMs: generation.durationMs,
           inputImages: generation.inputImages ?? [],
-          useGoogleSearch: generation.useGoogleSearch,
+          usage: generation.usage,
         });
       });
     });
@@ -1320,9 +1127,9 @@ export function CreatePage() {
             return previous;
           }
 
-          // Auto-set aspect/size based on first attachment if it's the first batch
+          // Match the output to the first reference by default.
           if (previous.length === 0 && nextItems[0].width && nextItems[0].height) {
-            applyAttachmentSizing();
+            setAspectRatio(AUTO_OPTION);
           }
 
           return [...previous, ...nextItems];
@@ -1338,7 +1145,7 @@ export function CreatePage() {
         setError(ATTACHMENT_READ_MESSAGE);
       }
     },
-    [applyAttachmentSizing, attachments, clearAttachmentError, setError],
+    [attachments, clearAttachmentError, setError],
   );
 
   const handleRemoveAttachment = useCallback(
@@ -1421,7 +1228,7 @@ export function CreatePage() {
         ];
 
         if (previous.length === 0 && width && height) {
-          applyAttachmentSizing();
+          setAspectRatio(AUTO_OPTION);
         }
 
         return next;
@@ -1429,72 +1236,8 @@ export function CreatePage() {
       clearAttachmentError();
       return true;
     },
-    [applyAttachmentSizing, attachments, clearAttachmentError, setError],
+    [attachments, clearAttachmentError, setError],
   );
-
-  const handleSavePromptSnippet = useCallback(() => {
-    const trimmedPrompt = prompt.trim();
-    if (!trimmedPrompt) {
-      return;
-    }
-
-    setPromptSnippets((previous) => [
-      trimmedPrompt,
-      ...previous.filter((item) => item !== trimmedPrompt),
-    ].slice(0, MAX_PROMPT_SNIPPETS));
-  }, [prompt]);
-
-  const handleDeletePromptSnippet = useCallback((snippet: string) => {
-    setPromptSnippets((previous) => previous.filter((item) => item !== snippet));
-  }, []);
-
-  const handleRenamePromptSnippet = useCallback((snippet: string, nextValue: string) => {
-    const trimmedValue = nextValue.trim();
-    if (!trimmedValue) {
-      return;
-    }
-
-    setPromptSnippets((previous) => {
-      const currentIndex = previous.findIndex((item) => item === snippet);
-      if (currentIndex < 0) {
-        return previous;
-      }
-
-      const next = previous.reduce<string[]>((items, item) => {
-        if (item === snippet) {
-          items.push(trimmedValue);
-        } else if (item !== trimmedValue) {
-          items.push(item);
-        }
-
-        return items;
-      }, []);
-
-      return next.slice(0, MAX_PROMPT_SNIPPETS);
-    });
-  }, []);
-
-  const handleRestorePromptSnippets = useCallback((snippets: string[]) => {
-    setPromptSnippets(snippets.slice(0, MAX_PROMPT_SNIPPETS));
-  }, []);
-
-  const handleMovePromptSnippet = useCallback((snippet: string, direction: -1 | 1) => {
-    setPromptSnippets((previous) => {
-      const currentIndex = previous.findIndex((item) => item === snippet);
-      if (currentIndex < 0) {
-        return previous;
-      }
-
-      const nextIndex = currentIndex + direction;
-      if (nextIndex < 0 || nextIndex >= previous.length) {
-        return previous;
-      }
-
-      const next = [...previous];
-      [next[currentIndex], next[nextIndex]] = [next[nextIndex], next[currentIndex]];
-      return next;
-    });
-  }, []);
 
   const handleDeletePromptHistoryItem = useCallback((historyItem: string) => {
     setPromptHistory((previous) => previous.filter((item) => item !== historyItem));
@@ -1508,88 +1251,29 @@ export function CreatePage() {
     setPromptHistory(historyItems.slice(0, MAX_PROMPT_HISTORY));
   }, []);
 
-  const handleImprovePrompt = useCallback(async (): Promise<boolean> => {
-    const trimmedPrompt = prompt.trim();
-    if (!trimmedPrompt) {
-      return false;
+  const resolvePendingSize = useCallback((): { width: number; height: number } => {
+    if (aspectRatio === AUTO_OPTION && referenceAspectSource) {
+      const estimated = estimateImageSize(
+        `${Math.round(referenceAspectSource.width)}:${Math.round(referenceAspectSource.height)}`,
+        supportedResolutions.includes(resolution) ? resolution : null,
+      );
+      return estimated;
     }
 
-    const trimmedOpenAIApiKey = openAIApiKey.trim();
-    if (!trimmedOpenAIApiKey) {
-      setError("Add an OpenAI API key in settings before improving prompts.");
-      setIsSettingsOpen(true);
-      return false;
+    return estimateImageSize(
+      aspectRatio === AUTO_OPTION ? "1:1" : aspectRatio,
+      supportedResolutions.includes(resolution) ? resolution : null,
+    );
+  }, [aspectRatio, referenceAspectSource, resolution, supportedResolutions]);
+
+  const recordGenerationCost = useCallback((generation: Generation) => {
+    const costUsd = totalUsageCostUsd(generation.usage ?? null);
+    const costCents = dollarsToCents(costUsd);
+    if (costCents > 0) {
+      setSpentCents((previous) => previous + costCents);
+      setLastGenerationCostCents(costCents);
     }
-
-    try {
-      const response = await fetch("/api/openai/prompts/improve", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          apiKey: trimmedOpenAIApiKey,
-          prompt: trimmedPrompt,
-          context: {
-            aspect,
-            resolution:
-              openAIResolutionMode === "custom" &&
-              openAICustomWidth.trim() &&
-              openAICustomHeight.trim()
-                ? `${openAICustomWidth.trim()}x${openAICustomHeight.trim()}`
-                : openAIPresetSizeLabel,
-            outputFormat,
-            imageCount,
-            quality: openAIQuality,
-            referenceImages: attachments.map((attachment) => ({
-              name: attachment.name,
-              width: attachment.width ?? null,
-              height: attachment.height ?? null,
-              mimeType: attachment.mimeType ?? null,
-            })),
-          },
-        }),
-        cache: "no-store",
-      });
-
-      const responseText = await response.text();
-      let payload: { prompt?: string; error?: { message?: string } } = {};
-      try {
-        payload = JSON.parse(responseText) as typeof payload;
-      } catch {
-        // Keep the original response text for the error below.
-      }
-
-      if (!response.ok) {
-        throw new Error(payload.error?.message ?? responseText ?? "Prompt improvement failed.");
-      }
-
-      const improvedPrompt = typeof payload.prompt === "string" ? payload.prompt.trim() : "";
-      if (!improvedPrompt) {
-        throw new Error("No improved prompt returned.");
-      }
-
-      setPrompt(improvedPrompt);
-      setError(null);
-      return true;
-    } catch (promptError) {
-      const message = promptError instanceof Error ? promptError.message : "Prompt improvement failed.";
-      setError(message);
-      return false;
-    }
-  }, [
-    aspect,
-    attachments,
-    imageCount,
-    openAIApiKey,
-    openAICustomHeight,
-    openAICustomWidth,
-    openAIPresetSizeLabel,
-    openAIQuality,
-    openAIResolutionMode,
-    outputFormat,
-    prompt,
-  ]);
+  }, []);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1601,131 +1285,91 @@ export function CreatePage() {
       ].slice(0, MAX_PROMPT_HISTORY));
     }
 
-    debugLog("submit:start", {
-      aspect,
-      quality,
-      provider,
-      imageCount,
-      pendingGenerations: pendingGenerations.length,
-      attachments: attachmentInputImages.map((image) => ({
-        id: image.id,
-        width: image.width ?? null,
-        height: image.height ?? null,
-      })),
-    });
-
-    let draftSize;
-    try {
-      draftSize = resolveDraftSize();
-    } catch (sizeError) {
-      const message = sizeError instanceof Error ? sizeError.message : "Invalid image size.";
-      setError(message);
+    const trimmedApiKey = apiKey.trim();
+    if (!trimmedApiKey) {
+      setError("Add your OpenRouter API key in settings before generating.");
+      setIsSettingsOpen(true);
       return;
     }
 
-    const pendingSize = draftSize.size;
-    const inputImageSnapshot = attachmentInputImages.map((image) => ({ ...image }));
-    const estimatedRequestCost =
-      provider === "openai"
-        ? estimateOpenAIImageRequestCost({
-            prompt,
-            size: pendingSize,
-            quality: openAIQuality,
-            imageCount,
-            inputImages: inputImageSnapshot,
-          })
-        : null;
-    const requestCostCents = dollarsToCents(estimatedRequestCost?.totalCostUsd);
-    if (budgetCents !== null && (spentCents >= budgetCents || (requestCostCents > 0 && spentCents + requestCostCents > budgetCents))) {
+    if (!selectedModel) {
+      setError("Choose a model first — enable one or more models in settings.");
+      setIsSettingsOpen(true);
+      return;
+    }
+
+    if (isBudgetLocked && budgetCents !== null) {
       setError(
-        `Budget limit reached. This batch would bring spending to $${((spentCents + requestCostCents) / 100).toFixed(2)} of your $${(budgetCents / 100).toFixed(2)} limit.`,
+        `Budget limit reached: $${(spentCents / 100).toFixed(2)} of your $${(budgetCents / 100).toFixed(2)} limit is spent.`,
       );
       return;
     }
 
-    const enableGoogleSearch = provider === "gemini" && useGoogleSearch;
-    const effectiveModelVariant =
-      provider === "openai" ? undefined : geminiModelVariant;
-    const requestedOpenAIModels: OpenAIModel[] =
-      provider === "openai" ? [openAIModel] : [];
-    const generationTargets =
-      provider === "openai"
-        ? requestedOpenAIModels.map((model) => ({
-            pendingId: createId("pending"),
-            openAIModel: model,
-            startedAtMs: Date.now(),
-          }))
-        : [
-            {
-              pendingId: createId("pending"),
-              openAIModel: undefined,
-              startedAtMs: Date.now(),
-            },
-          ];
-    const requestQuality: QualityKey = quality === "auto" ? defaultQualityKey : quality;
+    if (attachmentInputImages.length > 0) {
+      if (referenceLimit === 0) {
+        setError(`${selectedModel.name} does not accept reference images.`);
+        return;
+      }
+      if (referenceLimit !== null && attachmentInputImages.length > referenceLimit) {
+        setError(
+          `${selectedModel.name} accepts at most ${referenceLimit} reference image${referenceLimit === 1 ? "" : "s"}.`,
+        );
+        return;
+      }
+    }
 
-    const pendingGenerationsToQueue: Generation[] = generationTargets.map((target) => ({
-      id: target.pendingId,
-      prompt,
-      aspect: draftSize.aspect,
+    const supportedOutputFormats = getSupportedOutputFormats(activeParameters);
+    const requestAspectRatio =
+      aspectRatio !== AUTO_OPTION && supportedAspectRatios.includes(aspectRatio)
+        ? aspectRatio
+        : null;
+    const requestResolution = supportedResolutions.includes(resolution) ? resolution : null;
+    const requestQuality = supportedQualities.includes(quality) ? quality : null;
+    const requestOutputFormat = supportedOutputFormats?.includes(outputFormat)
+      ? outputFormat
+      : null;
+    const providerPref = providerPrefs[selectedModel.id] ?? null;
+    const maxImagesPerRequest = getRangeMax(activeParameters ?? undefined, "n", 1);
+
+    const pendingId = createId("pending");
+    const startedAtMs = Date.now();
+    const pendingSize = resolvePendingSize();
+    const inputImageSnapshot = attachmentInputImages.map((image) => ({ ...image }));
+
+    const pendingGeneration: Generation = {
+      id: pendingId,
+      prompt: trimmedPrompt,
+      model: selectedModel.id,
+      modelLabel: selectedModel.name,
+      providerTag: providerPref?.providerTag ?? null,
+      allowFallbacks: providerPref ? providerPref.allowFallbacks : undefined,
+      aspectRatio: requestAspectRatio ?? AUTO_OPTION,
+      resolution: requestResolution,
       quality: requestQuality,
-      aspectSelection: aspect,
-      qualitySelection: quality,
       outputFormat,
-      provider,
-      modelVariant: effectiveModelVariant,
-      openAIModel: target.openAIModel,
-      openAIQuality: provider === "openai" ? openAIQuality : undefined,
-      estimatedOpenAICost: estimatedRequestCost ?? undefined,
-      useGoogleSearch: enableGoogleSearch,
+      createdAt: new Date(startedAtMs).toISOString(),
       size: pendingSize,
-      createdAt: new Date(target.startedAtMs).toISOString(),
-      inputImages: inputImageSnapshot,
       images: Array(imageCount).fill(""),
-    }));
+      inputImages: inputImageSnapshot,
+    };
+
+    debugLog("submit:request", {
+      pendingId,
+      model: selectedModel.id,
+      providerTag: providerPref?.providerTag ?? null,
+      allowFallbacks: providerPref?.allowFallbacks ?? true,
+      aspectRatio: requestAspectRatio,
+      resolution: requestResolution,
+      quality: requestQuality,
+      imageCount,
+      inputImages: inputImageSnapshot.length,
+    });
 
     setIsSettingsOpen(false);
     setError(null);
-    setPendingGenerations((previous) => {
-      const next = [...pendingGenerationsToQueue, ...previous];
-      debugLog("pending:queued", {
-        pendingIds: pendingGenerationsToQueue.map((generation) => generation.id),
-        pendingCount: next.length,
-      });
-      return next;
-    });
-
+    setPendingGenerations((previous) => [pendingGeneration, ...previous]);
     setPrompt("");
     setAttachments([]);
-
-    const trimmedApiKey = apiKey.trim();
-    const trimmedGeminiApiKey = geminiApiKey.trim();
-    const trimmedOpenAIApiKey = openAIApiKey.trim();
-
-    debugLog("submit:request", {
-      pendingIds: generationTargets.map((target) => target.pendingId),
-      provider,
-      apiKeyProvided: trimmedApiKey.length > 0,
-      geminiApiKeyProvided: trimmedGeminiApiKey.length > 0,
-      openAIApiKeyProvided: trimmedOpenAIApiKey.length > 0,
-      inputImages: inputImageSnapshot.length,
-      imageCount,
-      googleSearch: enableGoogleSearch,
-      modelVariant: effectiveModelVariant,
-      openAIModel: provider === "openai" ? openAIModel : null,
-      openAIModelsRequested: requestedOpenAIModels,
-      openAIQuality: provider === "openai" ? openAIQuality : null,
-      size: pendingSize,
-    });
-
-    // Initialize streaming thoughts for each pending generation
-    setStreamingThoughts((prev) => {
-      const next = new Map(prev);
-      for (const target of generationTargets) {
-        next.set(target.pendingId, Array(imageCount).fill(null));
-      }
-      return next;
-    });
 
     const requestInputImagesPromise = Promise.all(
       inputImageSnapshot.map(async (image) => ({
@@ -1734,139 +1378,65 @@ export function CreatePage() {
       })),
     );
 
-    let completedRequests = 0;
-    let successfulRequests = 0;
-    const totalRequests = generationTargets.length;
-
-    const finishRequest = (pendingId: string) => {
-      completedRequests += 1;
-
-      setPendingGenerations((previous) => {
-        const next = previous.filter((generation) => generation.id !== pendingId);
-        debugLog("pending:cleared", {
-          pendingId,
-          before: previous.length,
-          after: next.length,
-        });
-        return next;
-      });
-
-      setStreamingThoughts((prev) => {
-        const next = new Map(prev);
-        next.delete(pendingId);
-        return next;
-      });
-
-      if (completedRequests === totalRequests && successfulRequests === 0) {
-        setPrompt(prompt);
-        setAttachments(attachments);
-      }
-    };
-
-    generationTargets.forEach((target) => {
-      const generationPromise = requestInputImagesPromise.then((requestInputImages) =>
-        generateSeedream({
-          prompt,
-          aspect: draftSize.aspect,
-          quality: requestQuality,
+    requestInputImagesPromise
+      .then((requestInputImages) =>
+        generateImage({
+          apiKey: trimmedApiKey,
+          model: selectedModel.id,
+          prompt: trimmedPrompt,
           numImages: imageCount,
-          provider,
-          modelVariant: effectiveModelVariant,
-          openAIModel: target.openAIModel,
-          openAIQuality,
-          flashReasoningLevel,
-          outputFormat,
-          apiKey: trimmedApiKey.length > 0 ? trimmedApiKey : undefined,
-          geminiApiKey: trimmedGeminiApiKey.length > 0 ? trimmedGeminiApiKey : undefined,
-          openAIApiKey: trimmedOpenAIApiKey.length > 0 ? trimmedOpenAIApiKey : undefined,
-          sizeOverride: draftSize.sizeOverride,
-          useGoogleSearch: enableGoogleSearch,
+          aspectRatio: requestAspectRatio,
+          resolution: requestResolution,
+          quality: requestQuality,
+          outputFormat: requestOutputFormat,
           inputImages: requestInputImages,
-          onThoughtsUpdate: (imageIndex, thoughts) => {
-            setStreamingThoughts((prev) => {
-              const next = new Map(prev);
-              const currentThoughts = next.get(target.pendingId) ?? Array(imageCount).fill(null);
-              const updatedThoughts = [...currentThoughts];
-              updatedThoughts[imageIndex] = thoughts;
-              next.set(target.pendingId, updatedThoughts);
-              return next;
-            });
-          },
+          providerTag: providerPref?.providerTag ?? null,
+          allowFallbacks: providerPref ? providerPref.allowFallbacks : true,
+          maxImagesPerRequest,
         }),
-      );
+      )
+      .then(async (result) => {
+        const normalizedImages = normalizeImages(result.images);
+        const measuredSize = await loadImageDimensions(normalizedImages[0]);
+        const generation: Generation = {
+          ...pendingGeneration,
+          id: createId("generation"),
+          durationMs: Math.max(0, Date.now() - startedAtMs),
+          size: measuredSize ?? pendingSize,
+          images: normalizedImages,
+          usage: result.usage,
+        };
 
-      generationPromise
-        .then(async (result) => {
-          successfulRequests += 1;
-
-          debugLog("generation:success", {
-            pendingId: target.pendingId,
-            rawImageCount: result.images.length,
-            size: result.size,
-            openAIModel: target.openAIModel,
-          });
-
-          const normalizedImages = normalizeImages(result.images);
-          debugLog("generation:normalized", {
-            pendingId: target.pendingId,
-            normalizedCount: normalizedImages.length,
-            urlsSample: normalizedImages.slice(0, 8),
-          });
-
-          const generation: Generation = {
-            ...result,
-            id: createId("generation"),
-            durationMs: Math.max(0, Date.now() - target.startedAtMs),
-            images: normalizedImages,
-            aspectSelection: aspect,
-            qualitySelection: quality,
-            estimatedOpenAICost: estimatedRequestCost ?? undefined,
-          };
-          const actualCost = calculateOpenAIActualCost(generation.openAIUsage ?? null);
-          const generationCostCents = dollarsToCents(
-            actualCost.totalCostUsd ?? estimatedRequestCost?.totalCostUsd,
-          );
-          if (provider === "openai" && generationCostCents > 0) {
-            setSpentCents((previous) => previous + generationCostCents);
-          }
-
-          let optimizedGeneration = generation;
-          try {
-            optimizedGeneration = await cacheGenerationAssets(generation);
-          } catch (cacheError) {
-            console.error("Failed to cache generation assets", cacheError);
-          }
-
-          setGenerations((previous) => {
-            const next = [optimizedGeneration, ...previous];
-            debugLog("generations:prepended", {
-              generationId: optimizedGeneration.id,
-              total: next.length,
-            });
-            return next;
-          });
-        })
-        .catch((generationError: unknown) => {
-          const message =
-            generationError instanceof Error
-              ? generationError.message
-              : "Generation failed.";
-          const scopedMessage =
-            provider === "openai" && totalRequests > 1 && target.openAIModel
-              ? `${target.openAIModel}: ${message}`
-              : message;
-          debugLog("generation:error", {
-            pendingId: target.pendingId,
-            message: scopedMessage,
-            error: generationError,
-            openAIModel: target.openAIModel,
-          });
-          setError(scopedMessage);
-        })
-        .finally(() => {
-          finishRequest(target.pendingId);
+        debugLog("generation:success", {
+          pendingId,
+          imageCount: normalizedImages.length,
+          size: generation.size,
+          costUsd: totalUsageCostUsd(result.usage),
         });
-    });
+
+        recordGenerationCost(generation);
+
+        let optimizedGeneration = generation;
+        try {
+          optimizedGeneration = await cacheGenerationAssets(generation);
+        } catch (cacheError) {
+          console.error("Failed to cache generation assets", cacheError);
+        }
+
+        setGenerations((previous) => [optimizedGeneration, ...previous]);
+      })
+      .catch((generationError: unknown) => {
+        const message =
+          generationError instanceof Error ? generationError.message : "Generation failed.";
+        debugLog("generation:error", { pendingId, message, error: generationError });
+        setError(message);
+        // Restore the composer so the failed prompt is not lost.
+        setPrompt(trimmedPrompt);
+        setAttachments(attachments);
+      })
+      .finally(() => {
+        setPendingGenerations((previous) => previous.filter((gen) => gen.id !== pendingId));
+      });
   };
 
   const handleExpand = useCallback((generationId: string, imageIndex: number) => {
@@ -1923,21 +1493,16 @@ export function CreatePage() {
       imageIndex,
       src,
       prompt: generation.prompt,
-      aspect: generation.aspect,
+      model: generation.model,
+      modelLabel: generation.modelLabel,
+      aspectRatio: generation.aspectRatio,
+      resolution: generation.resolution,
       quality: generation.quality,
-      durationMs: generation.durationMs,
-      aspectSelection: generation.aspectSelection,
-      qualitySelection: generation.qualitySelection,
-      provider: generation.provider,
-      modelVariant: generation.modelVariant,
-      openAIModel: generation.openAIModel,
-      openAIQuality: generation.openAIQuality,
-      estimatedOpenAICost: generation.estimatedOpenAICost,
-      openAIUsage: generation.openAIUsage,
       outputFormat: generation.outputFormat,
       size: generation.size,
+      durationMs: generation.durationMs,
       inputImages: generation.inputImages ?? [],
-      useGoogleSearch: generation.useGoogleSearch,
+      usage: generation.usage,
     };
   }, [generations, pendingGenerations]);
 
@@ -2236,24 +1801,21 @@ export function CreatePage() {
         return;
       }
 
+      const trimmedApiKey = apiKey.trim();
+      if (!trimmedApiKey) {
+        setError("Add your OpenRouter API key in settings before retrying.");
+        setIsSettingsOpen(true);
+        return;
+      }
+
       const pendingId = createId("pending");
       const numImages = Math.max(1, generation.images.length || 1);
-      const pendingSize =
-        generation.aspect === "custom" && generation.size
-          ? generation.size
-          : generation.provider === "openai"
-          ? calculateOpenAIImageSize(generation.aspect as AspectKey, generation.quality)
-          : calculateImageSize(generation.aspect as AspectKey, generation.quality);
       const inputImageSnapshot = generation.inputImages?.map((image) => ({ ...image })) ?? [];
-      const enableGoogleSearch =
-        generation.provider === "gemini" && Boolean(generation.useGoogleSearch);
-      const retryModelVariant =
-        generation.provider === "gemini"
-          ? generation.modelVariant ?? DEFAULT_GEMINI_MODEL_VARIANT
-          : generation.provider === "fal"
-          ? generation.modelVariant ?? DEFAULT_GEMINI_MODEL_VARIANT
-          : undefined;
       const startedAtMs = Date.now();
+      const retryModel = modelCatalog?.find((model) => model.id === generation.model) ?? null;
+      const maxImagesPerRequest = retryModel
+        ? getRangeMax(retryModel.supported_parameters, "n", 1)
+        : 1;
 
       const pendingGeneration: Generation = {
         ...generation,
@@ -2262,27 +1824,15 @@ export function CreatePage() {
         createdAt: new Date(startedAtMs).toISOString(),
         durationMs: undefined,
         inputImages: inputImageSnapshot,
-        size: pendingSize,
-        outputFormat: generation.outputFormat ?? defaultOutputFormat,
-        useGoogleSearch: enableGoogleSearch,
-        modelVariant: retryModelVariant,
-        openAIModel: generation.openAIModel ?? DEFAULT_OPENAI_MODEL,
-        openAIQuality: generation.openAIQuality ?? DEFAULT_OPENAI_QUALITY,
-        aspectSelection: generation.aspectSelection,
-        qualitySelection: generation.qualitySelection,
+        usage: null,
       };
 
       debugLog("pending:retry", {
         fromId: generationId,
         pendingId,
         numImages,
-        aspect: generation.aspect,
-        quality: generation.quality,
-        provider: generation.provider,
-        modelVariant: retryModelVariant,
-        openAIModel: generation.openAIModel ?? DEFAULT_OPENAI_MODEL,
-        openAIQuality: generation.openAIQuality ?? DEFAULT_OPENAI_QUALITY,
-        inputImages: inputImageSnapshot.length,
+        model: generation.model,
+        providerTag: generation.providerTag ?? null,
       });
 
       setPendingGenerations((previous) => [pendingGeneration, ...previous.filter((gen) => gen.id !== pendingId)]);
@@ -2301,58 +1851,42 @@ export function CreatePage() {
         })),
       );
 
-      const generationPromise = requestInputImagesPromise.then((requestInputImages) =>
-        generateSeedream({
-          prompt: generation.prompt,
-          aspect: generation.aspect,
-          quality: generation.quality,
-          numImages,
-          provider: generation.provider,
-          modelVariant: retryModelVariant,
-          openAIModel: generation.openAIModel ?? DEFAULT_OPENAI_MODEL,
-          openAIQuality: generation.openAIQuality ?? DEFAULT_OPENAI_QUALITY,
-          flashReasoningLevel,
-          outputFormat: generation.outputFormat ?? defaultOutputFormat,
-          apiKey: apiKey.trim() || undefined,
-          geminiApiKey: geminiApiKey.trim() || undefined,
-          openAIApiKey: openAIApiKey.trim() || undefined,
-          sizeOverride: generation.aspect === "custom" ? generation.size : undefined,
-          useGoogleSearch: enableGoogleSearch,
-          inputImages: requestInputImages,
-        }),
-      );
-
-      generationPromise
+      requestInputImagesPromise
+        .then((requestInputImages) =>
+          generateImage({
+            apiKey: trimmedApiKey,
+            model: generation.model,
+            prompt: generation.prompt,
+            numImages,
+            aspectRatio: generation.aspectRatio === AUTO_OPTION ? null : generation.aspectRatio,
+            resolution: generation.resolution ?? null,
+            quality: generation.quality ?? null,
+            outputFormat: generation.outputFormat,
+            inputImages: requestInputImages,
+            providerTag: generation.providerTag ?? null,
+            allowFallbacks: generation.allowFallbacks ?? true,
+            maxImagesPerRequest,
+          }),
+        )
         .then(async (result) => {
-          debugLog("generation:success", {
-            pendingId,
-            rawImageCount: result.images.length,
-            size: result.size,
-          });
-
           const normalizedImages = normalizeImages(result.images);
-          debugLog("generation:normalized", {
-            pendingId,
-            normalizedCount: normalizedImages.length,
-            urlsSample: normalizedImages.slice(0, 8),
-          });
-
+          const measuredSize = await loadImageDimensions(normalizedImages[0]);
           const nextGeneration: Generation = {
-            ...result,
+            ...pendingGeneration,
             id: createId("generation"),
             durationMs: Math.max(0, Date.now() - startedAtMs),
+            size: measuredSize ?? pendingGeneration.size,
             images: normalizedImages,
-            aspectSelection: generation.aspectSelection,
-            qualitySelection: generation.qualitySelection,
-            estimatedOpenAICost: generation.estimatedOpenAICost,
+            usage: result.usage,
           };
-          const actualCost = calculateOpenAIActualCost(nextGeneration.openAIUsage ?? null);
-          const generationCostCents = dollarsToCents(
-            actualCost.totalCostUsd ?? generation.estimatedOpenAICost?.totalCostUsd,
-          );
-          if (generation.provider === "openai" && generationCostCents > 0) {
-            setSpentCents((previous) => previous + generationCostCents);
-          }
+
+          debugLog("generation:success", {
+            pendingId,
+            imageCount: normalizedImages.length,
+            size: nextGeneration.size,
+          });
+
+          recordGenerationCost(nextGeneration);
 
           let optimizedGeneration = nextGeneration;
           try {
@@ -2361,17 +1895,10 @@ export function CreatePage() {
             console.error("Failed to cache retried generation assets", cacheError);
           }
 
-          setGenerations((previous) => {
-            const next = [
-              optimizedGeneration,
-              ...previous.filter((gen) => gen.id !== generationId),
-            ];
-            debugLog("generations:prepended", {
-              generationId: optimizedGeneration.id,
-              total: next.length,
-            });
-            return next;
-          });
+          setGenerations((previous) => [
+            optimizedGeneration,
+            ...previous.filter((gen) => gen.id !== generationId),
+          ]);
         })
         .catch((generationError: unknown) => {
           const message =
@@ -2382,15 +1909,7 @@ export function CreatePage() {
           setError(message);
         })
         .finally(() => {
-          setPendingGenerations((previous) => {
-            const next = previous.filter((gen) => gen.id !== pendingId);
-            debugLog("pending:cleared", {
-              pendingId,
-              before: previous.length,
-              after: next.length,
-            });
-            return next;
-          });
+          setPendingGenerations((previous) => previous.filter((gen) => gen.id !== pendingId));
           setRetryingGenerationIds((previous) => {
             const next = new Set(previous);
             next.delete(generationId);
@@ -2398,7 +1917,7 @@ export function CreatePage() {
           });
         });
     },
-    [apiKey, flashReasoningLevel, geminiApiKey, generations, openAIApiKey, retryingGenerationIds],
+    [apiKey, generations, modelCatalog, recordGenerationCost, retryingGenerationIds],
   );
 
   const handleDeleteGeneration = useCallback(
@@ -2498,19 +2017,20 @@ export function CreatePage() {
       setPrompt(value);
       setIsSettingsOpen(false);
 
-      setProvider("openai");
-      if (typeof options?.useGoogleSearch === "boolean") {
-        setUseGoogleSearch(options.useGoogleSearch);
+      if (options?.model) {
+        setEnabledModelIds((previous) =>
+          previous.includes(options.model!) ? previous : [...previous, options.model!],
+        );
+        setSelectedModelId(options.model);
       }
-      if (options?.modelVariant === "pro" || options?.modelVariant === "flash") {
-        setGeminiModelVariant(options.modelVariant);
+      if (options?.aspectRatio) {
+        setAspectRatio(options.aspectRatio);
       }
-      const normalizedOpenAIModel = normalizeStoredOpenAIModel(options?.openAIModel ?? null);
-      if (normalizedOpenAIModel) {
-        setOpenAIModel(normalizedOpenAIModel);
+      if (options?.resolution) {
+        setResolution(options.resolution);
       }
-      if (options?.openAIQuality === "low" || options?.openAIQuality === "medium" || options?.openAIQuality === "high") {
-        setOpenAIQuality(options.openAIQuality);
+      if (options?.quality) {
+        setQuality(options.quality);
       }
       if (
         options?.outputFormat === "png" ||
@@ -2518,30 +2038,6 @@ export function CreatePage() {
         options?.outputFormat === "webp"
       ) {
         setOutputFormat(options.outputFormat);
-      }
-
-      if (options?.aspectSelection && isAspectSelection(options.aspectSelection)) {
-        setAspect(options.aspectSelection);
-      } else if (options?.aspect && options.aspect !== "custom" && isAspectKey(options.aspect)) {
-        setAspect(options.aspect);
-      }
-
-      if (options?.qualitySelection && isQualitySelection(options.qualitySelection)) {
-        setQuality(options.qualitySelection);
-      }
-
-      if (
-        options?.provider === "openai" &&
-        !options?.aspectSelection &&
-        !options?.qualitySelection &&
-        options.size &&
-        options.aspect === "custom"
-      ) {
-        setOpenAIResolutionMode("custom");
-        setOpenAICustomWidth(String(options.size.width));
-        setOpenAICustomHeight(String(options.size.height));
-      } else if (options?.provider === "openai") {
-        setOpenAIResolutionMode("preset");
       }
 
       if (inputImages.length > 0) {
@@ -2579,7 +2075,7 @@ export function CreatePage() {
         `Restored prompt${restoredFormat ? ` and ${restoredFormat} setup` : ""} with ${referenceLabel}.`,
       );
     },
-    [clearAttachmentError, setUseGoogleSearch],
+    [clearAttachmentError],
   );
 
   const handleLightboxUsePrompt = useCallback(
@@ -2606,21 +2102,20 @@ export function CreatePage() {
       >
         <NextImage
           src="/Dreaming.png"
-          alt="Dreamint (GPT) logo"
+          alt="Dreamint logo"
           width={28}
           height={28}
           className="h-7 w-7 rounded-md object-cover grayscale"
         />
         <span className="text-[11px] font-semibold uppercase tracking-[0.3em] text-white">
-          Dreamint (GPT)
+          Dreamint
         </span>
       </div>
       <BudgetWidget
         budgetCents={budgetCents}
         spentCents={spentCents}
         budgetRemainingCents={budgetRemainingCents}
-        batchCostCents={batchCostCents}
-        imagesPerBatch={imageCount}
+        lastGenerationCostCents={lastGenerationCostCents}
         isBudgetLocked={isBudgetLocked}
         onBudgetSave={setBudgetCents}
         onBudgetClear={() => setBudgetCents(null)}
@@ -2700,7 +2195,6 @@ export function CreatePage() {
                       generations={group.items}
                       pendingIdSet={pendingIdSet}
                       retryingGenerationIds={retryingGenerationIds}
-                      streamingThoughts={streamingThoughts}
                       onExpand={handleExpand}
                       onUsePrompt={(prompt, inputImages, options) => {
                         void handleUsePrompt(prompt, inputImages, options);
@@ -2712,7 +2206,6 @@ export function CreatePage() {
                       onCopyImage={handleCopyImage}
                       onShareCollage={handleShareCollage}
                       onRetryGeneration={handleRetryGeneration}
-                      onShowThoughts={setThoughtsToShow}
                     />
                   ))}
                   <div ref={feedLoadMoreRef} className="h-4 w-full" />
@@ -2741,47 +2234,43 @@ export function CreatePage() {
             <Header
               prompt={prompt}
               promptHistory={promptHistory}
-              promptSnippets={promptSnippets}
-              aspect={aspect}
+              aspectRatio={aspectRatio}
+              aspectRatioOptions={supportedAspectRatios}
+              resolution={resolution}
+              resolutionOptions={supportedResolutions}
               quality={quality}
+              qualityOptions={supportedQualities}
               outputFormat={outputFormat}
-              provider={provider}
-              geminiModelVariant={geminiModelVariant}
-              openAIQuality={openAIQuality}
-              openAIApiKey={openAIApiKey}
-              openAIApiKeyUpdatedAt={openAIApiKeyUpdatedAt}
-              openAIResolutionMode={openAIResolutionMode}
-              openAICustomWidth={openAICustomWidth}
-              openAICustomHeight={openAICustomHeight}
-              openAICustomSizeError={openAICustomSizeError}
-              openAIPresetSizeLabel={openAIPresetSizeLabel}
-              estimatedOpenAICost={estimatedOpenAICost}
               imageCount={imageCount}
+              maxImageCount={MAX_IMAGE_COUNT}
+              apiKey={apiKey}
+              apiKeyUpdatedAt={apiKeyUpdatedAt}
+              modelCatalog={modelCatalog}
+              catalogError={catalogError}
+              enabledModelIds={enabledModelIds}
+              selectedModelId={selectedModelId}
+              providerPrefs={providerPrefs}
+              modelEndpoints={modelEndpoints}
+              referenceLimit={referenceLimit}
               appVersion={APP_VERSION}
               totalImages={totalImages}
               isBudgetLocked={isBudgetLocked}
               isSettingsOpen={isSettingsOpen}
               onSubmit={handleSubmit}
               onPromptChange={setPrompt}
-              onSavePromptSnippet={handleSavePromptSnippet}
-              onImprovePrompt={handleImprovePrompt}
-              onUsePromptSnippet={setPrompt}
-              onDeletePromptSnippet={handleDeletePromptSnippet}
-              onRenamePromptSnippet={handleRenamePromptSnippet}
-              onMovePromptSnippet={handleMovePromptSnippet}
-              onRestorePromptSnippets={handleRestorePromptSnippets}
               onDeletePromptHistoryItem={handleDeletePromptHistoryItem}
               onClearPromptHistory={handleClearPromptHistory}
               onRestorePromptHistory={handleRestorePromptHistory}
-              onAspectSelect={handleAspectSelect}
+              onAspectRatioChange={setAspectRatio}
+              onResolutionChange={setResolution}
               onQualityChange={setQuality}
               onOutputFormatChange={setOutputFormat}
-              onOpenAIQualityChange={setOpenAIQuality}
-              onOpenAIApiKeyChange={handleOpenAIApiKeyChange}
-              onOpenAIResolutionModeChange={setOpenAIResolutionMode}
-              onOpenAICustomWidthChange={setOpenAICustomWidth}
-              onOpenAICustomHeightChange={setOpenAICustomHeight}
               onImageCountChange={setImageCount}
+              onApiKeyChange={handleApiKeyChange}
+              onModelChange={setSelectedModelId}
+              onToggleModelEnabled={handleToggleModelEnabled}
+              onProviderPrefChange={handleProviderPrefChange}
+              onRequestEndpoints={loadModelEndpoints}
               onToggleSettings={setIsSettingsOpen}
               attachments={attachments}
               onAddAttachments={handleAddAttachments}
@@ -2791,7 +2280,6 @@ export function CreatePage() {
               onMoveAttachment={handleMoveAttachment}
               isAttachmentLimitReached={isAttachmentLimitReached}
               maxAttachments={MAX_ATTACHMENTS}
-              canUseAutoQuality={canUseAutoQuality}
             />
           </div>
         </div>
@@ -2827,9 +2315,6 @@ export function CreatePage() {
           }
           onUsePrompt={handleLightboxUsePrompt}
         />
-      ) : null}
-      {thoughtsToShow ? (
-        <ThoughtsModal thoughts={thoughtsToShow} onClose={() => setThoughtsToShow(null)} />
       ) : null}
       {isChangelogOpen ? (
         <ChangelogModal onClose={() => setIsChangelogOpen(false)} />

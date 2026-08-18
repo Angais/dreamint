@@ -1,19 +1,4 @@
-import type { PromptEnhancementState, SeedreamGeneration } from "../../lib/generate-seedream";
-import type {
-  OpenAIEstimatedCostBreakdown,
-  OpenAIUsageBreakdown,
-} from "../../lib/openai-image-costs";
-import type {
-  AspectKey,
-  AspectSelection,
-  QualityKey,
-  QualitySelection,
-  Provider,
-  OutputFormat,
-  GeminiModelVariant,
-  OpenAIModel,
-  OpenAIQuality,
-} from "../../lib/seedream-options";
+import type { GenerationUsage, InputImage, OutputFormat } from "../../lib/openrouter";
 
 export type PromptAttachment = {
   id: string;
@@ -26,20 +11,30 @@ export type PromptAttachment = {
   fileSize?: number | null;
 };
 
-export type ImageThoughts = {
-  text?: string[];
-  images?: string[]; // Interim thought images (base64 data URLs)
-};
-
-export type Generation = SeedreamGeneration & {
+export type Generation = {
   id: string;
-  durationMs?: number;
-  deletedImages?: number[];
+  prompt: string;
+  /** OpenRouter model id, e.g. "google/gemini-3-pro-image". */
+  model: string;
+  /** Display name snapshot from the catalog at generation time. */
+  modelLabel?: string;
+  /** Pinned provider tag, if the request was routed to a specific provider. */
+  providerTag?: string | null;
+  allowFallbacks?: boolean;
+  /** "auto" or a ratio string like "16:9". */
+  aspectRatio: string;
+  resolution?: string | null;
+  quality?: string | null;
+  outputFormat: OutputFormat;
+  createdAt: string;
+  /** Actual size measured from the output when available, estimated otherwise. */
+  size: { width: number; height: number };
+  images: string[];
   thumbnails?: string[];
-  thoughts?: (ImageThoughts | null)[]; // Chain of thought per image
-  promptEnhancements?: (PromptEnhancementState | null)[];
-  aspectSelection?: AspectSelection;
-  qualitySelection?: QualitySelection;
+  deletedImages?: number[];
+  inputImages: InputImage[];
+  durationMs?: number;
+  usage?: GenerationUsage | null;
 };
 
 export type GalleryEntry = {
@@ -47,34 +42,22 @@ export type GalleryEntry = {
   imageIndex: number;
   src: string;
   prompt: string;
-  usedPrompt?: string;
-  aspect: AspectKey | "custom";
-  quality: QualityKey;
-  durationMs?: number;
-  aspectSelection?: AspectSelection;
-  qualitySelection?: QualitySelection;
-  provider?: Provider;
-  modelVariant?: GeminiModelVariant;
-  openAIModel?: OpenAIModel;
-  openAIQuality?: OpenAIQuality;
-  estimatedOpenAICost?: OpenAIEstimatedCostBreakdown;
-  openAIUsage?: OpenAIUsageBreakdown | null;
+  model: string;
+  modelLabel?: string;
+  aspectRatio: string;
+  resolution?: string | null;
+  quality?: string | null;
   outputFormat?: OutputFormat;
   size: { width: number; height: number };
+  durationMs?: number;
   inputImages: Generation["inputImages"];
-  useGoogleSearch?: boolean;
-  promptEnhancement?: Generation["promptEnhancement"];
+  usage?: GenerationUsage | null;
 };
 
 export type ReusePromptOptions = {
-  provider?: Provider;
-  useGoogleSearch?: boolean;
-  modelVariant?: GeminiModelVariant;
-  openAIModel?: OpenAIModel;
-  openAIQuality?: OpenAIQuality;
+  model?: string;
+  aspectRatio?: string;
+  resolution?: string | null;
+  quality?: string | null;
   outputFormat?: OutputFormat;
-  aspectSelection?: AspectSelection;
-  qualitySelection?: QualitySelection;
-  aspect?: AspectKey | "custom";
-  size?: { width: number; height: number };
 };

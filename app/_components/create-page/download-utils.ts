@@ -1,6 +1,6 @@
 "use client";
 
-import type { OutputFormat } from "../../lib/seedream-options";
+import type { OutputFormat } from "../../lib/openrouter";
 
 export function extensionFromMimeType(mimeType: string | null | undefined): string | null {
   if (!mimeType) {

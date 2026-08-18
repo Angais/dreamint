@@ -119,7 +119,7 @@ export function AttachmentLightbox({ attachment, onClose }: AttachmentLightboxPr
       const downloadUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = downloadUrl;
-      link.download = attachment.name || `nano-banana-input-${Date.now()}.png`;
+      link.download = attachment.name || `dreamint-input-${Date.now()}.png`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

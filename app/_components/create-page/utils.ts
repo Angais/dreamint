@@ -1,6 +1,3 @@
-import type { ReactNode } from "react";
-import { createElement } from "react";
-
 import type { Generation } from "./types";
 
 export function resizeTextarea(element: HTMLTextAreaElement | null) {
@@ -14,15 +11,6 @@ export function resizeTextarea(element: HTMLTextAreaElement | null) {
 
 export function normalizeImages(images: string[]): string[] {
   return images.filter((src) => src && src.length > 0);
-}
-
-export function parseSeed(value: string): number | null {
-  if (!value) {
-    return null;
-  }
-
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function createId(prefix: string): string {
@@ -59,42 +47,4 @@ export function formatDisplayDate(iso: string): string {
     month: "short",
     year: "numeric",
   });
-}
-
-// Helper function to parse markdown bold (**text**) and render as JSX
-export function renderMarkdownBold(text: string, boldClassName = "font-semibold"): ReactNode[] {
-  const parts: ReactNode[] = [];
-  const regex = /\*\*(.+?)\*\*/g;
-  let lastIndex = 0;
-  let match;
-
-  while ((match = regex.exec(text)) !== null) {
-    // Add text before the match
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
-    }
-    // Add the bold text using createElement to avoid JSX in .ts file
-    parts.push(
-      createElement("strong", { key: match.index, className: boldClassName }, match[1])
-    );
-    lastIndex = regex.lastIndex;
-  }
-
-  // Add remaining text after last match
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
-  }
-
-  return parts.length > 0 ? parts : [text];
-}
-
-// Parse thought text to extract title (first bold text) and body
-export function parseThoughtText(text: string): { title: string | null; body: string } {
-  const titleMatch = text.match(/^\*\*(.+?)\*\*/);
-  if (titleMatch) {
-    const title = titleMatch[1];
-    const body = text.slice(titleMatch[0].length).trim();
-    return { title, body };
-  }
-  return { title: null, body: text };
 }

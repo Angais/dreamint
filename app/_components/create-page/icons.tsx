@@ -37,21 +37,6 @@ export function LightningIcon(props: IconProps) {
   );
 }
 
-export function WandIcon(props: IconProps) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <path d="M15 4l5 5" />
-      <path d="M14 14 6 22l-4-4 8-8" />
-      <path d="m14 14 6-6" />
-      <path d="M5 3v3" />
-      <path d="M3.5 4.5h3" />
-      <path d="M19 14v3" />
-      <path d="M17.5 15.5h3" />
-      <path d="M10 2l.7 1.3L12 4l-1.3.7L10 6l-.7-1.3L8 4l1.3-.7L10 2Z" />
-    </svg>
-  );
-}
-
 export function DownloadIcon(props: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" {...props}>

@@ -1,10 +1,16 @@
 import localforage from "localforage";
+import { LEGACY_ASPECT_RATIO_BY_KEY } from "../../lib/image-options";
 import type { Generation } from "./types";
 
-const DB_NAME = "nano-banana-pro";
+const DB_NAME = "dreamint";
 const STORE_NAME = "state";
-const GENERATIONS_KEY = "seedream:generations";
-const PENDING_KEY = "seedream:pending_generations";
+const GENERATIONS_KEY = "dreamint:generations";
+const PENDING_KEY = "dreamint:pending_generations";
+
+// Pre-OpenRouter storage locations, migrated on first load.
+const LEGACY_DB_NAME = "nano-banana-pro";
+const LEGACY_GENERATIONS_KEY = "seedream:generations";
+const LEGACY_PENDING_KEY = "seedream:pending_generations";
 
 type PersistedGenerationCacheEntry = {
   source: Generation;
@@ -13,8 +19,7 @@ type PersistedGenerationCacheEntry = {
 
 const persistedGenerationCache = new Map<string, PersistedGenerationCacheEntry>();
 
-// Initialize localforage
-const store = typeof window !== "undefined" 
+const store = typeof window !== "undefined"
   ? localforage.createInstance({
       name: DB_NAME,
       storeName: STORE_NAME,
@@ -49,6 +54,217 @@ function makeRef(key: string): string {
 
 export function isStoredAssetRef(value: string): boolean {
   return isRef(value);
+}
+
+type LegacyUsage = {
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  totalTokens?: number | null;
+  inputTextTokens?: number | null;
+  inputImageTokens?: number | null;
+  cachedTextTokens?: number | null;
+  cachedImageTokens?: number | null;
+};
+
+type LegacyGeneration = {
+  id: string;
+  prompt: string;
+  aspect?: string;
+  aspectSelection?: string;
+  quality?: string;
+  outputFormat?: string;
+  provider?: string;
+  modelVariant?: string;
+  openAIModel?: string;
+  openAIQuality?: string;
+  createdAt: string;
+  size?: { width: number; height: number };
+  images?: string[];
+  thumbnails?: string[];
+  deletedImages?: number[];
+  inputImages?: Generation["inputImages"];
+  durationMs?: number;
+  estimatedOpenAICost?: { totalCostUsd?: number };
+  openAIUsage?: LegacyUsage | null;
+};
+
+const LEGACY_RESOLUTION_BY_QUALITY: Record<string, string> = {
+  "1k": "1K",
+  "2k": "2K",
+  "4k": "4K",
+};
+
+// gpt-image-2 pricing, kept only to preserve actual costs of pre-OpenRouter records.
+const LEGACY_GPT_IMAGE_2_PRICING = {
+  textInputPerMillion: 5,
+  textCachedInputPerMillion: 1.25,
+  imageInputPerMillion: 8,
+  imageCachedInputPerMillion: 2,
+  imageOutputPerMillion: 30,
+};
+
+function legacyActualCostUsd(usage: LegacyUsage | null | undefined): number | null {
+  if (!usage) {
+    return null;
+  }
+
+  const cachedTextTokens = usage.cachedTextTokens ?? 0;
+  const cachedImageTokens = usage.cachedImageTokens ?? 0;
+  if (
+    typeof usage.inputTextTokens !== "number" ||
+    typeof usage.inputImageTokens !== "number" ||
+    typeof usage.outputTokens !== "number"
+  ) {
+    return null;
+  }
+
+  const nonCachedTextTokens = Math.max(0, usage.inputTextTokens - cachedTextTokens);
+  const nonCachedImageTokens = Math.max(0, usage.inputImageTokens - cachedImageTokens);
+  const inputCostUsd =
+    (nonCachedTextTokens / 1_000_000) * LEGACY_GPT_IMAGE_2_PRICING.textInputPerMillion +
+    (cachedTextTokens / 1_000_000) * LEGACY_GPT_IMAGE_2_PRICING.textCachedInputPerMillion +
+    (nonCachedImageTokens / 1_000_000) * LEGACY_GPT_IMAGE_2_PRICING.imageInputPerMillion +
+    (cachedImageTokens / 1_000_000) * LEGACY_GPT_IMAGE_2_PRICING.imageCachedInputPerMillion;
+  const outputCostUsd =
+    (usage.outputTokens / 1_000_000) * LEGACY_GPT_IMAGE_2_PRICING.imageOutputPerMillion;
+
+  return inputCostUsd + outputCostUsd;
+}
+
+function deriveLegacyAspectRatio(record: LegacyGeneration): string {
+  if (record.aspect && LEGACY_ASPECT_RATIO_BY_KEY[record.aspect]) {
+    return LEGACY_ASPECT_RATIO_BY_KEY[record.aspect];
+  }
+
+  const width = Math.max(1, Math.round(record.size?.width ?? 1));
+  const height = Math.max(1, Math.round(record.size?.height ?? 1));
+  let a = width;
+  let b = height;
+  while (b !== 0) {
+    const temp = b;
+    b = a % b;
+    a = temp;
+  }
+  const divisor = Math.max(1, a);
+  return `${Math.round(width / divisor)}:${Math.round(height / divisor)}`;
+}
+
+function migrateLegacyGeneration(record: LegacyGeneration): Generation {
+  const maybeMigrated = record as unknown as Generation;
+  if (typeof maybeMigrated.model === "string" && typeof maybeMigrated.aspectRatio === "string") {
+    return maybeMigrated;
+  }
+
+  const isFlash = record.modelVariant === "flash";
+  const model =
+    record.provider === "openai"
+      ? `openai/${record.openAIModel ?? "gpt-image-2"}`
+      : isFlash
+        ? "google/gemini-3.1-flash-image-preview"
+        : "google/gemini-3-pro-image-preview";
+  const modelLabel =
+    record.provider === "openai"
+      ? record.openAIModel ?? "gpt-image-2"
+      : isFlash
+        ? "Gemini 3.1 Flash Image"
+        : "Gemini 3 Pro Image";
+  const costUsd =
+    legacyActualCostUsd(record.openAIUsage) ??
+    (typeof record.estimatedOpenAICost?.totalCostUsd === "number"
+      ? record.estimatedOpenAICost.totalCostUsd
+      : null);
+  const outputFormat =
+    record.outputFormat === "jpeg" || record.outputFormat === "webp" ? record.outputFormat : "png";
+
+  return {
+    id: record.id,
+    prompt: record.prompt,
+    model,
+    modelLabel,
+    aspectRatio: deriveLegacyAspectRatio(record),
+    resolution: record.quality ? LEGACY_RESOLUTION_BY_QUALITY[record.quality] ?? null : null,
+    quality: record.openAIQuality ?? null,
+    outputFormat,
+    createdAt: record.createdAt,
+    size: record.size ?? { width: 1024, height: 1024 },
+    images: record.images ?? [],
+    thumbnails: record.thumbnails,
+    deletedImages: record.deletedImages,
+    inputImages: record.inputImages ?? [],
+    durationMs: record.durationMs,
+    usage:
+      costUsd !== null || record.openAIUsage
+        ? {
+            promptTokens: record.openAIUsage?.inputTokens ?? null,
+            completionTokens: record.openAIUsage?.outputTokens ?? null,
+            totalTokens: record.openAIUsage?.totalTokens ?? null,
+            costUsd,
+            upstreamCostUsd: null,
+          }
+        : null,
+  };
+}
+
+let legacyMigrationPromise: Promise<void> | null = null;
+
+async function migrateLegacyStore(): Promise<void> {
+  if (!store || typeof window === "undefined") {
+    return;
+  }
+
+  const existingGenerations = await store.getItem(GENERATIONS_KEY);
+  if (existingGenerations !== null) {
+    return;
+  }
+
+  const legacyStore = localforage.createInstance({
+    name: LEGACY_DB_NAME,
+    storeName: STORE_NAME,
+  });
+
+  try {
+    const [legacyGenerations, legacyPending] = await Promise.all([
+      legacyStore.getItem<LegacyGeneration[]>(LEGACY_GENERATIONS_KEY),
+      legacyStore.getItem<LegacyGeneration[]>(LEGACY_PENDING_KEY),
+    ]);
+
+    const hasLegacyData =
+      (Array.isArray(legacyGenerations) && legacyGenerations.length > 0) ||
+      (Array.isArray(legacyPending) && legacyPending.length > 0);
+    if (!hasLegacyData) {
+      return;
+    }
+
+    const legacyKeys = await legacyStore.keys();
+    for (const key of legacyKeys) {
+      if (!key.startsWith("img:") && !key.startsWith("thumb:")) {
+        continue;
+      }
+
+      const blob = await legacyStore.getItem<Blob>(key);
+      if (blob) {
+        await store.setItem(key, blob);
+      }
+    }
+
+    if (Array.isArray(legacyGenerations) && legacyGenerations.length > 0) {
+      await store.setItem(GENERATIONS_KEY, legacyGenerations.map(migrateLegacyGeneration));
+    }
+    if (Array.isArray(legacyPending) && legacyPending.length > 0) {
+      await store.setItem(PENDING_KEY, legacyPending.map(migrateLegacyGeneration));
+    }
+
+    await localforage.dropInstance({ name: LEGACY_DB_NAME });
+  } catch (error) {
+    console.error("Legacy storage migration failed", error);
+  }
+}
+
+function ensureLegacyMigration(): Promise<void> {
+  if (!legacyMigrationPromise) {
+    legacyMigrationPromise = migrateLegacyStore();
+  }
+  return legacyMigrationPromise;
 }
 
 export async function resolveStoredAssetBlob(value: string): Promise<Blob | null> {
@@ -394,25 +610,23 @@ export async function persistGenerations(generations: Generation[]) {
       // Handle Input Images (References)
       const inputImages = await Promise.all(
         (gen.inputImages || []).map(async (img) => {
-            if (!img.url) return img;
-            
-             // Similar logic for input images
-             if (isRef(img.url)) return img;
-             
-             const key = getImageKey(gen.id, 0, "input", img.id); // index 0 unused for input
+          if (!img.url) return img;
+          if (isRef(img.url)) return img;
 
-             if (img.url.startsWith("blob:")) {
-                 return { ...img, url: makeRef(key) };
-             }
+          const key = getImageKey(gen.id, 0, "input", img.id); // index 0 unused for input
 
-             try {
-                 const blob = await urlToBlob(img.url);
-                 await store.setItem(key, blob);
-                 return { ...img, url: makeRef(key) };
-             } catch (e) {
-                 console.error(`Failed to save input image ${key}`, e);
-                 return img;
-             }
+          if (img.url.startsWith("blob:")) {
+            return { ...img, url: makeRef(key) };
+          }
+
+          try {
+            const blob = await urlToBlob(img.url);
+            await store.setItem(key, blob);
+            return { ...img, url: makeRef(key) };
+          } catch (e) {
+            console.error(`Failed to save input image ${key}`, e);
+            return img;
+          }
         })
       );
 
@@ -438,26 +652,14 @@ export async function persistGenerations(generations: Generation[]) {
 /**
  * Loads generations from storage.
  * Resolves references by loading Blobs and creating ObjectURLs.
- * Handles migration from old format (embedded data) to new format (references).
+ * Migrates the pre-OpenRouter database and record shape on first load.
  */
 export async function restoreGenerations(): Promise<Generation[] | null> {
   if (!store) return null;
 
-  let storedData = await store.getItem<Generation[]>(GENERATIONS_KEY);
+  await ensureLegacyMigration();
 
-  // Try legacy location if not found
-  if (!storedData && typeof window !== "undefined") {
-      const legacy = window.localStorage.getItem(GENERATIONS_KEY);
-      if (legacy) {
-          try {
-              storedData = JSON.parse(legacy);
-              // Clear legacy
-              window.localStorage.removeItem(GENERATIONS_KEY);
-          } catch (e) {
-              console.error("Failed to parse legacy generations", e);
-          }
-      }
-  }
+  const storedData = await store.getItem<Generation[]>(GENERATIONS_KEY);
 
   if (!Array.isArray(storedData)) return null;
 
@@ -472,21 +674,19 @@ export async function restoreGenerations(): Promise<Generation[] | null> {
             // It's a reference, load the blob
             const key = getRefKey(img);
             try {
-                const blob = await store!.getItem<Blob>(key);
-                if (blob) {
-                    return URL.createObjectURL(blob);
-                } else {
-                    // Blob missing?
-                    console.warn(`Missing blob for key ${key}`);
-                    return "";
-                }
-            } catch (e) {
-                console.error(`Failed to load blob ${key}`, e);
+              const blob = await store!.getItem<Blob>(key);
+              if (blob) {
+                return URL.createObjectURL(blob);
+              } else {
+                console.warn(`Missing blob for key ${key}`);
                 return "";
+              }
+            } catch (e) {
+              console.error(`Failed to load blob ${key}`, e);
+              return "";
             }
           } else if (img.startsWith("blob:")) {
-            // Legacy bug: blob: URLs may have been persisted, but blob URLs are not stable across sessions.
-            // Try to recover from the expected storage key.
+            // blob: URLs are not stable across sessions; recover from the expected storage key.
             const key = getImageKey(gen.id, index, "output");
             try {
               const blob = await store!.getItem<Blob>(key);
@@ -499,56 +699,54 @@ export async function restoreGenerations(): Promise<Generation[] | null> {
               return "";
             }
           } else {
-            // It's NOT a reference (Old format migration)
-            // Save it as blob immediately
+            // Old format with embedded data: save it as a blob and hand back an ObjectURL.
             const key = getImageKey(gen.id, index, "output");
             try {
-                const blob = await urlToBlob(img);
-                await store!.setItem(key, blob);
-                // We return the ObjectURL for display
-                return URL.createObjectURL(blob);
+              const blob = await urlToBlob(img);
+              await store!.setItem(key, blob);
+              return URL.createObjectURL(blob);
             } catch (e) {
-                console.error(`Failed to migrate image ${key}`, e);
-                return img;
+              console.error(`Failed to migrate image ${key}`, e);
+              return img;
             }
           }
         })
       );
 
       // Hydrate Input Images
-  const inputImages = await Promise.all(
+      const inputImages = await Promise.all(
         (gen.inputImages || []).map(async (inputImg) => {
-            if (!inputImg.url) return inputImg;
+          if (!inputImg.url) return inputImg;
 
-            if (isRef(inputImg.url)) {
-                const key = getRefKey(inputImg.url);
-                try {
-                    const blob = await store!.getItem<Blob>(key);
-                    if (blob) {
-                        return { ...inputImg, url: URL.createObjectURL(blob) };
-                    }
-                    return { ...inputImg, url: "" };
-                } catch {
-                    return inputImg;
-                }
-            } else if (inputImg.url.startsWith("blob:")) {
-                 const key = getImageKey(gen.id, 0, "input", inputImg.id);
-                 try {
-                     const blob = await store!.getItem<Blob>(key);
-                     return blob ? { ...inputImg, url: URL.createObjectURL(blob) } : { ...inputImg, url: "" };
-                 } catch {
-                     return { ...inputImg, url: "" };
-                 }
-            } else {
-                 // Migration
-                 const key = getImageKey(gen.id, 0, "input", inputImg.id);
-                 try {
-                     const blob = await urlToBlob(inputImg.url);
-                     await store!.setItem(key, blob);
-                     return { ...inputImg, url: URL.createObjectURL(blob) };
-                 } catch {
-                     return inputImg;
-                 }
+          if (isRef(inputImg.url)) {
+            const key = getRefKey(inputImg.url);
+            try {
+              const blob = await store!.getItem<Blob>(key);
+              if (blob) {
+                return { ...inputImg, url: URL.createObjectURL(blob) };
+              }
+              return { ...inputImg, url: "" };
+            } catch {
+              return inputImg;
+            }
+          } else if (inputImg.url.startsWith("blob:")) {
+            const key = getImageKey(gen.id, 0, "input", inputImg.id);
+            try {
+              const blob = await store!.getItem<Blob>(key);
+              return blob ? { ...inputImg, url: URL.createObjectURL(blob) } : { ...inputImg, url: "" };
+            } catch {
+              return { ...inputImg, url: "" };
+            }
+          } else {
+            // Migration
+            const key = getImageKey(gen.id, 0, "input", inputImg.id);
+            try {
+              const blob = await urlToBlob(inputImg.url);
+              await store!.setItem(key, blob);
+              return { ...inputImg, url: URL.createObjectURL(blob) };
+            } catch {
+              return inputImg;
+            }
           }
         })
       );
@@ -626,28 +824,8 @@ export async function restoreGenerations(): Promise<Generation[] | null> {
 
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
-      
-      const hydratedGen = { ...gen, images, thumbnails, inputImages };
 
-      // If we did migration on the fly, we should probably save the updated ref structure
-      // BUT: calling persistGenerations here might be race-condition prone if the app is also saving.
-      // Better to let the app state settle and save naturally, OR return a flag.
-      // Since `restoreGenerations` is called on mount, and we set state, 
-      // and `useEffect` watches state to save, it might trigger a save.
-      // However, the state will contain ObjectURLs (blob:...), which `persistGenerations`
-      // recognizes as "already saved" and converts to refs.
-      // So the migration flow is:
-      // 1. Load (Old Data) -> Convert to Blobs -> Save Blobs -> Return ObjectURLs.
-      // 2. App sets state with ObjectURLs.
-      // 3. App Effect triggers `persistGenerations`.
-      // 4. `persistGenerations` sees ObjectURLs, assumes they are backed by DB (ref checks needed?).
-      
-      // WAIT. `persistGenerations` assumes `blob:` URL means "already in DB". 
-      // In the migration case above, we DID put it in DB (`store.setItem`).
-      // So when `persistGenerations` runs later, it will see `blob:` and return `ref:`.
-      // This works perfectly.
-
-      return hydratedGen;
+      return { ...gen, images, thumbnails, inputImages };
     })
   );
 
@@ -655,65 +833,61 @@ export async function restoreGenerations(): Promise<Generation[] | null> {
 }
 
 export async function clearPending() {
-    if (!store) return;
-    await store.removeItem(PENDING_KEY);
+  if (!store) return;
+  await store.removeItem(PENDING_KEY);
 }
 
 export async function savePending(pending: Generation[]) {
-    if (!store) return;
-    // Pending generations might also have images? 
-    // Usually pending are "loading" state, but if they are retries, they have input images.
-    // Logic is same as persistGenerations.
-    // But we might want to store them separately or use the same logic.
-    // Let's reuse the logic but save to PENDING_KEY.
-    
-    const persistedPending = await Promise.all(
-        pending.map(async (gen) => {
-            // Similar logic... reuse code?
-            // Pending generations usually don't have output images yet (or placeholders).
-            // But they have input images.
-             const inputImages = await Promise.all(
-                (gen.inputImages || []).map(async (img) => {
-                    if (!img.url) return img;
-                    if (isRef(img.url)) return img;
-                    const key = getImageKey(gen.id, 0, "input", img.id);
-                    if (img.url.startsWith("blob:")) return { ...img, url: makeRef(key) };
-                    
-                    try {
-                        const blob = await urlToBlob(img.url);
-                        await store!.setItem(key, blob);
-                        return { ...img, url: makeRef(key) };
-                    } catch {
-                        return img;
-                    }
-                })
-            );
-            return { ...gen, inputImages };
-        })
-    );
+  if (!store) return;
+  // Pending generations have no outputs yet, but their input images need
+  // the same blob handling as persisted generations.
+  const persistedPending = await Promise.all(
+    pending.map(async (gen) => {
+      const inputImages = await Promise.all(
+        (gen.inputImages || []).map(async (img) => {
+          if (!img.url) return img;
+          if (isRef(img.url)) return img;
+          const key = getImageKey(gen.id, 0, "input", img.id);
+          if (img.url.startsWith("blob:")) return { ...img, url: makeRef(key) };
 
-    await store.setItem(PENDING_KEY, persistedPending);
+          try {
+            const blob = await urlToBlob(img.url);
+            await store!.setItem(key, blob);
+            return { ...img, url: makeRef(key) };
+          } catch {
+            return img;
+          }
+        })
+      );
+      return { ...gen, inputImages };
+    })
+  );
+
+  await store.setItem(PENDING_KEY, persistedPending);
 }
 
 export async function loadPending(): Promise<Generation[]> {
-    if (!store) return [];
-    const stored = await store.getItem<Generation[]>(PENDING_KEY);
-    if (!Array.isArray(stored)) return [];
+  if (!store) return [];
 
-    // Hydrate
-    return Promise.all(stored.map(async (gen) => {
-        const inputImages = await Promise.all(
-             (gen.inputImages || []).map(async (img) => {
-                 if (isRef(img.url)) {
-                     const key = getRefKey(img.url);
-                     const blob = await store!.getItem<Blob>(key);
-                     return blob ? { ...img, url: URL.createObjectURL(blob) } : img;
-                 }
-                 return img;
-             })
-        );
-        return { ...gen, inputImages };
-    }));
+  await ensureLegacyMigration();
+
+  const stored = await store.getItem<Generation[]>(PENDING_KEY);
+  if (!Array.isArray(stored)) return [];
+
+  // Hydrate
+  return Promise.all(stored.map(async (gen) => {
+    const inputImages = await Promise.all(
+      (gen.inputImages || []).map(async (img) => {
+        if (isRef(img.url)) {
+          const key = getRefKey(img.url);
+          const blob = await store!.getItem<Blob>(key);
+          return blob ? { ...img, url: URL.createObjectURL(blob) } : img;
+        }
+        return img;
+      })
+    );
+    return { ...gen, inputImages };
+  }));
 }
 
 export async function deleteGenerationData(generationId: string, generation?: Generation) {
