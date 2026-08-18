@@ -677,6 +677,28 @@ export function Lightbox({
               {entry.prompt}
             </p>
 
+            {hasReferences ? (
+              <div className="mb-4">
+                <span className="mb-1.5 block text-[10px] uppercase tracking-wide text-[var(--text-secondary)] opacity-60">
+                  References ({entry.inputImages.length})
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {entry.inputImages.map((img, idx) => (
+                    <div key={`${entry.generationId}-ref-${img.id ? img.id : "input"}-${idx}`} className="h-14 w-14">
+                      <ReferencePickerTile
+                        image={img}
+                        isSelected={isCompareMode && selectedReferenceIndex === idx}
+                        onClick={() => {
+                          setSelectedReferenceIndex(idx);
+                          setIsCompareMode(true);
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             <div className="grid grid-cols-2 gap-2 text-xs text-[var(--text-secondary)] mb-3 md:mb-4">
               <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 py-2">
                 <span className="mb-0.5 block text-[10px] uppercase tracking-wide opacity-60">Aspect</span>
@@ -828,19 +850,6 @@ export function Lightbox({
                   <span className="text-base leading-none">⇄</span>
                   {isCompareMode ? "Exit Compare" : "Compare"}
                 </button>
-
-                {isCompareMode && entry.inputImages.length > 1 ? (
-                  <div className="grid grid-cols-4 gap-2 rounded-lg bg-[var(--bg-subtle)] p-2">
-                    {entry.inputImages.map((img, idx) => (
-                      <ReferencePickerTile
-                        key={`${entry.generationId}-input-${img.id ? img.id : "ref"}-${idx}`}
-                        image={img}
-                        isSelected={selectedReferenceIndex === idx}
-                        onClick={() => setSelectedReferenceIndex(idx)}
-                      />
-                    ))}
-                  </div>
-                ) : null}
               </div>
             ) : null}
 
@@ -920,10 +929,10 @@ function ReferencePickerTile({
     <button
       type="button"
       onClick={onClick}
-      className={`relative aspect-square overflow-hidden rounded-md border-2 transition-all ${
+      className={`relative aspect-square w-full overflow-hidden rounded-md border-2 transition-all ${
         isSelected
           ? "border-[var(--accent-primary)] opacity-100"
-          : "border-transparent opacity-50 hover:opacity-100"
+          : "border-[var(--border-subtle)] opacity-80 hover:opacity-100 hover:border-[var(--text-muted)]"
       }`}
       title={image.name}
     >
