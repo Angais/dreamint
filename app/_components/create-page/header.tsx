@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   ChangeEvent,
   ClipboardEvent as ReactClipboardEvent,
@@ -21,7 +21,7 @@ import type {
   OutputFormat,
   ProviderPreference,
 } from "../../lib/openrouter";
-import { CopyIcon, DownloadIcon, EyeIcon, EyeOffIcon, LightningIcon, PlusIcon, SettingsIcon, XIcon } from "./icons";
+import { CopyIcon, EyeIcon, EyeOffIcon, LightningIcon, PlusIcon, SettingsIcon, XIcon } from "./icons";
 import { AttachmentPreviewList } from "./attachment-preview";
 import type { PromptAttachment } from "./types";
 import { resizeTextarea } from "./utils";
@@ -138,19 +138,14 @@ export function Header({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const dragCounterRef = useRef(0);
-  const clearPromptTimeoutRef = useRef<number | null>(null);
   const clearHistoryTimeoutRef = useRef<number | null>(null);
   const deleteHistoryItemTimeoutRef = useRef<number | null>(null);
   const clearApiKeyTimeoutRef = useRef<number | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
-  const [promptCopyState, setPromptCopyState] = useState<"idle" | "copied" | "failed">("idle");
-  const [setupCopyState, setSetupCopyState] = useState<"idle" | "copied" | "failed">("idle");
-  const [setupDownloadState, setSetupDownloadState] = useState<"idle" | "saved" | "failed">("idle");
   const [apiKeyCopyState, setApiKeyCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [isApiKeyVisible, setIsApiKeyVisible] = useState(false);
   const [clearedApiKey, setClearedApiKey] = useState<string | null>(null);
-  const [clearedPrompt, setClearedPrompt] = useState<string | null>(null);
   const [clearedPromptHistory, setClearedPromptHistory] = useState<string[] | null>(null);
   const [modelSearch, setModelSearch] = useState("");
   const [deletedPromptHistory, setDeletedPromptHistory] = useState<{
@@ -218,17 +213,8 @@ export function Header({
       : remainingAttachmentSlots === 0
         ? "Full"
         : `${remainingAttachmentSlots} ref${remainingAttachmentSlots === 1 ? "" : "s"} left`;
-  const promptStats = useMemo(() => {
-    const words = trimmedPrompt.length === 0 ? 0 : trimmedPrompt.split(/\s+/).length;
-    return {
-      characters: prompt.length,
-      words,
-    };
-  }, [prompt, trimmedPrompt]);
   const generateDisabled = trimmedPrompt.length === 0 || isBudgetLocked || !selectedModelId;
   const visiblePromptHistory = promptHistory.filter((historyItem) => historyItem !== trimmedPrompt);
-  const selectedModelLabel =
-    enabledModels.find((model) => model.id === selectedModelId)?.label ?? null;
   const formatApiKeyUpdatedAt = () => {
     if (!apiKeyUpdatedAt) {
       return null;
@@ -256,28 +242,6 @@ export function Header({
 
     const elapsedDays = Math.floor(elapsedHours / 24);
     return `updated ${elapsedDays}d ago`;
-  };
-  const buildPromptSetupMarkdown = () => {
-    const aspectLabel =
-      aspectRatio === AUTO_OPTION
-        ? `Auto${attachments[0]?.width && attachments[0]?.height ? ` (${attachments[0].width}x${attachments[0].height})` : ""}`
-        : aspectRatio;
-
-    return [
-      "# Dreamint Prompt Setup",
-      "",
-      "## Prompt",
-      trimmedPrompt,
-      "",
-      "## Settings",
-      `- Model: ${selectedModelLabel ?? "None selected"}`,
-      `- Aspect: ${aspectLabel}`,
-      ...(resolutionOptions.length > 0 ? [`- Resolution: ${resolution}`] : []),
-      ...(qualityOptions.length > 0 ? [`- Quality: ${getQualityLabel(quality)}`] : []),
-      `- Output format: ${outputFormat.toUpperCase()}`,
-      `- Images: ${imageCount}`,
-      `- References: ${attachments.length}`,
-    ].join("\n");
   };
   const shouldSubmitOnEnter = () => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -322,64 +286,6 @@ export function Header({
     }
   };
 
-  const handleCopyPrompt = async () => {
-    if (!trimmedPrompt) {
-      return;
-    }
-
-    try {
-      await copyText(trimmedPrompt);
-      setPromptCopyState("copied");
-    } catch (error) {
-      console.error("Unable to copy prompt", error);
-      setPromptCopyState("failed");
-    }
-  };
-
-  const handleCopyPromptSetup = async () => {
-    if (!trimmedPrompt) {
-      return;
-    }
-
-    try {
-      await copyText(buildPromptSetupMarkdown());
-      setSetupCopyState("copied");
-    } catch (error) {
-      console.error("Unable to copy prompt setup", error);
-      setSetupCopyState("failed");
-    }
-  };
-
-  const handleDownloadPromptSetup = () => {
-    if (!trimmedPrompt || typeof document === "undefined") {
-      return;
-    }
-
-    try {
-      const slug = trimmedPrompt
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")
-        .slice(0, 48);
-      const filename = `dreamint-setup-${slug || "prompt"}.md`;
-      const blob = new Blob([buildPromptSetupMarkdown()], {
-        type: "text/markdown;charset=utf-8",
-      });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      setSetupDownloadState("saved");
-    } catch (error) {
-      console.error("Unable to download prompt setup", error);
-      setSetupDownloadState("failed");
-    }
-  };
-
   const handleCopyApiKey = async () => {
     if (!trimmedApiKey) {
       return;
@@ -392,20 +298,6 @@ export function Header({
       console.error("Unable to copy OpenRouter API key", error);
       setApiKeyCopyState("failed");
     }
-  };
-
-  const clearPromptUndoTimer = () => {
-    if (clearPromptTimeoutRef.current === null) {
-      return;
-    }
-
-    window.clearTimeout(clearPromptTimeoutRef.current);
-    clearPromptTimeoutRef.current = null;
-  };
-
-  const dismissClearedPrompt = () => {
-    clearPromptUndoTimer();
-    setClearedPrompt(null);
   };
 
   const clearHistoryUndoTimer = () => {
@@ -450,53 +342,12 @@ export function Header({
     setClearedApiKey(null);
   };
 
-  const handlePromptChange = (value: string) => {
-    if (clearedPrompt !== null) {
-      dismissClearedPrompt();
-    }
-
-    onPromptChange(value);
-  };
-
   const handleApiKeyChange = (value: string) => {
     if (clearedApiKey !== null) {
       dismissClearedApiKey();
     }
 
     onApiKeyChange(value);
-  };
-
-  const handleClearPrompt = () => {
-    if (!trimmedPrompt) {
-      return;
-    }
-
-    clearPromptUndoTimer();
-    setClearedPrompt(prompt);
-    onPromptChange("");
-    setHistoryIndex(null);
-    historyDraftRef.current = "";
-    clearPromptTimeoutRef.current = window.setTimeout(() => {
-      setClearedPrompt(null);
-      clearPromptTimeoutRef.current = null;
-    }, 7000);
-    window.requestAnimationFrame(() => {
-      promptTextareaRef.current?.focus();
-    });
-  };
-
-  const handleUndoClearPrompt = () => {
-    if (clearedPrompt === null) {
-      return;
-    }
-
-    const promptToRestore = clearedPrompt;
-    dismissClearedPrompt();
-    onPromptChange(promptToRestore);
-    window.requestAnimationFrame(() => {
-      promptTextareaRef.current?.focus();
-      movePromptCaretToEnd();
-    });
   };
 
   const handleClearPromptHistory = () => {
@@ -760,33 +611,6 @@ export function Header({
   }, [prompt]);
 
   useEffect(() => {
-    if (promptCopyState === "idle") {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => setPromptCopyState("idle"), 1200);
-    return () => window.clearTimeout(timeoutId);
-  }, [promptCopyState]);
-
-  useEffect(() => {
-    if (setupCopyState === "idle") {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => setSetupCopyState("idle"), 1200);
-    return () => window.clearTimeout(timeoutId);
-  }, [setupCopyState]);
-
-  useEffect(() => {
-    if (setupDownloadState === "idle") {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => setSetupDownloadState("idle"), 1200);
-    return () => window.clearTimeout(timeoutId);
-  }, [setupDownloadState]);
-
-  useEffect(() => {
     if (apiKeyCopyState === "idle") {
       return;
     }
@@ -859,7 +683,6 @@ export function Header({
 
   useEffect(
     () => () => {
-      clearPromptUndoTimer();
       clearHistoryUndoTimer();
       clearDeleteHistoryItemUndoTimer();
       clearApiKeyUndoTimer();
@@ -898,7 +721,7 @@ export function Header({
             <textarea
               ref={promptTextareaRef}
               value={prompt}
-              onChange={(event) => handlePromptChange(event.target.value)}
+              onChange={(event) => onPromptChange(event.target.value)}
               onPaste={handlePromptPaste}
               onKeyDown={handlePromptKeyDown}
               rows={1}
@@ -936,81 +759,6 @@ export function Header({
                 onClear={onClearAttachments}
                 isAutoAspectActive={aspectRatio === AUTO_OPTION}
               />
-            </div>
-          ) : null}
-
-          {trimmedPrompt.length > 0 ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-2 text-[10px] text-[var(--text-muted)]">
-              <span className="font-semibold uppercase tracking-[0.2em]">
-                {promptStats.words.toLocaleString()} {promptStats.words === 1 ? "word" : "words"} · {promptStats.characters.toLocaleString()} chars
-              </span>
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={handleCopyPrompt}
-                  className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-semibold uppercase tracking-[0.18em] transition-colors ${
-                    promptCopyState === "copied"
-                      ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
-                      : promptCopyState === "failed"
-                        ? "border-red-400/40 bg-red-400/10 text-red-200"
-                        : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:border-[var(--border-highlight)] hover:text-white"
-                  }`}
-                >
-                  <CopyIcon className="h-3 w-3" />
-                  {promptCopyState === "copied" ? "Copied" : promptCopyState === "failed" ? "Failed" : "Copy"}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCopyPromptSetup}
-                  className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-semibold uppercase tracking-[0.18em] transition-colors ${
-                    setupCopyState === "copied"
-                      ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
-                      : setupCopyState === "failed"
-                        ? "border-red-400/40 bg-red-400/10 text-red-200"
-                        : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:border-[var(--border-highlight)] hover:text-white"
-                  }`}
-                >
-                  <CopyIcon className="h-3 w-3" />
-                  {setupCopyState === "copied" ? "Copied Setup" : setupCopyState === "failed" ? "Failed" : "Copy Setup"}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDownloadPromptSetup}
-                  className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-semibold uppercase tracking-[0.18em] transition-colors ${
-                    setupDownloadState === "saved"
-                      ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
-                      : setupDownloadState === "failed"
-                        ? "border-red-400/40 bg-red-400/10 text-red-200"
-                        : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:border-[var(--border-highlight)] hover:text-white"
-                  }`}
-                >
-                  <DownloadIcon className="h-3 w-3" />
-                  {setupDownloadState === "saved" ? "Saved Setup" : setupDownloadState === "failed" ? "Failed" : "Save Setup"}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleClearPrompt}
-                  className="flex items-center gap-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2.5 py-1 font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)] transition-colors hover:border-red-400/40 hover:text-red-200"
-                >
-                  <XIcon className="h-3 w-3" />
-                  Clear
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          {trimmedPrompt.length === 0 && clearedPrompt !== null ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-2 text-[10px] text-[var(--text-muted)]">
-              <span className="font-semibold uppercase tracking-[0.2em]">
-                Prompt cleared
-              </span>
-              <button
-                type="button"
-                onClick={handleUndoClearPrompt}
-                className="rounded-full border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2.5 py-1 font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)] transition-colors hover:border-[var(--border-highlight)] hover:text-white"
-              >
-                Undo
-              </button>
             </div>
           ) : null}
 
