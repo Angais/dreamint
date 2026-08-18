@@ -9,7 +9,7 @@ import {
 } from "../../lib/image-options";
 import { totalUsageCostUsd } from "../../lib/openrouter";
 import { CompareSlider } from "./compare-slider";
-import { ArrowLeftIcon, ArrowRightIcon, CopyIcon, DownloadIcon, InfoIcon, LightningIcon, MinusIcon, PlusIcon, ReuseIcon, SettingsIcon, SpinnerIcon, XIcon } from "./icons";
+import { ArrowLeftIcon, ArrowRightIcon, CopyIcon, DownloadIcon, InfoIcon, MinusIcon, PlusIcon, ReuseIcon, SpinnerIcon, XIcon } from "./icons";
 import { isStoredAssetRef, resolveStoredAssetUrl } from "./storage";
 import type { GalleryEntry, Generation, ReusePromptOptions } from "./types";
 import { useResolvedImageSource } from "./use-resolved-image-source";
@@ -84,10 +84,6 @@ export function Lightbox({
   const [compareSliderPosition, setCompareSliderPosition] = useState(50);
   const [isDownloadingComparison, setIsDownloadingComparison] = useState(false);
   const [promptCopyState, setPromptCopyState] = useState<"idle" | "copied" | "failed">("idle");
-  const [setupCopyState, setSetupCopyState] = useState<"idle" | "copied" | "failed">("idle");
-  const [summaryCopyState, setSummaryCopyState] = useState<"idle" | "copied" | "failed">("idle");
-  const [metadataCopyState, setMetadataCopyState] = useState<"idle" | "copied" | "failed">("idle");
-  const [metadataDownloadState, setMetadataDownloadState] = useState<"idle" | "saved" | "failed">("idle");
   const shouldShowDetailsOnOpen = () => {
     if (typeof window === "undefined") {
       return true;
@@ -159,10 +155,6 @@ export function Lightbox({
     setTransform({ x: 0, y: 0, scale: 1 });
     setShowDetails(shouldShowDetailsOnOpen());
     setPromptCopyState("idle");
-    setSetupCopyState("idle");
-    setSummaryCopyState("idle");
-    setMetadataCopyState("idle");
-    setMetadataDownloadState("idle");
   }, [entry.generationId, entry.imageIndex]);
 
   useEffect(() => {
@@ -494,177 +486,6 @@ export function Lightbox({
       setPromptCopyState("failed");
       window.setTimeout(() => {
         setPromptCopyState((previous) => (previous === "failed" ? "idle" : previous));
-      }, 1800);
-    }
-  };
-
-  const writeClipboardText = async (value: string) => {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(value);
-      return;
-    }
-
-    const textarea = document.createElement("textarea");
-    textarea.value = value;
-    textarea.setAttribute("readonly", "true");
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    document.body.appendChild(textarea);
-    textarea.select();
-    document.execCommand("copy");
-    document.body.removeChild(textarea);
-  };
-
-  const buildMetadata = () => ({
-    generationId: entry.generationId,
-    imageIndex: entry.imageIndex,
-    prompt: entry.prompt,
-    model: entry.model,
-    modelLabel,
-    aspectRatio: aspectLabel,
-    resolution: entry.resolution ?? null,
-    quality: entry.quality ?? null,
-    outputFormat: entry.outputFormat ?? "png",
-    size: entry.size,
-    durationMs: entry.durationMs ?? null,
-    referenceCount: entry.inputImages.length,
-    costUsd: actualCostUsd,
-    usage: entry.usage ?? null,
-  });
-
-  const buildSetupMarkdown = () => {
-    const durationLabel =
-      typeof entry.durationMs === "number"
-        ? formatGenerationDuration(entry.durationMs)
-        : null;
-
-    return [
-      "# Dreamint Image Setup",
-      "",
-      "## Prompt",
-      entry.prompt.trim(),
-      "",
-      "## Settings",
-      `- Model: ${modelLabel}`,
-      `- Aspect: ${aspectLabel}`,
-      ...(entry.resolution ? [`- Resolution: ${entry.resolution}`] : []),
-      `- Output size: ${entry.size.width}x${entry.size.height}`,
-      ...(entry.quality ? [`- Quality: ${getQualityLabel(entry.quality)}`] : []),
-      `- Output format: ${(entry.outputFormat ?? "png").toUpperCase()}`,
-      `- Image: ${entry.imageIndex + 1}`,
-      `- References: ${entry.inputImages.length}`,
-      ...(durationLabel ? [`- Duration: ${durationLabel}`] : []),
-      ...(actualCostUsd !== null ? [`- Generation cost: ${formatUsd(actualCostUsd)}`] : []),
-      "",
-      "## Source",
-      `- Generation ID: ${entry.generationId}`,
-      `- Image index: ${entry.imageIndex}`,
-      ...(entry.usage
-        ? [
-            "",
-            "## Usage",
-            ...(entry.usage.promptTokens !== null
-              ? [`- Prompt tokens: ${entry.usage.promptTokens.toLocaleString()}`]
-              : []),
-            ...(entry.usage.completionTokens !== null
-              ? [`- Completion tokens: ${entry.usage.completionTokens.toLocaleString()}`]
-              : []),
-            ...(entry.usage.upstreamCostUsd !== null
-              ? [`- Upstream (BYOK) cost: ${formatUsd(entry.usage.upstreamCostUsd)}`]
-              : []),
-          ]
-        : []),
-    ].join("\n");
-  };
-
-  const buildSetupSummary = () => {
-    const promptPreview = entry.prompt.trim().replace(/\s+/g, " ");
-
-    return [
-      `"${promptPreview}"`,
-      modelLabel,
-      `${entry.size.width}x${entry.size.height}`,
-      ...(entry.quality ? [getQualityLabel(entry.quality)] : []),
-      (entry.outputFormat ?? "png").toUpperCase(),
-      `${entry.inputImages.length} ref${entry.inputImages.length === 1 ? "" : "s"}`,
-      ...(actualCostUsd !== null ? [formatUsd(actualCostUsd)] : []),
-    ].join(" | ");
-  };
-
-  const handleCopySetup = async () => {
-    try {
-      await writeClipboardText(buildSetupMarkdown());
-      setSetupCopyState("copied");
-      window.setTimeout(() => {
-        setSetupCopyState((previous) => (previous === "copied" ? "idle" : previous));
-      }, 1400);
-    } catch (error) {
-      console.error("Failed to copy setup", error);
-      setSetupCopyState("failed");
-      window.setTimeout(() => {
-        setSetupCopyState((previous) => (previous === "failed" ? "idle" : previous));
-      }, 1800);
-    }
-  };
-
-  const handleCopySummary = async () => {
-    try {
-      await writeClipboardText(buildSetupSummary());
-      setSummaryCopyState("copied");
-      window.setTimeout(() => {
-        setSummaryCopyState((previous) => (previous === "copied" ? "idle" : previous));
-      }, 1400);
-    } catch (error) {
-      console.error("Failed to copy setup summary", error);
-      setSummaryCopyState("failed");
-      window.setTimeout(() => {
-        setSummaryCopyState((previous) => (previous === "failed" ? "idle" : previous));
-      }, 1800);
-    }
-  };
-
-  const handleCopyMetadata = async () => {
-    const metadata = buildMetadata();
-
-    try {
-      await writeClipboardText(JSON.stringify(metadata, null, 2));
-      setMetadataCopyState("copied");
-      window.setTimeout(() => {
-        setMetadataCopyState((previous) => (previous === "copied" ? "idle" : previous));
-      }, 1400);
-    } catch (error) {
-      console.error("Failed to copy metadata", error);
-      setMetadataCopyState("failed");
-      window.setTimeout(() => {
-        setMetadataCopyState((previous) => (previous === "failed" ? "idle" : previous));
-      }, 1800);
-    }
-  };
-
-  const handleDownloadMetadata = () => {
-    try {
-      const metadata = buildMetadata();
-      const blob = new Blob([JSON.stringify(metadata, null, 2)], {
-        type: "application/json",
-      });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `dreamint-${entry.generationId.slice(0, 8)}-${entry.imageIndex + 1}-metadata.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
-      setMetadataDownloadState("saved");
-      window.setTimeout(() => {
-        setMetadataDownloadState((previous) => (previous === "saved" ? "idle" : previous));
-      }, 1400);
-    } catch (error) {
-      console.error("Failed to download metadata", error);
-      setMetadataDownloadState("failed");
-      window.setTimeout(() => {
-        setMetadataDownloadState((previous) => (previous === "failed" ? "idle" : previous));
       }, 1800);
     }
   };
@@ -1041,86 +862,6 @@ export function Lightbox({
                   ? "Copy Failed"
                 : "Copy Prompt"}
             </button>
-
-            <button
-              type="button"
-              onClick={handleCopySetup}
-              className={`mt-2 flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
-                setupCopyState === "copied"
-                  ? "border-[var(--text-primary)] bg-[var(--bg-subtle)] text-white"
-                  : setupCopyState === "failed"
-                    ? "border-red-900/60 bg-red-950/40 text-red-200"
-                    : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-white hover:border-[var(--text-muted)]"
-              }`}
-            >
-              <SettingsIcon className="h-3.5 w-3.5" />
-              {setupCopyState === "copied"
-                ? "Copied"
-                : setupCopyState === "failed"
-                  ? "Copy Failed"
-                : "Copy Setup"}
-            </button>
-
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={handleCopySummary}
-                className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
-                  summaryCopyState === "copied"
-                    ? "border-[var(--text-primary)] bg-[var(--bg-subtle)] text-white"
-                    : summaryCopyState === "failed"
-                      ? "border-red-900/60 bg-red-950/40 text-red-200"
-                      : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-white hover:border-[var(--text-muted)]"
-                }`}
-              >
-                <LightningIcon className="h-3.5 w-3.5" />
-                {summaryCopyState === "copied"
-                  ? "Copied"
-                  : summaryCopyState === "failed"
-                    ? "Failed"
-                    : "Copy Summary"}
-              </button>
-
-              <button
-                type="button"
-                onClick={handleCopyMetadata}
-                className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
-                  metadataCopyState === "copied"
-                    ? "border-[var(--text-primary)] bg-[var(--bg-subtle)] text-white"
-                    : metadataCopyState === "failed"
-                      ? "border-red-900/60 bg-red-950/40 text-red-200"
-                      : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-white hover:border-[var(--text-muted)]"
-                }`}
-              >
-                <CopyIcon className="h-3.5 w-3.5" />
-                {metadataCopyState === "copied"
-                  ? "Copied"
-                  : metadataCopyState === "failed"
-                    ? "Failed"
-                    : "Copy JSON"}
-              </button>
-            </div>
-
-            <div className="mt-2 grid grid-cols-1 gap-2">
-              <button
-                type="button"
-                onClick={handleDownloadMetadata}
-                className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors ${
-                  metadataDownloadState === "saved"
-                    ? "border-[var(--text-primary)] bg-[var(--bg-subtle)] text-white"
-                    : metadataDownloadState === "failed"
-                      ? "border-red-900/60 bg-red-950/40 text-red-200"
-                      : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-white hover:border-[var(--text-muted)]"
-                }`}
-              >
-                <DownloadIcon className="h-3.5 w-3.5" />
-                {metadataDownloadState === "saved"
-                  ? "Saved"
-                  : metadataDownloadState === "failed"
-                    ? "Failed"
-                    : "Save JSON"}
-              </button>
-            </div>
 
             <div className="flex gap-2 mt-2">
               {onUsePrompt ? (

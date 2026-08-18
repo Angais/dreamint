@@ -7,7 +7,7 @@ import { totalUsageCostUsd } from "../../lib/openrouter";
 import { formatDisplayDate } from "./utils";
 import { useResolvedImageSource } from "./use-resolved-image-source";
 import type { Generation, ReusePromptOptions } from "./types";
-import { CopyIcon, LightningIcon, ReuseIcon, SettingsIcon, ShareIcon, SpinnerIcon } from "./icons";
+import { CopyIcon, ReuseIcon, ShareIcon, SpinnerIcon } from "./icons";
 
 // Simple Trash Icon for the delete button
 function TrashIcon({ className }: { className?: string }) {
@@ -71,8 +71,6 @@ export function GenerationDetailsCard({
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [isSharing, setIsSharing] = useState(false);
   const [promptCopyState, setPromptCopyState] = useState<"idle" | "copied" | "failed">("idle");
-  const [setupCopyState, setSetupCopyState] = useState<"idle" | "copied" | "failed">("idle");
-  const [summaryCopyState, setSummaryCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const validInputImages = useMemo(
     () =>
       generation?.inputImages?.filter(
@@ -149,17 +147,15 @@ export function GenerationDetailsCard({
   }, [isGenerating, createdAtDate]);
 
   useEffect(() => {
-    if (promptCopyState === "idle" && setupCopyState === "idle" && summaryCopyState === "idle") {
+    if (promptCopyState === "idle") {
       return;
     }
 
     const timeoutId = window.setTimeout(() => {
       setPromptCopyState("idle");
-      setSetupCopyState("idle");
-      setSummaryCopyState("idle");
     }, 1200);
     return () => window.clearTimeout(timeoutId);
-  }, [promptCopyState, setupCopyState, summaryCopyState]);
+  }, [promptCopyState]);
 
   const formatUsd = (value: number) =>
     new Intl.NumberFormat("en-US", {
@@ -205,100 +201,6 @@ export function GenerationDetailsCard({
     } catch (error) {
       console.error("Unable to copy generation prompt", error);
       setPromptCopyState("failed");
-    }
-  };
-
-  const buildGenerationSetupMarkdown = () => {
-    if (!generation) {
-      return "";
-    }
-
-    const durationLabel =
-      typeof generation.durationMs === "number"
-        ? `${(generation.durationMs / 1000).toFixed(1)}s`
-        : null;
-
-    return [
-      "# Dreamint Generation Setup",
-      "",
-      "## Prompt",
-      generation.prompt.trim(),
-      "",
-      "## Settings",
-      `- Model: ${modelLabel}`,
-      ...(generation.providerTag ? [`- Provider: ${generation.providerTag}`] : []),
-      `- Aspect: ${aspectLabel ?? "Auto"}`,
-      ...(generation.resolution ? [`- Resolution: ${generation.resolution}`] : []),
-      `- Output size: ${generation.size.width}x${generation.size.height}`,
-      ...(generation.quality ? [`- Quality: ${getQualityLabel(generation.quality)}`] : []),
-      `- Output format: ${generation.outputFormat.toUpperCase()}`,
-      `- Images: ${generation.images.length}`,
-      `- References: ${validInputImages.length}`,
-      ...(durationLabel ? [`- Duration: ${durationLabel}`] : []),
-      ...(actualCostUsd !== null ? [`- Cost: ${formatUsd(actualCostUsd)}`] : []),
-      ...(generation.usage
-        ? [
-            "",
-            "## Usage",
-            ...(generation.usage.promptTokens !== null
-              ? [`- Prompt tokens: ${generation.usage.promptTokens.toLocaleString()}`]
-              : []),
-            ...(generation.usage.completionTokens !== null
-              ? [`- Completion tokens: ${generation.usage.completionTokens.toLocaleString()}`]
-              : []),
-            ...(generation.usage.upstreamCostUsd !== null
-              ? [`- Upstream (BYOK) cost: ${formatUsd(generation.usage.upstreamCostUsd)}`]
-              : []),
-          ]
-        : []),
-    ].join("\n");
-  };
-
-  const buildGenerationSetupSummary = () => {
-    if (!generation) {
-      return "";
-    }
-
-    const promptPreview = generation.prompt.trim().replace(/\s+/g, " ");
-
-    return [
-      `"${promptPreview}"`,
-      modelLabel,
-      `${generation.size.width}x${generation.size.height}`,
-      ...(generation.quality ? [getQualityLabel(generation.quality)] : []),
-      generation.outputFormat.toUpperCase(),
-      `${validInputImages.length} ref${validInputImages.length === 1 ? "" : "s"}`,
-      ...(actualCostUsd !== null ? [formatUsd(actualCostUsd)] : []),
-    ].join(" | ");
-  };
-
-  const copyGenerationSetup = async () => {
-    const setupMarkdown = buildGenerationSetupMarkdown();
-    if (!setupMarkdown) {
-      return;
-    }
-
-    try {
-      await copyText(setupMarkdown);
-      setSetupCopyState("copied");
-    } catch (error) {
-      console.error("Unable to copy generation setup", error);
-      setSetupCopyState("failed");
-    }
-  };
-
-  const copyGenerationSummary = async () => {
-    const setupSummary = buildGenerationSetupSummary();
-    if (!setupSummary) {
-      return;
-    }
-
-    try {
-      await copyText(setupSummary);
-      setSummaryCopyState("copied");
-    } catch (error) {
-      console.error("Unable to copy generation setup summary", error);
-      setSummaryCopyState("failed");
     }
   };
 
@@ -453,50 +355,6 @@ export function GenerationDetailsCard({
               aria-label="Copy generation prompt"
             >
               <CopyIcon className="h-3.5 w-3.5" />
-            </button>
-
-            <button
-              type="button"
-              onClick={copyGenerationSetup}
-              className={`flex items-center justify-center h-6 w-6 rounded transition-colors ${
-                setupCopyState === "copied"
-                  ? "bg-emerald-400/10 text-emerald-200"
-                  : setupCopyState === "failed"
-                    ? "bg-red-400/10 text-red-200"
-                    : "hover:bg-[var(--bg-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-              }`}
-              title={
-                setupCopyState === "copied"
-                  ? "Setup copied"
-                  : setupCopyState === "failed"
-                    ? "Copy failed"
-                    : "Copy generation setup"
-              }
-              aria-label="Copy generation setup"
-            >
-              <SettingsIcon className="h-3.5 w-3.5" />
-            </button>
-
-            <button
-              type="button"
-              onClick={copyGenerationSummary}
-              className={`flex items-center justify-center h-6 w-6 rounded transition-colors ${
-                summaryCopyState === "copied"
-                  ? "bg-emerald-400/10 text-emerald-200"
-                  : summaryCopyState === "failed"
-                    ? "bg-red-400/10 text-red-200"
-                    : "hover:bg-[var(--bg-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-              }`}
-              title={
-                summaryCopyState === "copied"
-                  ? "Summary copied"
-                  : summaryCopyState === "failed"
-                    ? "Copy failed"
-                    : "Copy one-line setup summary"
-              }
-              aria-label="Copy one-line setup summary"
-            >
-              <LightningIcon className="h-3.5 w-3.5" />
             </button>
 
             <button
