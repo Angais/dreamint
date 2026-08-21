@@ -19,11 +19,8 @@ import {
   DEFAULT_ASPECT_RATIO,
   DEFAULT_QUALITY,
   DEFAULT_RESOLUTION,
-  GPT_IMAGE_2_MODEL_ID,
   LEGACY_ASPECT_RATIO_BY_KEY,
   estimateImageSize,
-  formatImageSize,
-  getGptImage2Size,
   getSupportedAspectRatios,
   getSupportedOutputFormats,
   getSupportedQualities,
@@ -442,8 +439,8 @@ export function CreatePage() {
     [activeParameters],
   );
   const supportedResolutions = useMemo(
-    () => getSupportedResolutions(activeParameters, selectedModel?.id),
-    [activeParameters, selectedModel?.id],
+    () => getSupportedResolutions(activeParameters),
+    [activeParameters],
   );
   const supportedQualities = useMemo(
     () => getSupportedQualities(activeParameters),
@@ -1224,13 +1221,6 @@ export function CreatePage() {
   );
 
   const resolvePendingSize = useCallback((): { width: number; height: number } => {
-    if (selectedModel?.id === GPT_IMAGE_2_MODEL_ID && aspectRatio !== AUTO_OPTION) {
-      const explicitSize = getGptImage2Size(resolution, aspectRatio);
-      if (explicitSize) {
-        return explicitSize;
-      }
-    }
-
     if (aspectRatio === AUTO_OPTION && referenceAspectSource) {
       const estimated = estimateImageSize(
         `${Math.round(referenceAspectSource.width)}:${Math.round(referenceAspectSource.height)}`,
@@ -1243,7 +1233,7 @@ export function CreatePage() {
       aspectRatio === AUTO_OPTION ? "1:1" : aspectRatio,
       supportedResolutions.includes(resolution) ? resolution : null,
     );
-  }, [aspectRatio, referenceAspectSource, resolution, selectedModel?.id, supportedResolutions]);
+  }, [aspectRatio, referenceAspectSource, resolution, supportedResolutions]);
 
   const recordGenerationCost = useCallback((generation: Generation) => {
     const costUsd = totalUsageCostUsd(generation.usage ?? null);
@@ -1297,11 +1287,6 @@ export function CreatePage() {
         ? aspectRatio
         : null;
     const requestResolution = supportedResolutions.includes(resolution) ? resolution : null;
-    const explicitSize =
-      selectedModel.id === GPT_IMAGE_2_MODEL_ID
-        ? getGptImage2Size(requestResolution, requestAspectRatio)
-        : null;
-    const requestSize = explicitSize ? formatImageSize(explicitSize) : null;
     const requestQuality = supportedQualities.includes(quality) ? quality : null;
     const requestOutputFormat = supportedOutputFormats?.includes(outputFormat)
       ? outputFormat
@@ -1338,7 +1323,6 @@ export function CreatePage() {
       allowFallbacks: providerPref?.allowFallbacks ?? true,
       aspectRatio: requestAspectRatio,
       resolution: requestResolution,
-      size: requestSize,
       quality: requestQuality,
       imageCount,
       inputImages: inputImageSnapshot.length,
@@ -1364,9 +1348,8 @@ export function CreatePage() {
           model: selectedModel.id,
           prompt: trimmedPrompt,
           numImages: imageCount,
-          aspectRatio: requestSize ? null : requestAspectRatio,
-          resolution: requestSize ? null : requestResolution,
-          size: requestSize,
+          aspectRatio: requestAspectRatio,
+          resolution: requestResolution,
           quality: requestQuality,
           outputFormat: requestOutputFormat,
           inputImages: requestInputImages,
@@ -1796,12 +1779,6 @@ export function CreatePage() {
       const maxImagesPerRequest = retryModel
         ? getRangeMax(retryModel.supported_parameters, "n", 1)
         : 1;
-      const retryAspectRatio =
-        generation.aspectRatio === AUTO_OPTION ? null : generation.aspectRatio;
-      const retrySize =
-        generation.model === GPT_IMAGE_2_MODEL_ID
-          ? getGptImage2Size(generation.resolution, retryAspectRatio)
-          : null;
 
       const pendingGeneration: Generation = {
         ...generation,
@@ -1844,9 +1821,8 @@ export function CreatePage() {
             model: generation.model,
             prompt: generation.prompt,
             numImages,
-            aspectRatio: retrySize ? null : retryAspectRatio,
-            resolution: retrySize ? null : generation.resolution ?? null,
-            size: retrySize ? formatImageSize(retrySize) : null,
+            aspectRatio: generation.aspectRatio === AUTO_OPTION ? null : generation.aspectRatio,
+            resolution: generation.resolution ?? null,
             quality: generation.quality ?? null,
             outputFormat: generation.outputFormat,
             inputImages: requestInputImages,
