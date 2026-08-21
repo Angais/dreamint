@@ -17,6 +17,9 @@ export const DEFAULT_ASPECT_RATIO = "9:16";
 export const DEFAULT_RESOLUTION = "2K";
 export const DEFAULT_QUALITY = "medium";
 
+export const GPT_IMAGE_2_MODEL_ID = "openai/gpt-image-2";
+export const GPT_IMAGE_2_RESOLUTION_OPTIONS = ["1K", "2K", "4K"] as const;
+
 const ASPECT_RATIO_LABELS: Record<string, string> = {
   "1:1": "Square",
   "1:2": "Tall",
@@ -145,7 +148,16 @@ export function getSupportedAspectRatios(parameters: SupportedParameters | null)
   return sortByReference(values.filter((value) => value !== AUTO_OPTION), ASPECT_RATIO_ORDER);
 }
 
-export function getSupportedResolutions(parameters: SupportedParameters | null): string[] {
+export function getSupportedResolutions(
+  parameters: SupportedParameters | null,
+  modelId?: string | null,
+): string[] {
+  // OpenRouter accepts explicit sizes and resolution tiers for GPT Image 2,
+  // even though its discovery record currently omits both capabilities.
+  if (modelId === GPT_IMAGE_2_MODEL_ID) {
+    return [...GPT_IMAGE_2_RESOLUTION_OPTIONS];
+  }
+
   const values = parameters ? getEnumValues(parameters, "resolution") : null;
   if (!values) {
     return [];
@@ -197,6 +209,78 @@ const RESOLUTION_LONG_EDGE: Record<string, number> = {
   "2K": 2048,
   "4K": 4096,
 };
+
+const GPT_IMAGE_2_MAX_EDGE = 3840;
+const GPT_IMAGE_2_MAX_PIXELS = 8_294_400;
+const SIZE_MULTIPLE = 16;
+
+function roundToSizeMultiple(value: number): number {
+  return Math.max(SIZE_MULTIPLE, Math.round(value / SIZE_MULTIPLE) * SIZE_MULTIPLE);
+}
+
+function floorToSizeMultiple(value: number): number {
+  return Math.max(SIZE_MULTIPLE, Math.floor(value / SIZE_MULTIPLE) * SIZE_MULTIPLE);
+}
+
+/**
+ * Converts a GPT Image 2 resolution tier and ratio into an explicit size.
+ *
+ * 1K keeps the short edge near 1024 (matching 1536x1024 for 3:2), 2K keeps
+ * the long edge at 2048, and 4K keeps the long edge at 3840 whenever the
+ * 8,294,400-pixel ceiling allows it. Every edge is a multiple of 16.
+ */
+export function getGptImage2Size(
+  resolution: string | null | undefined,
+  aspectRatio: string | null | undefined,
+): { width: number; height: number } | null {
+  if (!resolution || !GPT_IMAGE_2_RESOLUTION_OPTIONS.includes(
+    resolution as (typeof GPT_IMAGE_2_RESOLUTION_OPTIONS)[number],
+  )) {
+    return null;
+  }
+
+  const ratio = aspectRatio ? parseAspectRatio(aspectRatio) : null;
+  if (!ratio) {
+    return null;
+  }
+
+  const landscape = ratio.width >= ratio.height;
+  const longToShort = Math.max(ratio.width, ratio.height) / Math.min(ratio.width, ratio.height);
+  let longEdge: number;
+  let shortEdge: number;
+
+  if (resolution === "1K") {
+    shortEdge = 1024;
+    longEdge = roundToSizeMultiple(shortEdge * longToShort);
+  } else if (resolution === "2K") {
+    longEdge = 2048;
+    shortEdge = roundToSizeMultiple(longEdge / longToShort);
+  } else {
+    longEdge = GPT_IMAGE_2_MAX_EDGE;
+    shortEdge = roundToSizeMultiple(longEdge / longToShort);
+
+    if (longEdge * shortEdge > GPT_IMAGE_2_MAX_PIXELS) {
+      longEdge = floorToSizeMultiple(Math.sqrt(GPT_IMAGE_2_MAX_PIXELS * longToShort));
+      shortEdge = floorToSizeMultiple(longEdge / longToShort);
+    }
+  }
+
+  while (longEdge * shortEdge > GPT_IMAGE_2_MAX_PIXELS) {
+    if (longEdge >= shortEdge) {
+      longEdge -= SIZE_MULTIPLE;
+    } else {
+      shortEdge -= SIZE_MULTIPLE;
+    }
+  }
+
+  return landscape
+    ? { width: longEdge, height: shortEdge }
+    : { width: shortEdge, height: longEdge };
+}
+
+export function formatImageSize(size: { width: number; height: number }): string {
+  return `${size.width}x${size.height}`;
+}
 
 /**
  * Best-effort output size for layout purposes; the real size is measured from

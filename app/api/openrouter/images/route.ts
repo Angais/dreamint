@@ -13,6 +13,7 @@ type ImageGenerationRequest = {
   numImages?: number;
   aspectRatio?: string | null;
   resolution?: string | null;
+  size?: string | null;
   quality?: string | null;
   outputFormat?: string | null;
   inputImages?: InputReference[];
@@ -22,6 +23,34 @@ type ImageGenerationRequest = {
 
 const MODEL_ID_PATTERN = /^[\w.\-]+\/[\w.\-:]+$/;
 const PROVIDER_TAG_PATTERN = /^[\w.\-]+(\/[\w.\-]+)?$/;
+const SIZE_PATTERN = /^(\d+)x(\d+)$/;
+const MAX_IMAGE_EDGE = 3840;
+const MIN_IMAGE_PIXELS = 655_360;
+const MAX_IMAGE_PIXELS = 8_294_400;
+
+function isValidExplicitSize(value: string): boolean {
+  const match = value.match(SIZE_PATTERN);
+  if (!match) {
+    return false;
+  }
+
+  const width = Number.parseInt(match[1], 10);
+  const height = Number.parseInt(match[2], 10);
+  const pixels = width * height;
+  const ratio = Math.max(width, height) / Math.min(width, height);
+
+  return (
+    width > 0 &&
+    height > 0 &&
+    width <= MAX_IMAGE_EDGE &&
+    height <= MAX_IMAGE_EDGE &&
+    width % 16 === 0 &&
+    height % 16 === 0 &&
+    ratio <= 3 &&
+    pixels >= MIN_IMAGE_PIXELS &&
+    pixels <= MAX_IMAGE_PIXELS
+  );
+}
 
 export async function POST(request: NextRequest) {
   let payload: ImageGenerationRequest;
@@ -62,10 +91,20 @@ export async function POST(request: NextRequest) {
     n: numImages,
   };
 
-  if (payload.aspectRatio) {
+  const size = (payload.size ?? "").trim();
+  if (size && !isValidExplicitSize(size)) {
+    return Response.json(
+      { error: { message: "Invalid image size for GPT Image 2." } },
+      { status: 400 },
+    );
+  }
+
+  if (size) {
+    body.size = size;
+  } else if (payload.aspectRatio) {
     body.aspect_ratio = payload.aspectRatio;
   }
-  if (payload.resolution) {
+  if (!size && payload.resolution) {
     body.resolution = payload.resolution;
   }
   if (payload.quality) {
