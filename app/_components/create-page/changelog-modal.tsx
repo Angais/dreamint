@@ -6,6 +6,14 @@ import { XIcon } from "./icons";
 
 const CHANGELOG_ENTRIES = [
   {
+    date: "October 9, 2026",
+    changes: [
+      "v2.0.1 improves GPT Image 2.5 Sunburst and Flare compatibility, including retries and provider-specific options.",
+      "Background defaults to Auto, with Transparent and Opaque options where supported. Transparent output uses PNG or WebP.",
+      "Background choices are restored when retrying or reusing a generation; connection and timeout failures now show clearer errors.",
+    ],
+  },
+  {
     date: "August 18, 2026",
     changes: [
       "Dreamint now runs entirely on OpenRouter: one API key, every image model in their catalog.",

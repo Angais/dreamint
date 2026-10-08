@@ -9,6 +9,7 @@ Dreamint is a browser-based workspace for generating and editing images through 
 - Searchable model manager in settings: enable any OpenRouter image models; only enabled models appear in the composer.
 - Per-model provider routing: pin a specific provider (e.g. Google AI Studio for BYOK). With fallbacks off, requests fail instead of routing to another provider.
 - Up to eight reference images for edits; drag-and-drop, paste, or file picker.
+- Background selection (Auto by default, Transparent or Opaque where supported). Transparent output uses PNG or WebP and is restored when retrying or reusing a prompt.
 - Batch generation (1–4 images) with local gallery, metadata chips, and one-click “Use prompt” restore.
 - Budget tracking based on the real per-generation cost OpenRouter reports, including upstream BYOK costs.
 - Lightbox with keyboard/scroll navigation, download in your selected format, and edit-from-image shortcut.

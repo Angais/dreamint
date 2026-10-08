@@ -3,6 +3,7 @@
 import {
   combineUsages,
   normalizeUsage,
+  type Background,
   type GenerationUsage,
   type InputImage,
   type OutputFormat,
@@ -19,6 +20,7 @@ export type GenerateImageArgs = {
   aspectRatio?: string | null;
   resolution?: string | null;
   quality?: string | null;
+  background?: Background | null;
   outputFormat?: OutputFormat | null;
   inputImages?: InputImage[];
   providerTag?: string | null;
@@ -42,12 +44,19 @@ async function fetchWithTimeout(
   url: string,
   init: RequestInit,
   timeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS,
-): Promise<Response> {
+): Promise<{ response: Response; responseText: string }> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    const responseText = await response.text();
+    return { response, responseText };
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error("Image generation timed out. Check OpenRouter activity before retrying.");
+    }
+    throw error;
   } finally {
     clearTimeout(timeoutId);
   }
@@ -78,6 +87,7 @@ export async function generateImage({
   resolution,
   quality,
   outputFormat,
+  background,
   inputImages = [],
   providerTag,
   allowFallbacks = true,
@@ -118,7 +128,7 @@ export async function generateImage({
 
   const responses = await Promise.all(
     batchSizes.map(async (batchSize) => {
-      const response = await fetchWithTimeout("/api/openrouter/images", {
+      const { response, responseText } = await fetchWithTimeout("/api/openrouter/images", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -132,6 +142,7 @@ export async function generateImage({
           resolution: resolution ?? null,
           quality: quality ?? null,
           outputFormat: outputFormat ?? null,
+          background: background ?? null,
           inputImages: effectiveInputImages.map((image) => ({ url: image.url })),
           providerTag: providerTag ?? null,
           allowFallbacks,
@@ -139,7 +150,6 @@ export async function generateImage({
         cache: "no-store",
       });
 
-      const responseText = await response.text();
       if (!response.ok) {
         throw new Error(`OpenRouter: ${extractErrorMessage(responseText, response.status)}`);
       }

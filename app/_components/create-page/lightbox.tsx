@@ -886,6 +886,7 @@ export function Lightbox({
                         resolution: entry.resolution,
                         quality: entry.quality,
                         outputFormat: entry.outputFormat,
+                        background: entry.background,
                       },
                     )
                   }

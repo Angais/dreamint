@@ -1,4 +1,4 @@
-import type { GenerationUsage, InputImage, OutputFormat } from "../../lib/openrouter";
+import type { Background, GenerationUsage, InputImage, OutputFormat } from "../../lib/openrouter";
 
 export type PromptAttachment = {
   id: string;
@@ -25,6 +25,7 @@ export type Generation = {
   aspectRatio: string;
   resolution?: string | null;
   quality?: string | null;
+  background?: Background;
   outputFormat: OutputFormat;
   createdAt: string;
   /** Actual size measured from the output when available, estimated otherwise. */
@@ -47,6 +48,7 @@ export type GalleryEntry = {
   aspectRatio: string;
   resolution?: string | null;
   quality?: string | null;
+  background?: Background;
   outputFormat?: OutputFormat;
   size: { width: number; height: number };
   durationMs?: number;
@@ -59,5 +61,6 @@ export type ReusePromptOptions = {
   aspectRatio?: string;
   resolution?: string | null;
   quality?: string | null;
+  background?: Background;
   outputFormat?: OutputFormat;
 };

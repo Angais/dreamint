@@ -369,6 +369,7 @@ export function GenerationDetailsCard({
                     resolution: generation.resolution,
                     quality: generation.quality,
                     outputFormat: generation.outputFormat,
+                    background: generation.background,
                   },
                 )
               }

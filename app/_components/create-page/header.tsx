@@ -16,6 +16,7 @@ import {
   getQualityLabel,
 } from "../../lib/image-options";
 import type {
+  Background,
   ImageModel,
   ImageModelEndpoint,
   OutputFormat,
@@ -39,6 +40,9 @@ type HeaderProps = {
   resolutionOptions: string[];
   quality: string;
   qualityOptions: string[];
+  background: Background;
+  backgroundOptions: string[];
+  onBackgroundChange: (value: Background) => void;
   outputFormat: OutputFormat;
   imageCount: number;
   maxImageCount: number;
@@ -86,6 +90,9 @@ export function Header({
   resolutionOptions,
   quality,
   qualityOptions,
+  background,
+  backgroundOptions,
+  onBackgroundChange,
   outputFormat,
   imageCount,
   maxImageCount,
@@ -845,8 +852,9 @@ export function Header({
                       <button
                         key={opt.value}
                         type="button"
+                        disabled={background === "transparent" && opt.value === "jpeg"}
                         onClick={() => onOutputFormatChange(opt.value)}
-                        className={`flex-1 rounded-md border px-2 py-1.5 text-[11px] font-semibold transition-all ${outputFormat === opt.value
+                        className={`flex-1 rounded-md border px-2 py-1.5 text-[11px] font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed ${outputFormat === opt.value
                           ? "border-[var(--text-primary)] bg-[var(--text-primary)] text-black"
                           : "border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]"
                           }`}
@@ -856,6 +864,27 @@ export function Header({
                     ))}
                   </div>
                 </div>
+
+                {backgroundOptions.length > 0 ? (
+                  <label className="space-y-1.5">
+                    <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Background</span>
+                    <select
+                      aria-label="Background"
+                      value={background}
+                      onChange={(event) => onBackgroundChange(event.target.value as Background)}
+                      className="w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 py-1.5 text-xs text-[var(--text-primary)]"
+                    >
+                      {backgroundOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option === "transparent" ? "Transparent" : option === "opaque" ? "Opaque" : "Auto"}
+                        </option>
+                      ))}
+                    </select>
+                    {background === "transparent" ? (
+                      <span className="block text-[10px] text-[var(--text-muted)]">Transparency is preserved with PNG or WebP.</span>
+                    ) : null}
+                  </label>
+                ) : null}
 
                 <div className="md:col-span-2 space-y-1.5">
                   <div className="flex items-center justify-between gap-2">

@@ -1,4 +1,6 @@
 import { NextRequest } from "next/server";
+import { buildImageRequest } from "../../../lib/image-request";
+import type { Background, SupportedParameters } from "../../../lib/openrouter";
 
 export const runtime = "nodejs";
 
@@ -15,6 +17,7 @@ type ImageGenerationRequest = {
   resolution?: string | null;
   quality?: string | null;
   outputFormat?: string | null;
+  background?: Background | null;
   inputImages?: InputReference[];
   providerTag?: string | null;
   allowFallbacks?: boolean;
@@ -55,55 +58,84 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: { message: "Invalid provider tag." } }, { status: 400 });
   }
 
-  const body: Record<string, unknown> = {
-    model,
-    prompt,
-    n: numImages,
-  };
-
-  if (payload.aspectRatio) {
-    body.aspect_ratio = payload.aspectRatio;
+  if (!Number.isFinite(numImages)) {
+    return Response.json({ error: { message: "Invalid image count." } }, { status: 400 });
   }
-  if (payload.resolution) {
-    body.resolution = payload.resolution;
-  }
-  if (payload.quality) {
-    body.quality = payload.quality;
-  }
-  if (payload.outputFormat) {
-    body.output_format = payload.outputFormat;
-  }
-  if (inputReferences.length > 0) {
-    body.input_references = inputReferences.map((url) => ({
-      type: "image_url",
-      image_url: { url },
-    }));
-  }
-  if (providerTag) {
-    // "only" + no fallbacks hard-pins the request (e.g. to a BYOK endpoint);
-    // with fallbacks enabled the pinned provider is only tried first.
-    body.provider = payload.allowFallbacks
-      ? { order: [providerTag] }
-      : { only: [providerTag], allow_fallbacks: false };
+  if (payload.background && !["auto", "transparent", "opaque"].includes(payload.background)) {
+    return Response.json({ error: { message: "Invalid background." } }, { status: 400 });
   }
 
-  const upstreamResponse = await fetch("https://openrouter.ai/api/v1/images", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": "https://dreamint.app",
-      "X-Title": "Dreamint",
-    },
-    body: JSON.stringify(body),
-    cache: "no-store",
-  });
+  try {
+    const metadataResponse = await fetch(
+      `https://openrouter.ai/api/v1/images/models/${model}/endpoints`,
+      { next: { revalidate: 300 }, signal: AbortSignal.timeout(15_000) },
+    );
+    if (!metadataResponse.ok) {
+      return Response.json({ error: { message: `Unable to check model capabilities (${metadataResponse.status}).` } }, { status: 502 });
+    }
+    const metadata = await metadataResponse.json() as {
+      endpoints?: Array<{ provider_tag: string | null; supported_parameters: SupportedParameters }>;
+    };
+    const endpoints = metadata.endpoints ?? [];
+    const candidates = providerTag
+      ? endpoints.filter((endpoint) => endpoint.provider_tag === providerTag)
+      : endpoints;
+    // Choose capabilities that accept this request; never silently remove an
+    // explicit transparency request or reference images to get it through.
+    let body: Record<string, unknown> | undefined;
+    let capabilityError = "No endpoint is available for the selected model and provider.";
+    for (const endpoint of candidates) {
+      try {
+        body = buildImageRequest({
+          model, prompt, numImages,
+          aspectRatio: payload.aspectRatio,
+          resolution: payload.resolution,
+          quality: payload.quality,
+          outputFormat: payload.outputFormat,
+          background: payload.background,
+          inputReferences,
+        }, endpoint.supported_parameters);
+        break;
+      } catch (error) {
+        capabilityError = error instanceof Error ? error.message : capabilityError;
+      }
+    }
+    if (!body) {
+      return Response.json({ error: { message: capabilityError } }, { status: 400 });
+    }
+    if (providerTag) {
+      // "only" + no fallbacks hard-pins the request (e.g. to a BYOK endpoint);
+      // with fallbacks enabled the pinned provider is only tried first.
+      body.provider = payload.allowFallbacks
+        ? { order: [providerTag] }
+        : { only: [providerTag], allow_fallbacks: false };
+    }
 
-  const responseText = await upstreamResponse.text();
-  return new Response(responseText, {
-    status: upstreamResponse.status,
-    headers: {
-      "Content-Type": upstreamResponse.headers.get("content-type") ?? "application/json",
-    },
-  });
+    const upstreamResponse = await fetch("https://openrouter.ai/api/v1/images", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://dreamint.app",
+        "X-Title": "Dreamint",
+      },
+      body: JSON.stringify(body),
+      cache: "no-store",
+      signal: AbortSignal.timeout(470_000),
+    });
+
+    const responseText = await upstreamResponse.text();
+    return new Response(responseText, {
+      status: upstreamResponse.status,
+      headers: {
+        "Content-Type": upstreamResponse.headers.get("content-type") ?? "application/json",
+      },
+    });
+  } catch (error) {
+    const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+    return Response.json({ error: { message: timedOut
+      ? "Image generation timed out. Check OpenRouter activity before retrying."
+      : "Unable to reach OpenRouter. Please try again when the connection is restored." } },
+      { status: timedOut ? 504 : 502 });
+  }
 }

@@ -80,6 +80,8 @@ const QUALITY_LABELS: Record<string, string> = {
   low: "Low",
   medium: "Medium",
   high: "High",
+  xhigh: "Extra high",
+  max: "Max",
 };
 
 export const OUTPUT_FORMAT_OPTIONS: { value: OutputFormat; label: string }[] = [

@@ -1,3 +1,5 @@
+export type Background = "auto" | "transparent" | "opaque";
+
 export type OutputFormat = "png" | "jpeg" | "webp";
 
 export type InputImage = {

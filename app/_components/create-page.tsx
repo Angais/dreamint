@@ -9,6 +9,8 @@ import {
   fetchImageModels,
   fetchModelEndpoints,
   getRangeMax,
+  getEnumValues,
+  type Background,
   totalUsageCostUsd,
   type ImageModel,
   type OutputFormat,
@@ -51,7 +53,7 @@ import { useInfiniteScroll } from "./create-page/use-infinite-scroll";
 const defaultPrompt =
   "Cinematic shot of a futuristic city at night, neon lights, rain reflections, highly detailed, 8k resolution";
 const defaultOutputFormat: OutputFormat = "png";
-const APP_VERSION = "2.0.0";
+const APP_VERSION = "2.0.1";
 
 const STORAGE_KEYS = {
   prompt: "dreamint:prompt",
@@ -59,6 +61,7 @@ const STORAGE_KEYS = {
   resolution: "dreamint:resolution",
   quality: "dreamint:quality",
   outputFormat: "dreamint:output_format",
+  background: "dreamint:background",
   imageCount: "dreamint:image_count",
   budgetCents: "dreamint:budget_cents",
   spentCents: "dreamint:spent_cents",
@@ -379,6 +382,7 @@ export function CreatePage() {
   const [aspectRatio, setAspectRatio] = useState<string>(DEFAULT_ASPECT_RATIO);
   const [resolution, setResolution] = useState<string>(DEFAULT_RESOLUTION);
   const [quality, setQuality] = useState<string>(DEFAULT_QUALITY);
+  const [background, setBackground] = useState<Background>("auto");
   const [outputFormat, setOutputFormat] = useState<OutputFormat>(defaultOutputFormat);
   const [imageCount, setImageCount] = useState<number>(4);
   const [apiKey, setApiKey] = useState("");
@@ -446,6 +450,10 @@ export function CreatePage() {
     () => getSupportedQualities(activeParameters),
     [activeParameters],
   );
+  const backgroundOptions = getEnumValues(activeParameters ?? undefined, "background") ?? [];
+  const effectiveBackground = backgroundOptions.includes(background) ? background : "auto";
+  const effectiveOutputFormat = effectiveBackground === "transparent" && outputFormat === "jpeg"
+    ? "png" : outputFormat;
   const referenceLimit = selectedModel
     ? getRangeMax(activeParameters ?? undefined, "input_references", 0)
     : null;
@@ -682,6 +690,10 @@ export function CreatePage() {
           setQuality(storedQuality);
         }
 
+        const storedBackground = window.localStorage.getItem(STORAGE_KEYS.background);
+        if (storedBackground === "transparent" || storedBackground === "opaque") {
+          setBackground(storedBackground);
+        }
         const storedOutputFormat = window.localStorage.getItem(STORAGE_KEYS.outputFormat);
         if (storedOutputFormat === "png" || storedOutputFormat === "jpeg" || storedOutputFormat === "webp") {
           setOutputFormat(storedOutputFormat);
@@ -877,6 +889,7 @@ export function CreatePage() {
     safePersist(STORAGE_KEYS.resolution, resolution);
     safePersist(STORAGE_KEYS.quality, quality);
     safePersist(STORAGE_KEYS.outputFormat, outputFormat);
+    safePersist(STORAGE_KEYS.background, background);
     safePersist(STORAGE_KEYS.imageCount, String(imageCount));
 
     const normalizedApiKey = apiKey.trim();
@@ -894,6 +907,7 @@ export function CreatePage() {
     resolution,
     quality,
     outputFormat,
+    background,
     imageCount,
     apiKey,
     apiKeyUpdatedAt,
@@ -993,6 +1007,7 @@ export function CreatePage() {
           resolution: generation.resolution,
           quality: generation.quality,
           outputFormat: generation.outputFormat,
+          background: generation.background,
           size: generation.size,
           durationMs: generation.durationMs,
           inputImages: generation.inputImages ?? [],
@@ -1288,8 +1303,8 @@ export function CreatePage() {
         : null;
     const requestResolution = supportedResolutions.includes(resolution) ? resolution : null;
     const requestQuality = supportedQualities.includes(quality) ? quality : null;
-    const requestOutputFormat = supportedOutputFormats?.includes(outputFormat)
-      ? outputFormat
+    const requestOutputFormat = supportedOutputFormats?.includes(effectiveOutputFormat)
+      ? effectiveOutputFormat
       : null;
     const providerPref = providerPrefs[selectedModel.id] ?? null;
     const maxImagesPerRequest = getRangeMax(activeParameters ?? undefined, "n", 1);
@@ -1309,7 +1324,8 @@ export function CreatePage() {
       aspectRatio: requestAspectRatio ?? AUTO_OPTION,
       resolution: requestResolution,
       quality: requestQuality,
-      outputFormat,
+      background: effectiveBackground,
+      outputFormat: effectiveOutputFormat,
       createdAt: new Date(startedAtMs).toISOString(),
       size: pendingSize,
       images: Array(imageCount).fill(""),
@@ -1352,6 +1368,7 @@ export function CreatePage() {
           resolution: requestResolution,
           quality: requestQuality,
           outputFormat: requestOutputFormat,
+          background: effectiveBackground,
           inputImages: requestInputImages,
           providerTag: providerPref?.providerTag ?? null,
           allowFallbacks: providerPref ? providerPref.allowFallbacks : true,
@@ -1462,6 +1479,7 @@ export function CreatePage() {
       resolution: generation.resolution,
       quality: generation.quality,
       outputFormat: generation.outputFormat,
+      background: generation.background,
       size: generation.size,
       durationMs: generation.durationMs,
       inputImages: generation.inputImages ?? [],
@@ -1825,6 +1843,7 @@ export function CreatePage() {
             resolution: generation.resolution ?? null,
             quality: generation.quality ?? null,
             outputFormat: generation.outputFormat,
+            background: generation.background ?? "auto",
             inputImages: requestInputImages,
             providerTag: generation.providerTag ?? null,
             allowFallbacks: generation.allowFallbacks ?? true,
@@ -1992,6 +2011,7 @@ export function CreatePage() {
       if (options?.resolution) {
         setResolution(options.resolution);
       }
+      setBackground(options?.background ?? "auto");
       if (options?.quality) {
         setQuality(options.quality);
       }
@@ -2202,7 +2222,10 @@ export function CreatePage() {
               resolutionOptions={supportedResolutions}
               quality={quality}
               qualityOptions={supportedQualities}
-              outputFormat={outputFormat}
+              background={effectiveBackground}
+              backgroundOptions={backgroundOptions}
+              onBackgroundChange={setBackground}
+              outputFormat={effectiveOutputFormat}
               imageCount={imageCount}
               maxImageCount={MAX_IMAGE_COUNT}
               apiKey={apiKey}
