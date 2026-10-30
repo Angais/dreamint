@@ -15,6 +15,7 @@ type ImageGenerationRequest = {
   numImages?: number;
   aspectRatio?: string | null;
   resolution?: string | null;
+  size?: string | null;
   quality?: string | null;
   outputFormat?: string | null;
   background?: Background | null;
@@ -90,6 +91,7 @@ export async function POST(request: NextRequest) {
           model, prompt, numImages,
           aspectRatio: payload.aspectRatio,
           resolution: payload.resolution,
+          size: payload.size,
           quality: payload.quality,
           outputFormat: payload.outputFormat,
           background: payload.background,

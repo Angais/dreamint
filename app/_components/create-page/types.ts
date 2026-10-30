@@ -24,6 +24,7 @@ export type Generation = {
   /** "auto" or a ratio string like "16:9". */
   aspectRatio: string;
   resolution?: string | null;
+  requestSize?: string | null;
   quality?: string | null;
   background?: Background;
   outputFormat: OutputFormat;

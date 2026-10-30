@@ -11,6 +11,7 @@ import type {
 
 import {
   AUTO_OPTION,
+  EXACT_2560_1600,
   OUTPUT_FORMAT_OPTIONS,
   getAspectRatioLabel,
   getQualityLabel,
@@ -615,7 +616,7 @@ export function Header({
               </div>
 
               {/* Aspect Selector (Desktop: Full Label) */}
-              {aspectRatioOptions.length > 0 ? (
+              {aspectRatioOptions.length > 0 && resolution !== EXACT_2560_1600 ? (
                 <>
                   <div className="relative group/select shrink-0 hidden md:block">
                     <select
@@ -672,7 +673,7 @@ export function Header({
                   >
                     {resolutionOptions.map((option) => (
                       <option key={option} value={option}>
-                        {option}
+                        {option === EXACT_2560_1600 ? "2560 × 1600 (16:10)" : option}
                       </option>
                     ))}
                   </select>

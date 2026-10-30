@@ -19,6 +19,7 @@ export type GenerateImageArgs = {
   numImages?: number;
   aspectRatio?: string | null;
   resolution?: string | null;
+  size?: string | null;
   quality?: string | null;
   background?: Background | null;
   outputFormat?: OutputFormat | null;
@@ -85,6 +86,7 @@ export async function generateImage({
   numImages = 1,
   aspectRatio,
   resolution,
+  size,
   quality,
   outputFormat,
   background,
@@ -140,6 +142,7 @@ export async function generateImage({
           numImages: batchSize,
           aspectRatio: aspectRatio ?? null,
           resolution: resolution ?? null,
+          size: size ?? null,
           quality: quality ?? null,
           outputFormat: outputFormat ?? null,
           background: background ?? null,

@@ -7,7 +7,7 @@
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsc --outDir .test-build --module commonjs --target es2020 --esModuleInterop --skipLibCheck next-env.d.ts app/lib/image-request.ts app/lib/generate-image.ts app/api/openrouter/images/route.ts && node --test tests/*.test.mjs"
+    "test": "tsc --outDir .test-build --module commonjs --target es2020 --esModuleInterop --skipLibCheck next-env.d.ts app/lib/image-request.ts app/lib/image-options.ts app/lib/generate-image.ts app/api/openrouter/images/route.ts && node --test tests/*.test.mjs"
   },
   "dependencies": {
     "jszip": "^3.10.1",

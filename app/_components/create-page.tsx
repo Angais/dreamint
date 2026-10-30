@@ -27,6 +27,10 @@ import {
   getSupportedOutputFormats,
   getSupportedQualities,
   getSupportedResolutions,
+  supportsGpt25Size,
+  EXACT_2560_1600,
+  gpt25Size,
+  parseAspectRatio,
   resolveActiveParameters,
 } from "../lib/image-options";
 import { EmptyState } from "./create-page/empty-state";
@@ -443,8 +447,8 @@ export function CreatePage() {
     [activeParameters],
   );
   const supportedResolutions = useMemo(
-    () => getSupportedResolutions(activeParameters),
-    [activeParameters],
+    () => supportsGpt25Size(selectedModel?.id) ? ["1K", "2K", "4K", EXACT_2560_1600] : getSupportedResolutions(activeParameters),
+    [activeParameters, selectedModel?.id],
   );
   const supportedQualities = useMemo(
     () => getSupportedQualities(activeParameters),
@@ -1236,6 +1240,7 @@ export function CreatePage() {
   );
 
   const resolvePendingSize = useCallback((): { width: number; height: number } => {
+    if (supportsGpt25Size(selectedModel?.id) && resolution === EXACT_2560_1600) return { width: 2560, height: 1600 };
     if (aspectRatio === AUTO_OPTION && referenceAspectSource) {
       const estimated = estimateImageSize(
         `${Math.round(referenceAspectSource.width)}:${Math.round(referenceAspectSource.height)}`,
@@ -1248,7 +1253,7 @@ export function CreatePage() {
       aspectRatio === AUTO_OPTION ? "1:1" : aspectRatio,
       supportedResolutions.includes(resolution) ? resolution : null,
     );
-  }, [aspectRatio, referenceAspectSource, resolution, supportedResolutions]);
+  }, [aspectRatio, referenceAspectSource, resolution, selectedModel?.id, supportedResolutions]);
 
   const recordGenerationCost = useCallback((generation: Generation) => {
     const costUsd = totalUsageCostUsd(generation.usage ?? null);
@@ -1302,6 +1307,15 @@ export function CreatePage() {
         ? aspectRatio
         : null;
     const requestResolution = supportedResolutions.includes(resolution) ? resolution : null;
+    const selectedRatio = requestAspectRatio ? parseAspectRatio(requestAspectRatio) : null;
+    const referenceRatio = referenceAspectSource ? referenceAspectSource.width / referenceAspectSource.height : null;
+    if (supportsGpt25Size(selectedModel.id) && resolution !== EXACT_2560_1600 && !selectedRatio && !referenceRatio) {
+      setError("Choose an aspect ratio or add a reference image to set the output resolution.");
+      return;
+    }
+    const requestSize = supportsGpt25Size(selectedModel.id)
+      ? gpt25Size(resolution, selectedRatio ? selectedRatio.width / selectedRatio.height : referenceRatio ?? 1)
+      : null;
     const requestQuality = supportedQualities.includes(quality) ? quality : null;
     const requestOutputFormat = supportedOutputFormats?.includes(effectiveOutputFormat)
       ? effectiveOutputFormat
@@ -1321,8 +1335,9 @@ export function CreatePage() {
       modelLabel: selectedModel.name,
       providerTag: providerPref?.providerTag ?? null,
       allowFallbacks: providerPref ? providerPref.allowFallbacks : undefined,
-      aspectRatio: requestAspectRatio ?? AUTO_OPTION,
+      aspectRatio: requestSize === EXACT_2560_1600 ? "16:10" : requestAspectRatio ?? AUTO_OPTION,
       resolution: requestResolution,
+      requestSize,
       quality: requestQuality,
       background: effectiveBackground,
       outputFormat: effectiveOutputFormat,
@@ -1366,6 +1381,7 @@ export function CreatePage() {
           numImages: imageCount,
           aspectRatio: requestAspectRatio,
           resolution: requestResolution,
+          size: requestSize,
           quality: requestQuality,
           outputFormat: requestOutputFormat,
           background: effectiveBackground,
@@ -1841,6 +1857,7 @@ export function CreatePage() {
             numImages,
             aspectRatio: generation.aspectRatio === AUTO_OPTION ? null : generation.aspectRatio,
             resolution: generation.resolution ?? null,
+            size: generation.requestSize ?? null,
             quality: generation.quality ?? null,
             outputFormat: generation.outputFormat,
             background: generation.background ?? "auto",

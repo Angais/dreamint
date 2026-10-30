@@ -246,3 +246,24 @@ export function deriveAspectRatioFromSize(size: { width: number; height: number 
 export function formatResolution(size: { width: number; height: number }): string {
   return `${size.width}×${size.height}`;
 }
+
+/** OpenRouter accepts explicit pixel sizes for GPT Image 2.5, even though its
+ * endpoint catalog currently does not advertise resolution tiers. */
+export function supportsGpt25Size(model: string | undefined): boolean {
+  return model === "openai/gpt-image-2.5-flare" || model === "openai/gpt-image-2.5-sunburst";
+}
+
+export const EXACT_2560_1600 = "2560x1600";
+
+export function gpt25Size(resolution: string, ratio: number): string | null {
+  if (resolution === EXACT_2560_1600) return EXACT_2560_1600;
+  const edge = ({ "1K": 1024, "2K": 2048, "4K": 3840 } as Record<string, number>)[resolution];
+  if (!edge || !Number.isFinite(ratio) || ratio <= 0) return null;
+  // GPT Image dimensions must be multiples of 16, at most 3840 per side,
+  // and no more than 8,294,400 pixels. Clamp aspect ratios to 3:1.
+  const r = Math.max(1 / 3, Math.min(3, ratio));
+  const scale = Math.min(Math.max(edge / Math.max(r, 1), Math.sqrt(700000 / r)), Math.sqrt(8294400 / r), 3840 / Math.max(r, 1));
+  const width = Math.max(16, Math.floor(r * scale / 16) * 16);
+  const height = Math.max(16, Math.floor(scale / 16) * 16);
+  return `${width}x${height}`;
+}

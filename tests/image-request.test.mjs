@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { gpt25Size } from '../.test-build/lib/image-options.js';
 import { buildImageRequest } from '../.test-build/lib/image-request.js';
 import { POST } from '../.test-build/api/openrouter/images/route.js';
 import { generateImage } from '../.test-build/lib/generate-image.js';
@@ -77,4 +78,24 @@ test('client forwards explicit background and preserves returned PNG data and co
   assert.equal(sent.background, 'transparent');
   assert.deepEqual(result.images, ['data:image/png;base64,image']);
   assert.equal(result.usage.costUsd, 0.03);
+});
+
+test('explicit 4K dimensions reach OpenRouter with image references', () => {
+  for (const fixture of fixtures) {
+    const body = buildImageRequest({ ...defaults, model: fixture.id, aspectRatio: '9:16', resolution: '4K', size: '2160x3840', inputReferences: ['data:image/png;base64,ref'] }, fixture.endpoints[0].supported_parameters);
+    assert.equal(body.size, '2160x3840');
+    assert.equal(body.aspect_ratio, undefined);
+    assert.equal(body.resolution, undefined);
+    assert.equal(body.input_references.length, 1);
+  }
+});
+
+test('2560 × 1600 preset preserves exact dimensions for any reference ratio', () => {
+  for (const ratio of [1, 9 / 16, 16 / 9]) {
+    assert.equal(gpt25Size('2560x1600', ratio), '2560x1600');
+  }
+  for (const fixture of fixtures) {
+    const body = buildImageRequest({ ...defaults, model: fixture.id, size: '2560x1600', inputReferences: ['data:image/png;base64,ref'] }, fixture.endpoints[0].supported_parameters);
+    assert.equal(body.size, '2560x1600');
+  }
 });

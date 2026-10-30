@@ -6,6 +6,7 @@ export type ImageRequestOptions = {
   numImages: number;
   aspectRatio?: string | null;
   resolution?: string | null;
+  size?: string | null;
   quality?: string | null;
   outputFormat?: string | null;
   background?: Background | null;
@@ -27,6 +28,19 @@ export function buildImageRequest(options: ImageRequestOptions, parameters: Supp
     ["output_format", options.outputFormat],
   ] as const) {
     if (value && getEnumValues(parameters, key)?.includes(value)) body[key] = value;
+  }
+
+  if (options.size) {
+    if (!/^\d{2,4}x\d{2,4}$/.test(options.size) || !["openai/gpt-image-2.5-flare", "openai/gpt-image-2.5-sunburst"].includes(options.model)) {
+      throw new Error("Invalid explicit image size.");
+    }
+    const [width, height] = options.size.split("x").map(Number);
+    if (width % 16 || height % 16 || Math.max(width, height) > 3840 || width * height > 8294400 || width * height < 655360 || Math.max(width / height, height / width) > 3) {
+      throw new Error("Image size is outside the model's supported limits.");
+    }
+    delete body.aspect_ratio;
+    delete body.resolution;
+    body.size = options.size;
   }
 
   if (options.background && options.background !== "auto") {
